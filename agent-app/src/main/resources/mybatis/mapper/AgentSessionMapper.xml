@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.getoffer.infrastructure.dao.AgentSessionDao">
+
+    <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.AgentSessionPO">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="user_id" property="userId" jdbcType="VARCHAR"/>
+        <result column="title" property="title" jdbcType="VARCHAR"/>
+        <result column="is_active" property="isActive" jdbcType="BOOLEAN"/>
+        <result column="meta_info" property="metaInfo" jdbcType="VARCHAR"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, user_id, title, is_active, meta_info, created_at
+    </sql>
+
+    <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.AgentSessionPO"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO agent_sessions (
+            user_id, title, is_active, meta_info, created_at
+        ) VALUES (
+            #{userId}, #{title}, #{isActive}, #{metaInfo}::jsonb, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <update id="update" parameterType="com.getoffer.infrastructure.dao.po.AgentSessionPO">
+        UPDATE agent_sessions SET
+            title = #{title},
+            is_active = #{isActive},
+            meta_info = #{metaInfo}::jsonb
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById" parameterType="java.lang.Long">
+        DELETE FROM agent_sessions WHERE id = #{id}
+    </delete>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_sessions
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByUserId" parameterType="java.lang.String" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_sessions
+        WHERE user_id = #{userId}
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="selectActiveByUserId" parameterType="java.lang.String" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_sessions
+        WHERE user_id = #{userId} AND is_active = true
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_sessions
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="selectByActive" parameterType="java.lang.Boolean" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_sessions
+        WHERE is_active = #{isActive}
+        ORDER BY created_at DESC
+    </select>
+
+    <update id="closeActiveSessionsByUserId" parameterType="java.lang.String">
+        UPDATE agent_sessions SET
+            is_active = false
+        WHERE user_id = #{userId} AND is_active = true
+    </update>
+
+</mapper>

@@ -13,29 +13,43 @@ thread:
         policy: CallerRunsPolicy
 
 # 数据库配置
-#spring:
-#  datasource:
-#    username: root
-#    password: 123456
-#    url: jdbc:mysql://127.0.0.1:3306/xfg_frame_archetype?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=UTC&useSSL=true
-#    driver-class-name: com.mysql.cj.jdbc.Driver
-#  hikari:
-#    pool-name: Retail_HikariCP
-#    minimum-idle: 15 #最小空闲连接数量
-#    idle-timeout: 180000 #空闲连接存活最大时间，默认600000（10分钟）
-#    maximum-pool-size: 25 #连接池最大连接数，默认是10
-#    auto-commit: true  #此属性控制从池返回的连接的默认自动提交行为,默认值：true
-#    max-lifetime: 1800000 #此属性控制池中连接的最长生命周期，值0表示无限生命周期，默认1800000即30分钟
-#    connection-timeout: 30000 #数据库连接超时时间,默认30秒，即30000
-#    connection-test-query: SELECT 1
-#  type: com.zaxxer.hikari.HikariDataSource
+spring:
+  application:
+    name: agent-app
+  datasource:
+    username: postgres
+    password: postgres
+    url: jdbc:postgresql://127.0.0.1:5432/agent_db_test?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
+    driver-class-name: org.postgresql.Driver
+    type: com.zaxxer.hikari.HikariDataSource
+  hikari:
+    pool-name: Agent_HikariCP
+    minimum-idle: 15
+    idle-timeout: 180000
+    maximum-pool-size: 25
+    auto-commit: true
+    max-lifetime: 1800000
+    connection-timeout: 30000
+    connection-test-query: SELECT 1
 
-#mybatis:
-#  mapper-locations: classpath:/mybatis/mapper/*.xml
-#  config-location:  classpath:/mybatis/config/mybatis-config.xml
+  # Spring AI 配置
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:sk-your-api-key}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: gpt-4
+          temperature: 0.7
+
+# MyBatis 配置
+mybatis:
+  mapper-locations: classpath:/mybatis/mapper/*.xml
+  config-location: classpath:/mybatis/config/mybatis-config.xml
 
 # 日志
 logging:
   level:
     root: info
+    com.getoffer: debug
   config: classpath:logback-spring.xml

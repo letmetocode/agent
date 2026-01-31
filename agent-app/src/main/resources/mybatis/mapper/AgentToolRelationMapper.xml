@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.getoffer.infrastructure.dao.AgentToolRelationDao">
+
+    <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.AgentToolRelationPO">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="agent_id" property="agentId" jdbcType="BIGINT"/>
+        <result column="tool_id" property="toolId" jdbcType="BIGINT"/>
+        <result column="is_enabled" property="isEnabled" jdbcType="BOOLEAN"/>
+        <result column="priority" property="priority" jdbcType="INTEGER"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, agent_id, tool_id, is_enabled, priority, created_at
+    </sql>
+
+    <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.AgentToolRelationPO">
+        INSERT INTO agent_tools (agent_id, tool_id, is_enabled, priority, created_at)
+        VALUES (#{agentId}, #{toolId}, COALESCE(#{isEnabled}, true), COALESCE(#{priority}, 0), CURRENT_TIMESTAMP)
+        ON CONFLICT (agent_id, tool_id) DO NOTHING
+    </insert>
+
+    <delete id="delete">
+        DELETE FROM agent_tools
+        WHERE agent_id = #{agentId} AND tool_id = #{toolId}
+    </delete>
+
+    <delete id="deleteByAgentId" parameterType="java.lang.Long">
+        DELETE FROM agent_tools
+        WHERE agent_id = #{agentId}
+    </delete>
+
+    <delete id="deleteByToolId" parameterType="java.lang.Long">
+        DELETE FROM agent_tools
+        WHERE tool_id = #{toolId}
+    </delete>
+
+    <select id="selectByAgentId" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tools
+        WHERE agent_id = #{agentId}
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="selectByToolId" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tools
+        WHERE tool_id = #{toolId}
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tools
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="exists" resultType="java.lang.Boolean">
+        SELECT EXISTS(
+            SELECT 1 FROM agent_tools
+            WHERE agent_id = #{agentId} AND tool_id = #{toolId}
+        )
+    </select>
+
+    <insert id="batchInsert">
+        INSERT INTO agent_tools (agent_id, tool_id, created_at)
+        VALUES
+        <foreach collection="toolIds" item="toolId" separator=",">
+            (#{agentId}, #{toolId}, CURRENT_TIMESTAMP)
+        </foreach>
+        ON CONFLICT (agent_id, tool_id) DO NOTHING
+    </insert>
+
+</mapper>

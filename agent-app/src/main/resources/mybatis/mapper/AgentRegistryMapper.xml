@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.getoffer.infrastructure.dao.AgentRegistryDao">
+
+    <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.AgentRegistryPO">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="key" property="key" jdbcType="VARCHAR"/>
+        <result column="name" property="name" jdbcType="VARCHAR"/>
+        <result column="model_provider" property="modelProvider" jdbcType="VARCHAR"/>
+        <result column="model_name" property="modelName" jdbcType="VARCHAR"/>
+        <result column="model_options" property="modelOptions" jdbcType="VARCHAR"/>
+        <result column="base_system_prompt" property="baseSystemPrompt" jdbcType="VARCHAR"/>
+        <result column="advisor_config" property="advisorConfig" jdbcType="VARCHAR"/>
+        <result column="is_active" property="isActive" jdbcType="BOOLEAN"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+        <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, key, name, model_provider, model_name, model_options,
+        base_system_prompt, advisor_config, is_active, created_at, updated_at
+    </sql>
+
+    <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.AgentRegistryPO"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO agent_registry (
+            key, name, model_provider, model_name, model_options,
+            base_system_prompt, advisor_config, is_active, created_at, updated_at
+        ) VALUES (
+            #{key}, #{name}, #{modelProvider}, #{modelName}, #{modelOptions}::jsonb,
+            #{baseSystemPrompt}, #{advisorConfig}::jsonb, #{isActive}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <update id="update" parameterType="com.getoffer.infrastructure.dao.po.AgentRegistryPO">
+        UPDATE agent_registry SET
+            name = #{name},
+            model_provider = #{modelProvider},
+            model_name = #{modelName},
+            model_options = #{modelOptions}::jsonb,
+            base_system_prompt = #{baseSystemPrompt},
+            advisor_config = #{advisorConfig}::jsonb,
+            is_active = #{isActive},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById" parameterType="java.lang.Long">
+        DELETE FROM agent_registry WHERE id = #{id}
+    </delete>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_registry
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByKey" parameterType="java.lang.String" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_registry
+        WHERE key = #{key}
+    </select>
+
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_registry
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="selectByActive" parameterType="java.lang.Boolean" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_registry
+        WHERE is_active = #{isActive}
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="selectByModelProvider" parameterType="java.lang.String" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_registry
+        WHERE model_provider = #{modelProvider}
+        ORDER BY created_at DESC
+    </select>
+
+</mapper>

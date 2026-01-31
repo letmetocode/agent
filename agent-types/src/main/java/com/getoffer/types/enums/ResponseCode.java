@@ -1,11 +1,7 @@
 package com.getoffer.types.enums;
 
-import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 
-@AllArgsConstructor
-@NoArgsConstructor
 @Getter
 public enum ResponseCode {
 
@@ -14,7 +10,12 @@ public enum ResponseCode {
     ILLEGAL_PARAMETER("0002", "非法参数"),
     ;
 
-    private String code;
-    private String info;
+    private final String code;
+    private final String info;
+
+    ResponseCode(String code, String info) {
+        this.code = code;
+        this.info = info;
+    }
 
 }

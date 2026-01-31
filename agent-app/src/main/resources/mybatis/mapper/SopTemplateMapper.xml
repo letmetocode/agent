@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.getoffer.infrastructure.dao.SopTemplateDao">
+
+    <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.SopTemplatePO">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="category" property="category" jdbcType="VARCHAR"/>
+        <result column="name" property="name" jdbcType="VARCHAR"/>
+        <result column="version" property="version" jdbcType="INTEGER"/>
+        <result column="trigger_description" property="triggerDescription" jdbcType="VARCHAR"/>
+        <result column="structure_type" property="structureType" jdbcType="OTHER" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="graph_definition" property="graphDefinition" jdbcType="VARCHAR"/>
+        <result column="input_schema" property="inputSchema" jdbcType="VARCHAR"/>
+        <result column="default_config" property="defaultConfig" jdbcType="VARCHAR"/>
+        <result column="is_active" property="isActive" jdbcType="BOOLEAN"/>
+        <result column="created_by" property="createdBy" jdbcType="VARCHAR"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+        <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, category, name, version, trigger_description, structure_type,
+        graph_definition, input_schema, default_config, is_active,
+        created_by, created_at, updated_at
+    </sql>
+
+    <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.SopTemplatePO"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sop_templates (
+            category, name, version, trigger_description, structure_type,
+            graph_definition, input_schema, default_config, is_active,
+            created_by, created_at, updated_at
+        ) VALUES (
+            #{category}, #{name}, #{version}, #{triggerDescription}, #{structureType}::sop_structure_enum,
+            #{graphDefinition}::jsonb, #{inputSchema}::jsonb, #{defaultConfig}::jsonb, #{isActive},
+            #{createdBy}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <update id="update" parameterType="com.getoffer.infrastructure.dao.po.SopTemplatePO">
+        UPDATE sop_templates SET
+            category = #{category},
+            name = #{name},
+            version = #{version},
+            trigger_description = #{triggerDescription},
+            structure_type = #{structureType}::sop_structure_enum,
+            graph_definition = #{graphDefinition}::jsonb,
+            input_schema = #{inputSchema}::jsonb,
+            default_config = #{defaultConfig}::jsonb,
+            is_active = #{isActive},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById" parameterType="java.lang.Long">
+        DELETE FROM sop_templates WHERE id = #{id}
+    </delete>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM sop_templates
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByCategoryAndNameAndVersion" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM sop_templates
+        WHERE category = #{category} AND name = #{name} AND version = #{version}
+    </select>
+
+    <select id="selectByCategory" parameterType="java.lang.String" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM sop_templates
+        WHERE category = #{category}
+        ORDER BY version DESC, created_at DESC
+    </select>
+
+    <select id="selectByCategoryAndName" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM sop_templates
+        WHERE category = #{category} AND name = #{name}
+        ORDER BY version DESC, created_at DESC
+    </select>
+
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM sop_templates
+        ORDER BY category, name, version DESC
+    </select>
+
+    <select id="selectByActive" parameterType="java.lang.Boolean" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM sop_templates
+        WHERE is_active = #{isActive}
+        ORDER BY category, name, version DESC
+    </select>
+
+    <select id="selectByStructureType" parameterType="java.lang.String" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM sop_templates
+        WHERE structure_type = #{structureType}::sop_structure_enum
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="searchByTriggerDescription" parameterType="java.lang.String" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM sop_templates
+        WHERE is_active = true
+          AND trigger_description ILIKE CONCAT('%', #{keyword}, '%')
+        ORDER BY created_at DESC
+    </select>
+
+</mapper>

@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.getoffer.infrastructure.dao.AgentTaskDao">
+
+    <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.AgentTaskPO">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="plan_id" property="planId" jdbcType="BIGINT"/>
+        <result column="node_id" property="nodeId" jdbcType="VARCHAR"/>
+        <result column="name" property="name" jdbcType="VARCHAR"/>
+        <result column="task_type" property="taskType" jdbcType="VARCHAR"/>
+        <result column="status" property="status" jdbcType="OTHER" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="dependency_node_ids" property="dependencyNodeIds" jdbcType="VARCHAR"/>
+        <result column="input_context" property="inputContext" jdbcType="VARCHAR"/>
+        <result column="config_snapshot" property="configSnapshot" jdbcType="VARCHAR"/>
+        <result column="output_result" property="outputResult" jdbcType="VARCHAR"/>
+        <result column="max_retries" property="maxRetries" jdbcType="INTEGER"/>
+        <result column="current_retry" property="currentRetry" jdbcType="INTEGER"/>
+        <result column="version" property="version" jdbcType="INTEGER"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+        <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, plan_id, node_id, name, task_type, status, dependency_node_ids,
+        input_context, config_snapshot, output_result, max_retries, current_retry,
+        version, created_at, updated_at
+    </sql>
+
+    <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.AgentTaskPO"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO agent_tasks (
+            plan_id, node_id, name, task_type, status, dependency_node_ids,
+            input_context, config_snapshot, output_result, max_retries,
+            current_retry, version, created_at, updated_at
+        ) VALUES (
+            #{planId}, #{nodeId}, #{name}, #{taskType},
+            #{status}::task_status_enum, #{dependencyNodeIds}::jsonb,
+            #{inputContext}::jsonb, #{configSnapshot}::jsonb, #{outputResult},
+            #{maxRetries}, #{currentRetry}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <update id="updateWithVersion" parameterType="com.getoffer.infrastructure.dao.po.AgentTaskPO">
+        UPDATE agent_tasks SET
+            plan_id = #{planId},
+            node_id = #{nodeId},
+            name = #{name},
+            task_type = #{taskType},
+            status = #{status}::task_status_enum,
+            dependency_node_ids = #{dependencyNodeIds}::jsonb,
+            input_context = #{inputContext}::jsonb,
+            config_snapshot = #{configSnapshot}::jsonb,
+            output_result = #{outputResult},
+            max_retries = #{maxRetries},
+            current_retry = #{currentRetry},
+            version = version + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND version = #{version}
+    </update>
+
+    <delete id="deleteById" parameterType="java.lang.Long">
+        DELETE FROM agent_tasks WHERE id = #{id}
+    </delete>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tasks
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByPlanId" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tasks
+        WHERE plan_id = #{planId}
+        ORDER BY created_at ASC
+    </select>
+
+    <select id="selectByPlanIdAndStatus" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tasks
+        WHERE plan_id = #{planId} AND status = #{status}::task_status_enum
+        ORDER BY created_at ASC
+    </select>
+
+    <select id="selectByPlanIdAndNodeId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tasks
+        WHERE plan_id = #{planId} AND node_id = #{nodeId}
+    </select>
+
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tasks
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="selectByStatus" parameterType="com.getoffer.types.enums.TaskStatusEnum" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tasks
+        WHERE status = #{status}::task_status_enum
+        ORDER BY created_at ASC
+    </select>
+
+    <select id="selectReadyTasks" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tasks
+        WHERE status = 'READY'::task_status_enum
+        ORDER BY plan_id, created_at ASC
+        LIMIT 100
+    </select>
+
+    <insert id="batchInsert" parameterType="java.util.List">
+        INSERT INTO agent_tasks (
+            plan_id, node_id, name, task_type, status, dependency_node_ids,
+            input_context, config_snapshot, output_result, max_retries,
+            current_retry, version, created_at, updated_at
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.planId}, #{item.nodeId}, #{item.name}, #{item.taskType},
+             #{item.status}::task_status_enum, #{item.dependencyNodeIds}::jsonb,
+             #{item.inputContext}::jsonb, #{item.configSnapshot}::jsonb,
+             #{item.outputResult}, #{item.maxRetries}, #{item.currentRetry},
+             0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        </foreach>
+    </insert>
+
+    <update id="batchUpdateStatus">
+        UPDATE agent_tasks SET
+            status = #{toStatus}::task_status_enum,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE plan_id = #{planId}
+          AND status = #{fromStatus}::task_status_enum
+    </update>
+
+</mapper>

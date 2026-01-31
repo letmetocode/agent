@@ -1,9 +1,72 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE configuration
-        PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
+<!DOCTYPE configuration PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-config.dtd">
 <configuration>
-    <!-- 暂时未使用 文档：https://mybatis.org/mybatis-3/zh/configuration.html#typeAliases -->
+    <!-- 配置全局参数 -->
+    <settings>
+        <!-- 开启驼峰命名转换 -->
+        <setting name="mapUnderscoreToCamelCase" value="true"/>
+
+        <!-- 开启延迟加载 -->
+        <setting name="lazyLoadingEnabled" value="true"/>
+
+        <!-- 设置按需加载 -->
+        <setting name="aggressiveLazyLoading" value="false"/>
+
+        <!-- 允许使用方法参数名 -->
+        <setting name="useActualParamName" value="true"/>
+
+        <!-- 开启二级缓存 -->
+        <setting name="cacheEnabled" value="true"/>
+
+        <!-- 日志实现 -->
+        <setting name="logImpl" value="SLF4J"/>
+
+        <!-- 当结果集中包含 null 值时是否调用映射对象的 setter -->
+        <setting name="callSettersOnNulls" value="true"/>
+
+        <!-- 枚举类型处理器 (使用默认的枚举名称处理器) -->
+        <!-- <setting name="defaultEnumTypeHandler" value="org.apache.ibatis.type.EnumTypeHandler"/> -->
+    </settings>
+
+    <!-- 类型别名 -->
     <typeAliases>
+        <!-- PO 类别名 -->
+        <typeAlias type="com.getoffer.infrastructure.dao.po.AgentRegistryPO" alias="AgentRegistryPO"/>
+        <typeAlias type="com.getoffer.infrastructure.dao.po.AgentSessionPO" alias="AgentSessionPO"/>
+        <typeAlias type="com.getoffer.infrastructure.dao.po.SopTemplatePO" alias="SopTemplatePO"/>
+        <typeAlias type="com.getoffer.infrastructure.dao.po.AgentPlanPO" alias="AgentPlanPO"/>
+        <typeAlias type="com.getoffer.infrastructure.dao.po.AgentTaskPO" alias="AgentTaskPO"/>
+        <typeAlias type="com.getoffer.infrastructure.dao.po.TaskExecutionPO" alias="TaskExecutionPO"/>
+        <typeAlias type="com.getoffer.infrastructure.dao.po.AgentToolCatalogPO" alias="AgentToolCatalogPO"/>
+        <typeAlias type="com.getoffer.infrastructure.dao.po.AgentToolRelationPO" alias="AgentToolRelationPO"/>
+        <typeAlias type="com.getoffer.infrastructure.dao.po.VectorStoreRegistryPO" alias="VectorStoreRegistryPO"/>
+
+        <!-- 枚举类型别名 -->
+        <typeAlias type="com.getoffer.types.enums.SopStructureEnum" alias="SopStructureEnum"/>
+        <typeAlias type="com.getoffer.types.enums.PlanStatusEnum" alias="PlanStatusEnum"/>
+        <typeAlias type="com.getoffer.types.enums.TaskStatusEnum" alias="TaskStatusEnum"/>
+        <typeAlias type="com.getoffer.types.enums.TaskTypeEnum" alias="TaskTypeEnum"/>
+        <typeAlias type="com.getoffer.types.enums.ToolTypeEnum" alias="ToolTypeEnum"/>
+        <typeAlias type="com.getoffer.types.enums.VectorStoreTypeEnum" alias="VectorStoreTypeEnum"/>
     </typeAliases>
+
+    <!-- 类型处理器 -->
+    <typeHandlers>
+        <!-- PostgreSQL JSONB 类型处理器 -->
+        <!-- Spring Boot 会自动注册 String 类型处理器，这里不需要额外配置 -->
+
+        <!-- 枚举类型处理器 -->
+        <!-- MyBatis 默认使用 EnumTypeHandler (按名称存储) -->
+        <!-- 如需按 ordinal 存储，可使用 EnumOrdinalTypeHandler -->
+    </typeHandlers>
+
+    <!-- 插件配置 -->
+    <!-- <plugins> -->
+    <!--     分页插件示例 -->
+    <!--     <plugin interceptor="com.github.pagehelper.PageInterceptor"> -->
+    <!--         <property name="helperDialect" value="postgresql"/> -->
+    <!--     </plugin> -->
+    <!-- </plugins> -->
+
 </configuration>

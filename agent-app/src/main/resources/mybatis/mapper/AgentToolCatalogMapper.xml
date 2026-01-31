@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.getoffer.infrastructure.dao.AgentToolCatalogDao">
+
+    <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.AgentToolCatalogPO">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="tool_name" property="name" jdbcType="VARCHAR"/>
+        <result column="tool_type" property="type" jdbcType="VARCHAR" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="description" property="description" jdbcType="VARCHAR"/>
+        <result column="tool_config" property="toolConfig" jdbcType="VARCHAR"/>
+        <result column="input_schema" property="inputSchema" jdbcType="VARCHAR"/>
+        <result column="output_schema" property="outputSchema" jdbcType="VARCHAR"/>
+        <result column="is_active" property="isActive" jdbcType="BOOLEAN"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+        <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, tool_name, tool_type, description, tool_config, input_schema, output_schema,
+        is_active, created_at, updated_at
+    </sql>
+
+    <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.AgentToolCatalogPO"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO agent_tool_catalog (
+            tool_name, tool_type, description, tool_config, input_schema, output_schema,
+            is_active, created_at, updated_at
+        ) VALUES (
+            #{name}, #{type}, #{description}, #{toolConfig}::jsonb, #{inputSchema}::jsonb,
+            #{outputSchema}::jsonb, COALESCE(#{isActive}, true), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <update id="update" parameterType="com.getoffer.infrastructure.dao.po.AgentToolCatalogPO">
+        UPDATE agent_tool_catalog SET
+            tool_name = #{name},
+            tool_type = #{type},
+            description = #{description},
+            tool_config = #{toolConfig}::jsonb,
+            input_schema = #{inputSchema}::jsonb,
+            output_schema = #{outputSchema}::jsonb,
+            is_active = #{isActive},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById" parameterType="java.lang.Long">
+        DELETE FROM agent_tool_catalog WHERE id = #{id}
+    </delete>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tool_catalog
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByName" parameterType="java.lang.String" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tool_catalog
+        WHERE tool_name = #{name}
+    </select>
+
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tool_catalog
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="selectByType" parameterType="com.getoffer.types.enums.ToolTypeEnum" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tool_catalog
+        WHERE tool_type = #{type}
+        ORDER BY created_at DESC
+    </select>
+
+</mapper>

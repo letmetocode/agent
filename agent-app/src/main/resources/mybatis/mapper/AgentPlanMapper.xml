@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.getoffer.infrastructure.dao.AgentPlanDao">
+
+    <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.AgentPlanPO">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="session_id" property="sessionId" jdbcType="BIGINT"/>
+        <result column="sop_template_id" property="sopTemplateId" jdbcType="BIGINT"/>
+        <result column="plan_goal" property="planGoal" jdbcType="VARCHAR"/>
+        <result column="execution_graph" property="executionGraph" jdbcType="VARCHAR"/>
+        <result column="global_context" property="globalContext" jdbcType="VARCHAR"/>
+        <result column="status" property="status" jdbcType="OTHER" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="priority" property="priority" jdbcType="INTEGER"/>
+        <result column="error_summary" property="errorSummary" jdbcType="VARCHAR"/>
+        <result column="version" property="version" jdbcType="INTEGER"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+        <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, session_id, sop_template_id, plan_goal, execution_graph, global_context,
+        status, priority, error_summary, version, created_at, updated_at
+    </sql>
+
+    <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.AgentPlanPO"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO agent_plans (
+            session_id, sop_template_id, plan_goal, execution_graph, global_context,
+            status, priority, error_summary, version, created_at, updated_at
+        ) VALUES (
+            #{sessionId}, #{sopTemplateId}, #{planGoal}, #{executionGraph}::jsonb,
+            #{globalContext}::jsonb, #{status}::plan_status_enum, #{priority},
+            #{errorSummary}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <update id="updateWithVersion" parameterType="com.getoffer.infrastructure.dao.po.AgentPlanPO">
+        UPDATE agent_plans SET
+            session_id = #{sessionId},
+            sop_template_id = #{sopTemplateId},
+            plan_goal = #{planGoal},
+            execution_graph = #{executionGraph}::jsonb,
+            global_context = #{globalContext}::jsonb,
+            status = #{status}::plan_status_enum,
+            priority = #{priority},
+            error_summary = #{errorSummary},
+            version = version + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND version = #{version}
+    </update>
+
+    <delete id="deleteById" parameterType="java.lang.Long">
+        DELETE FROM agent_plans WHERE id = #{id}
+    </delete>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_plans
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectBySessionId" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_plans
+        WHERE session_id = #{sessionId}
+        ORDER BY priority DESC, created_at DESC
+    </select>
+
+    <select id="selectByStatus" parameterType="com.getoffer.types.enums.PlanStatusEnum" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_plans
+        WHERE status = #{status}::plan_status_enum
+        ORDER BY priority DESC, created_at ASC
+    </select>
+
+    <select id="selectByStatusAndPriority" parameterType="com.getoffer.types.enums.PlanStatusEnum" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_plans
+        WHERE status = #{status}::plan_status_enum
+        ORDER BY priority DESC, created_at ASC
+        LIMIT 100
+    </select>
+
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_plans
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="selectBySopTemplateId" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_plans
+        WHERE sop_template_id = #{sopTemplateId}
+        ORDER BY created_at DESC
+    </select>
+
+</mapper>
