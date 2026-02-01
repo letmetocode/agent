@@ -106,7 +106,7 @@ agent/
 - **框架**: Spring Boot 3.4.3, Java 17
 - **数据库**: MySQL 8.0 + HikariCP
 - **AI/LLM**: Spring AI 1.1.2 (已配置但实现待完成)
-- **JSON**: FastJSON 2.0.28
+- **JSON**: Jackson (Spring Boot default)
 - **工具库**: Guava, Apache Commons Lang3, Lombok
 - **安全**: JWT (JJWT 和 Auth0)
 - **容器**: Docker + Docker Compose

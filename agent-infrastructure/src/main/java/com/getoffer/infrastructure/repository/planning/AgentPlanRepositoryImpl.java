@@ -4,6 +4,7 @@ import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.infrastructure.dao.AgentPlanDao;
 import com.getoffer.infrastructure.dao.po.AgentPlanPO;
+import com.getoffer.infrastructure.util.JsonCodec;
 import com.getoffer.types.enums.PlanStatusEnum;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
@@ -12,7 +13,16 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * 执行计划仓储实现
+ * 执行计划仓储实现类。
+ * <p>
+ * 负责执行计划的持久化操作，包括：
+ * <ul>
+ *   <li>执行计划的增删改查（带乐观锁）</li>
+ *   <li>按会话ID、状态、SOP模板ID等条件查询</li>
+ *   <li>Entity与PO之间的相互转换</li>
+ *   <li>JSONB字段（executionGraph、globalContext）的序列化/反序列化</li>
+ * </ul>
+ * </p>
  *
  * @author getoffer
  * @since 2025-01-29
@@ -22,11 +32,19 @@ import java.util.stream.Collectors;
 public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
 
     private final AgentPlanDao agentPlanDao;
+    private final JsonCodec jsonCodec;
 
-    public AgentPlanRepositoryImpl(AgentPlanDao agentPlanDao) {
+    /**
+     * 创建 AgentPlanRepositoryImpl。
+     */
+    public AgentPlanRepositoryImpl(AgentPlanDao agentPlanDao, JsonCodec jsonCodec) {
         this.agentPlanDao = agentPlanDao;
+        this.jsonCodec = jsonCodec;
     }
 
+    /**
+     * 保存实体。
+     */
     @Override
     public AgentPlanEntity save(AgentPlanEntity entity) {
         entity.validate();
@@ -35,6 +53,9 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
         return toEntity(po);
     }
 
+    /**
+     * 更新实体。
+     */
     @Override
     public AgentPlanEntity update(AgentPlanEntity entity) {
         entity.validate();
@@ -47,17 +68,26 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
         return toEntity(po);
     }
 
+    /**
+     * 按 ID 删除。
+     */
     @Override
     public boolean deleteById(Long id) {
         return agentPlanDao.deleteById(id) > 0;
     }
 
+    /**
+     * 按 ID 查询。
+     */
     @Override
     public AgentPlanEntity findById(Long id) {
         AgentPlanPO po = agentPlanDao.selectById(id);
         return po != null ? toEntity(po) : null;
     }
 
+    /**
+     * 按会话 ID 查询。
+     */
     @Override
     public List<AgentPlanEntity> findBySessionId(Long sessionId) {
         return agentPlanDao.selectBySessionId(sessionId).stream()
@@ -65,6 +95,9 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 按状态查询。
+     */
     @Override
     public List<AgentPlanEntity> findByStatus(PlanStatusEnum status) {
         return agentPlanDao.selectByStatus(status).stream()
@@ -72,6 +105,9 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 按状态和优先级查询。
+     */
     @Override
     public List<AgentPlanEntity> findByStatusAndPriority(PlanStatusEnum status) {
         return agentPlanDao.selectByStatusAndPriority(status).stream()
@@ -79,6 +115,9 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 查询全部。
+     */
     @Override
     public List<AgentPlanEntity> findAll() {
         return agentPlanDao.selectAll().stream()
@@ -86,6 +125,9 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 按 SOP 模板 ID 查询。
+     */
     @Override
     public List<AgentPlanEntity> findBySopTemplateId(Long sopTemplateId) {
         return agentPlanDao.selectBySopTemplateId(sopTemplateId).stream()
@@ -93,6 +135,9 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 查询 executable plans。
+     */
     @Override
     public List<AgentPlanEntity> findExecutablePlans() {
         return agentPlanDao.selectByStatusAndPriority(PlanStatusEnum.READY).stream()
@@ -115,10 +160,10 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
 
         // JSONB 字段转换
         if (po.getExecutionGraph() != null) {
-            entity.setExecutionGraph(com.alibaba.fastjson2.JSON.parseObject(po.getExecutionGraph()));
+            entity.setExecutionGraph(jsonCodec.readMap(po.getExecutionGraph()));
         }
         if (po.getGlobalContext() != null) {
-            entity.setGlobalContext(com.alibaba.fastjson2.JSON.parseObject(po.getGlobalContext()));
+            entity.setGlobalContext(jsonCodec.readMap(po.getGlobalContext()));
         }
 
         entity.setStatus(po.getStatus());
@@ -152,10 +197,10 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
 
         // Map 转换为 JSON 字符串
         if (entity.getExecutionGraph() != null) {
-            po.setExecutionGraph(com.alibaba.fastjson2.JSON.toJSONString(entity.getExecutionGraph()));
+            po.setExecutionGraph(jsonCodec.writeValue(entity.getExecutionGraph()));
         }
         if (entity.getGlobalContext() != null) {
-            po.setGlobalContext(com.alibaba.fastjson2.JSON.toJSONString(entity.getGlobalContext()));
+            po.setGlobalContext(jsonCodec.writeValue(entity.getGlobalContext()));
         }
 
         return po;

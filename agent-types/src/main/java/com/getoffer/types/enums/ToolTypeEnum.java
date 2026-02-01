@@ -11,6 +11,16 @@ import com.fasterxml.jackson.annotation.JsonValue;
 public enum ToolTypeEnum {
 
     /**
+     * Spring Bean 工具 - 本地 Bean 方法
+     */
+    SPRING_BEAN("spring_bean"),
+
+    /**
+     * MCP 工具 - 通过 MCP Server 调用
+     */
+    MCP_FUNCTION("mcp_function"),
+
+    /**
      * 函数 - 编程函数或方法
      */
     FUNCTION("function"),
@@ -41,7 +51,7 @@ public enum ToolTypeEnum {
             return null;
         }
         for (ToolTypeEnum type : ToolTypeEnum.values()) {
-            if (type.code.equals(code)) {
+            if (type.code.equalsIgnoreCase(code) || type.name().equalsIgnoreCase(code)) {
                 return type;
             }
         }

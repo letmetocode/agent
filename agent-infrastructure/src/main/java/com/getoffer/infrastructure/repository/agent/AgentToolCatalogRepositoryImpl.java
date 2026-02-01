@@ -4,6 +4,7 @@ import com.getoffer.domain.agent.model.entity.AgentToolCatalogEntity;
 import com.getoffer.domain.agent.adapter.repository.IAgentToolCatalogRepository;
 import com.getoffer.infrastructure.dao.AgentToolCatalogDao;
 import com.getoffer.infrastructure.dao.po.AgentToolCatalogPO;
+import com.getoffer.infrastructure.util.JsonCodec;
 import com.getoffer.types.enums.ToolTypeEnum;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
@@ -12,7 +13,16 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * 工具目录仓储实现
+ * 工具目录仓储实现类。
+ * <p>
+ * 负责工具目录的持久化操作，包括：
+ * <ul>
+ *   <li>工具配置的增删改查</li>
+ *   <li>按类型、名称等条件查询</li>
+ *   <li>Entity与PO之间的相互转换</li>
+ *   <li>JSONB字段（toolConfig、inputSchema、outputSchema）的序列化/反序列化</li>
+ * </ul>
+ * </p>
  *
  * @author getoffer
  * @since 2025-01-29
@@ -22,11 +32,19 @@ import java.util.stream.Collectors;
 public class AgentToolCatalogRepositoryImpl implements IAgentToolCatalogRepository {
 
     private final AgentToolCatalogDao agentToolCatalogDao;
+    private final JsonCodec jsonCodec;
 
-    public AgentToolCatalogRepositoryImpl(AgentToolCatalogDao agentToolCatalogDao) {
+    /**
+     * 创建 AgentToolCatalogRepositoryImpl。
+     */
+    public AgentToolCatalogRepositoryImpl(AgentToolCatalogDao agentToolCatalogDao, JsonCodec jsonCodec) {
         this.agentToolCatalogDao = agentToolCatalogDao;
+        this.jsonCodec = jsonCodec;
     }
 
+    /**
+     * 保存实体。
+     */
     @Override
     public AgentToolCatalogEntity save(AgentToolCatalogEntity entity) {
         entity.validate();
@@ -35,6 +53,9 @@ public class AgentToolCatalogRepositoryImpl implements IAgentToolCatalogReposito
         return toEntity(po);
     }
 
+    /**
+     * 更新实体。
+     */
     @Override
     public AgentToolCatalogEntity update(AgentToolCatalogEntity entity) {
         entity.validate();
@@ -43,23 +64,35 @@ public class AgentToolCatalogRepositoryImpl implements IAgentToolCatalogReposito
         return toEntity(po);
     }
 
+    /**
+     * 按 ID 删除。
+     */
     @Override
     public boolean deleteById(Long id) {
         return agentToolCatalogDao.deleteById(id) > 0;
     }
 
+    /**
+     * 按 ID 查询。
+     */
     @Override
     public AgentToolCatalogEntity findById(Long id) {
         AgentToolCatalogPO po = agentToolCatalogDao.selectById(id);
         return po != null ? toEntity(po) : null;
     }
 
+    /**
+     * 按名称查询。
+     */
     @Override
     public AgentToolCatalogEntity findByName(String name) {
         AgentToolCatalogPO po = agentToolCatalogDao.selectByName(name);
         return po != null ? toEntity(po) : null;
     }
 
+    /**
+     * 查询全部。
+     */
     @Override
     public List<AgentToolCatalogEntity> findAll() {
         return agentToolCatalogDao.selectAll().stream()
@@ -67,6 +100,9 @@ public class AgentToolCatalogRepositoryImpl implements IAgentToolCatalogReposito
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 按类型查询。
+     */
     @Override
     public List<AgentToolCatalogEntity> findByType(ToolTypeEnum type) {
         return agentToolCatalogDao.selectByType(type).stream()
@@ -74,6 +110,9 @@ public class AgentToolCatalogRepositoryImpl implements IAgentToolCatalogReposito
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 检查名称是否存在。
+     */
     @Override
     public boolean existsByName(String name) {
         return agentToolCatalogDao.selectByName(name) != null;
@@ -95,13 +134,13 @@ public class AgentToolCatalogRepositoryImpl implements IAgentToolCatalogReposito
 
         // JSONB 字段转换
         if (po.getToolConfig() != null) {
-            entity.setToolConfig(com.alibaba.fastjson2.JSON.parseObject(po.getToolConfig()));
+            entity.setToolConfig(jsonCodec.readMap(po.getToolConfig()));
         }
         if (po.getInputSchema() != null) {
-            entity.setInputSchema(com.alibaba.fastjson2.JSON.parseObject(po.getInputSchema()));
+            entity.setInputSchema(jsonCodec.readMap(po.getInputSchema()));
         }
         if (po.getOutputSchema() != null) {
-            entity.setOutputSchema(com.alibaba.fastjson2.JSON.parseObject(po.getOutputSchema()));
+            entity.setOutputSchema(jsonCodec.readMap(po.getOutputSchema()));
         }
 
         entity.setCreatedAt(po.getCreatedAt());
@@ -128,13 +167,13 @@ public class AgentToolCatalogRepositoryImpl implements IAgentToolCatalogReposito
 
         // Map 转换为 JSON 字符串
         if (entity.getToolConfig() != null) {
-            po.setToolConfig(com.alibaba.fastjson2.JSON.toJSONString(entity.getToolConfig()));
+            po.setToolConfig(jsonCodec.writeValue(entity.getToolConfig()));
         }
         if (entity.getInputSchema() != null) {
-            po.setInputSchema(com.alibaba.fastjson2.JSON.toJSONString(entity.getInputSchema()));
+            po.setInputSchema(jsonCodec.writeValue(entity.getInputSchema()));
         }
         if (entity.getOutputSchema() != null) {
-            po.setOutputSchema(com.alibaba.fastjson2.JSON.toJSONString(entity.getOutputSchema()));
+            po.setOutputSchema(jsonCodec.writeValue(entity.getOutputSchema()));
         }
 
         return po;

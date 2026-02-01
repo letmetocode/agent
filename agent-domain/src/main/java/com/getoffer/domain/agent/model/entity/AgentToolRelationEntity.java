@@ -20,7 +20,7 @@ public class AgentToolRelationEntity {
     private Long id;
 
     /**
-     * Agent ID
+     * 代理 ID
      */
     private Long agentId;
 
@@ -56,6 +56,9 @@ public class AgentToolRelationEntity {
         }
     }
 
+    /**
+     * 判断是否相等。
+     */
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -64,6 +67,9 @@ public class AgentToolRelationEntity {
         return Objects.equals(agentId, that.agentId) && Objects.equals(toolId, that.toolId);
     }
 
+    /**
+     * 计算哈希值。
+     */
     @Override
     public int hashCode() {
         return Objects.hash(agentId, toolId);

@@ -12,7 +12,15 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Agent-工具关联关系仓储实现
+ * Agent-工具关联关系仓储实现类。
+ * <p>
+ * 负责Agent与工具关联关系的持久化操作，包括：
+ * <ul>
+ *   <li>关联关系的增删查</li>
+ *   <li>按Agent ID或工具ID批量操作</li>
+ *   <li>Entity与PO之间的相互转换</li>
+ * </ul>
+ * </p>
  *
  * @author getoffer
  * @since 2025-01-29
@@ -23,10 +31,16 @@ public class AgentToolRelationRepositoryImpl implements IAgentToolRelationReposi
 
     private final AgentToolRelationDao agentToolRelationDao;
 
+    /**
+     * 创建 AgentToolRelationRepositoryImpl。
+     */
     public AgentToolRelationRepositoryImpl(AgentToolRelationDao agentToolRelationDao) {
         this.agentToolRelationDao = agentToolRelationDao;
     }
 
+    /**
+     * 保存实体。
+     */
     @Override
     public AgentToolRelationEntity save(AgentToolRelationEntity entity) {
         entity.validate();
@@ -35,21 +49,33 @@ public class AgentToolRelationRepositoryImpl implements IAgentToolRelationReposi
         return toEntity(po);
     }
 
+    /**
+     * 删除实体。
+     */
     @Override
     public boolean delete(Long agentId, Long toolId) {
         return agentToolRelationDao.delete(agentId, toolId) > 0;
     }
 
+    /**
+     * 按 Agent ID 删除。
+     */
     @Override
     public boolean deleteByAgentId(Long agentId) {
         return agentToolRelationDao.deleteByAgentId(agentId) > 0;
     }
 
+    /**
+     * 按工具 ID 删除。
+     */
     @Override
     public boolean deleteByToolId(Long toolId) {
         return agentToolRelationDao.deleteByToolId(toolId) > 0;
     }
 
+    /**
+     * 按 Agent ID 查询。
+     */
     @Override
     public List<AgentToolRelationEntity> findByAgentId(Long agentId) {
         return agentToolRelationDao.selectByAgentId(agentId).stream()
@@ -57,6 +83,9 @@ public class AgentToolRelationRepositoryImpl implements IAgentToolRelationReposi
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 按工具 ID 查询。
+     */
     @Override
     public List<AgentToolRelationEntity> findByToolId(Long toolId) {
         return agentToolRelationDao.selectByToolId(toolId).stream()
@@ -64,6 +93,9 @@ public class AgentToolRelationRepositoryImpl implements IAgentToolRelationReposi
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 查询全部。
+     */
     @Override
     public List<AgentToolRelationEntity> findAll() {
         return agentToolRelationDao.selectAll().stream()
@@ -71,11 +103,17 @@ public class AgentToolRelationRepositoryImpl implements IAgentToolRelationReposi
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 执行 exists。
+     */
     @Override
     public boolean exists(Long agentId, Long toolId) {
         return agentToolRelationDao.exists(agentId, toolId);
     }
 
+    /**
+     * 执行 batch save。
+     */
     @Override
     public boolean batchSave(Long agentId, List<Long> toolIds) {
         return agentToolRelationDao.batchInsert(agentId, toolIds) > 0;
