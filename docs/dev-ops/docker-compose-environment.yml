@@ -1,5 +1,5 @@
-# 命令执行 docker-compose -f docker-compose-environment-aliyun.yml up -d
-# docker 代理和使用文档；https://bugstack.cn/md/road-map/docker.html
+# 命令执行 docker-compose -f docker-compose-environment.yml up -d
+# 本地环境依赖（MySQL/Redis）启动配置
 version: '3.9'
 services:
   mysql:

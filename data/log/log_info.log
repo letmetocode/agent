@@ -1,96 +1,74 @@
-26-01-29.21:12:20.858 [main            ] INFO  Application            - Starting Application using Java 17.0.18 with PID 44178 (/Users/bytedance/YSC/code/agent/agent-app/target/classes started by bytedance in /Users/bytedance/YSC/code/agent)
-26-01-29.21:12:20.859 [main            ] DEBUG Application            - Running with Spring Boot v3.4.3, Spring v6.2.3
-26-01-29.21:12:20.859 [main            ] INFO  Application            - The following 1 profile is active: "dev"
-26-01-29.21:12:21.105 [main            ] WARN  ClassPathMapperScanner - No MyBatis mapper was found in '[com.getoffer]' package. Please check your configuration.
-26-01-29.21:12:21.274 [main            ] INFO  TomcatWebServer        - Tomcat initialized with port 8091 (http)
-26-01-29.21:12:21.281 [main            ] INFO  Http11NioProtocol      - Initializing ProtocolHandler ["http-nio-8091"]
-26-01-29.21:12:21.282 [main            ] INFO  StandardService        - Starting service [Tomcat]
-26-01-29.21:12:21.282 [main            ] INFO  StandardEngine         - Starting Servlet engine: [Apache Tomcat/10.1.36]
-26-01-29.21:12:21.305 [main            ] INFO  [/]                    - Initializing Spring embedded WebApplicationContext
-26-01-29.21:12:21.305 [main            ] INFO  ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 427 ms
-26-01-29.21:12:21.374 [main            ] INFO  OptionalValidatorFactoryBean - Failed to set up a Bean Validation provider: jakarta.validation.NoProviderFoundException: Unable to create a Configuration, because no Jakarta Bean Validation provider could be found. Add a provider like Hibernate Validator (RI) to your classpath.
-26-01-29.21:12:21.504 [main            ] WARN  AnnotationConfigServletWebServerApplicationContext - Exception encountered during context initialization - cancelling refresh attempt: org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'sqlSessionFactory' defined in class path resource [org/mybatis/spring/boot/autoconfigure/MybatisAutoConfiguration.class]: Failed to instantiate [org.apache.ibatis.session.SqlSessionFactory]: Factory method 'sqlSessionFactory' threw exception with message: Failed to parse mapping resource: 'file [/Users/bytedance/YSC/code/agent/agent-app/target/classes/mybatis/mapper/frame_case_mapper.xml]'
-26-01-29.21:12:21.505 [main            ] INFO  StandardService        - Stopping service [Tomcat]
-26-01-29.21:12:21.512 [main            ] INFO  ConditionEvaluationReportLogger - 
-
-Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
-26-01-29.21:12:21.519 [main            ] ERROR SpringApplication      - Application run failed
-org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'sqlSessionFactory' defined in class path resource [org/mybatis/spring/boot/autoconfigure/MybatisAutoConfiguration.class]: Failed to instantiate [org.apache.ibatis.session.SqlSessionFactory]: Factory method 'sqlSessionFactory' threw exception with message: Failed to parse mapping resource: 'file [/Users/bytedance/YSC/code/agent/agent-app/target/classes/mybatis/mapper/frame_case_mapper.xml]'
-	at org.springframework.beans.factory.support.ConstructorResolver.instantiate(ConstructorResolver.java:657)
-	at org.springframework.beans.factory.support.ConstructorResolver.instantiateUsingFactoryMethod(ConstructorResolver.java:645)
-	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.instantiateUsingFactoryMethod(AbstractAutowireCapableBeanFactory.java:1361)
-	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBeanInstance(AbstractAutowireCapableBeanFactory.java:1191)
-	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:563)
-	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:523)
-	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:339)
-	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:346)
-	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:337)
-	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:202)
-	at org.springframework.beans.factory.support.DefaultListableBeanFactory.instantiateSingleton(DefaultListableBeanFactory.java:1155)
-	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingleton(DefaultListableBeanFactory.java:1121)
-	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingletons(DefaultListableBeanFactory.java:1056)
-	at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:987)
-	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:627)
-	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146)
-	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752)
-	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439)
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318)
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361)
-	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350)
-	at com.getoffer.Application.main(Application.java:12)
-Caused by: org.springframework.beans.BeanInstantiationException: Failed to instantiate [org.apache.ibatis.session.SqlSessionFactory]: Factory method 'sqlSessionFactory' threw exception with message: Failed to parse mapping resource: 'file [/Users/bytedance/YSC/code/agent/agent-app/target/classes/mybatis/mapper/frame_case_mapper.xml]'
-	at org.springframework.beans.factory.support.SimpleInstantiationStrategy.lambda$instantiate$0(SimpleInstantiationStrategy.java:199)
-	at org.springframework.beans.factory.support.SimpleInstantiationStrategy.instantiateWithFactoryMethod(SimpleInstantiationStrategy.java:88)
-	at org.springframework.beans.factory.support.SimpleInstantiationStrategy.instantiate(SimpleInstantiationStrategy.java:168)
-	at org.springframework.beans.factory.support.ConstructorResolver.instantiate(ConstructorResolver.java:653)
-	... 21 common frames omitted
-Caused by: java.io.IOException: Failed to parse mapping resource: 'file [/Users/bytedance/YSC/code/agent/agent-app/target/classes/mybatis/mapper/frame_case_mapper.xml]'
-	at org.mybatis.spring.SqlSessionFactoryBean.buildSqlSessionFactory(SqlSessionFactoryBean.java:695)
-	at org.mybatis.spring.SqlSessionFactoryBean.afterPropertiesSet(SqlSessionFactoryBean.java:572)
-	at org.mybatis.spring.SqlSessionFactoryBean.getObject(SqlSessionFactoryBean.java:712)
-	at org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration.sqlSessionFactory(MybatisAutoConfiguration.java:189)
-	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
-	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
-	at org.springframework.beans.factory.support.SimpleInstantiationStrategy.lambda$instantiate$0(SimpleInstantiationStrategy.java:171)
-	... 24 common frames omitted
-Caused by: org.apache.ibatis.builder.BuilderException: Error parsing Mapper XML. The XML location is 'file [/Users/bytedance/YSC/code/agent/agent-app/target/classes/mybatis/mapper/frame_case_mapper.xml]'. Cause: org.apache.ibatis.builder.BuilderException: Error resolving class. Cause: org.apache.ibatis.type.TypeException: Could not resolve type alias 'com.getoffer.infrastructure.persistent.po.A'.  Cause: java.lang.ClassNotFoundException: Cannot find class: com.getoffer.infrastructure.persistent.po.A
-	at org.apache.ibatis.builder.xml.XMLMapperBuilder.configurationElement(XMLMapperBuilder.java:125)
-	at org.apache.ibatis.builder.xml.XMLMapperBuilder.parse(XMLMapperBuilder.java:98)
-	at org.mybatis.spring.SqlSessionFactoryBean.buildSqlSessionFactory(SqlSessionFactoryBean.java:693)
-	... 32 common frames omitted
-Caused by: org.apache.ibatis.builder.BuilderException: Error resolving class. Cause: org.apache.ibatis.type.TypeException: Could not resolve type alias 'com.getoffer.infrastructure.persistent.po.A'.  Cause: java.lang.ClassNotFoundException: Cannot find class: com.getoffer.infrastructure.persistent.po.A
-	at org.apache.ibatis.builder.BaseBuilder.resolveClass(BaseBuilder.java:103)
-	at org.apache.ibatis.builder.xml.XMLMapperBuilder.resultMapElement(XMLMapperBuilder.java:222)
-	at org.apache.ibatis.builder.xml.XMLMapperBuilder.resultMapElement(XMLMapperBuilder.java:214)
-	at org.apache.ibatis.builder.xml.XMLMapperBuilder.resultMapElements(XMLMapperBuilder.java:206)
-	at org.apache.ibatis.builder.xml.XMLMapperBuilder.configurationElement(XMLMapperBuilder.java:121)
-	... 34 common frames omitted
-Caused by: org.apache.ibatis.type.TypeException: Could not resolve type alias 'com.getoffer.infrastructure.persistent.po.A'.  Cause: java.lang.ClassNotFoundException: Cannot find class: com.getoffer.infrastructure.persistent.po.A
-	at org.apache.ibatis.type.TypeAliasRegistry.resolveAlias(TypeAliasRegistry.java:128)
-	at org.apache.ibatis.builder.BaseBuilder.resolveAlias(BaseBuilder.java:132)
-	at org.apache.ibatis.builder.BaseBuilder.resolveClass(BaseBuilder.java:101)
-	... 38 common frames omitted
-Caused by: java.lang.ClassNotFoundException: Cannot find class: com.getoffer.infrastructure.persistent.po.A
-	at org.apache.ibatis.io.ClassLoaderWrapper.classForName(ClassLoaderWrapper.java:226)
-	at org.apache.ibatis.io.ClassLoaderWrapper.classForName(ClassLoaderWrapper.java:103)
-	at org.apache.ibatis.io.Resources.classForName(Resources.java:322)
-	at org.apache.ibatis.type.TypeAliasRegistry.resolveAlias(TypeAliasRegistry.java:124)
-	... 40 common frames omitted
-26-01-29.21:13:02.619 [main            ] INFO  Application            - Starting Application using Java 17.0.18 with PID 44673 (/Users/bytedance/YSC/code/agent/agent-app/target/classes started by bytedance in /Users/bytedance/YSC/code/agent)
-26-01-29.21:13:02.620 [main            ] DEBUG Application            - Running with Spring Boot v3.4.3, Spring v6.2.3
-26-01-29.21:13:02.620 [main            ] INFO  Application            - The following 1 profile is active: "dev"
-26-01-29.21:13:02.816 [main            ] WARN  ClassPathMapperScanner - No MyBatis mapper was found in '[com.getoffer]' package. Please check your configuration.
-26-01-29.21:13:02.957 [main            ] INFO  TomcatWebServer        - Tomcat initialized with port 8091 (http)
-26-01-29.21:13:02.962 [main            ] INFO  Http11NioProtocol      - Initializing ProtocolHandler ["http-nio-8091"]
-26-01-29.21:13:02.963 [main            ] INFO  StandardService        - Starting service [Tomcat]
-26-01-29.21:13:02.963 [main            ] INFO  StandardEngine         - Starting Servlet engine: [Apache Tomcat/10.1.36]
-26-01-29.21:13:02.984 [main            ] INFO  [/]                    - Initializing Spring embedded WebApplicationContext
-26-01-29.21:13:02.985 [main            ] INFO  ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 348 ms
-26-01-29.21:13:03.041 [main            ] INFO  OptionalValidatorFactoryBean - Failed to set up a Bean Validation provider: jakarta.validation.NoProviderFoundException: Unable to create a Configuration, because no Jakarta Bean Validation provider could be found. Add a provider like Hibernate Validator (RI) to your classpath.
-26-01-29.21:13:03.207 [main            ] INFO  Http11NioProtocol      - Starting ProtocolHandler ["http-nio-8091"]
-26-01-29.21:13:03.211 [main            ] INFO  TomcatWebServer        - Tomcat started on port 8091 (http) with context path '/'
-26-01-29.21:13:03.215 [main            ] INFO  Application            - Started Application in 0.772 seconds (process running for 0.928)
-26-01-29.21:13:06.745 [SpringApplicationShutdownHook] INFO  GracefulShutdown       - Commencing graceful shutdown. Waiting for active requests to complete
-26-01-29.21:13:08.750 [tomcat-shutdown ] INFO  GracefulShutdown       - Graceful shutdown complete
+26-02-07.21:20:05.472 [main            ] INFO  Application            - Starting Application using Java 17.0.18 with PID 45597 (/Users/bytedance/YSC/code/agent/agent-app/target/classes started by bytedance in /Users/bytedance/YSC/code/agent)
+26-02-07.21:20:05.472 [main            ] DEBUG Application            - Running with Spring Boot v3.4.3, Spring v6.2.3
+26-02-07.21:20:05.472 [main            ] INFO  Application            - The following 1 profile is active: "dev"
+26-02-07.21:20:06.058 [main            ] INFO  TomcatWebServer        - Tomcat initialized with port 8091 (http)
+26-02-07.21:20:06.068 [main            ] INFO  Http11NioProtocol      - Initializing ProtocolHandler ["http-nio-8091"]
+26-02-07.21:20:06.068 [main            ] INFO  StandardService        - Starting service [Tomcat]
+26-02-07.21:20:06.068 [main            ] INFO  StandardEngine         - Starting Servlet engine: [Apache Tomcat/10.1.36]
+26-02-07.21:20:06.090 [main            ] INFO  [/]                    - Initializing Spring embedded WebApplicationContext
+26-02-07.21:20:06.090 [main            ] INFO  ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 601 ms
+26-02-07.21:20:06.535 [main            ] DEBUG ToolCallingAutoConfiguration - Cannot load class: org.springframework.security.oauth2.client.ClientAuthorizationException
+26-02-07.21:20:06.591 [main            ] INFO  Http11NioProtocol      - Starting ProtocolHandler ["http-nio-8091"]
+26-02-07.21:20:06.595 [main            ] INFO  TomcatWebServer        - Tomcat started on port 8091 (http) with context path '/'
+26-02-07.21:20:06.600 [main            ] INFO  Application            - Started Application in 1.36 seconds (process running for 1.649)
+26-02-07.21:20:06.605 [scheduling-1    ] INFO  HikariDataSource       - HikariPool-1 - Starting...
+26-02-07.21:20:06.660 [scheduling-1    ] INFO  HikariPool             - HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@1fa25772
+26-02-07.21:20:06.660 [scheduling-1    ] INFO  HikariDataSource       - HikariPool-1 - Start completed.
+26-02-07.21:20:06.663 [scheduling-1    ] DEBUG selectReadyTasks       - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = 'READY'::task_status_enum ORDER BY plan_id, created_at ASC LIMIT 100
+26-02-07.21:20:06.669 [scheduling-1    ] DEBUG selectReadyTasks       - ==> Parameters: 
+26-02-07.21:20:06.686 [scheduling-1    ] DEBUG selectReadyTasks       - <==      Total: 0
+26-02-07.21:20:06.689 [scheduling-1    ] DEBUG selectByStatus         - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = ?::task_status_enum ORDER BY created_at ASC
+26-02-07.21:20:06.689 [scheduling-1    ] DEBUG selectByStatus         - ==> Parameters: REFINING(String)
+26-02-07.21:20:06.690 [scheduling-1    ] DEBUG selectByStatus         - <==      Total: 0
+26-02-07.21:20:06.691 [scheduling-1    ] DEBUG selectByStatus         - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = ?::task_status_enum ORDER BY created_at ASC
+26-02-07.21:20:06.691 [scheduling-1    ] DEBUG selectByStatus         - ==> Parameters: PENDING(String)
+26-02-07.21:20:06.691 [scheduling-1    ] DEBUG selectByStatus         - <==      Total: 0
+26-02-07.21:20:07.697 [scheduling-1    ] DEBUG selectReadyTasks       - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = 'READY'::task_status_enum ORDER BY plan_id, created_at ASC LIMIT 100
+26-02-07.21:20:07.697 [scheduling-1    ] DEBUG selectReadyTasks       - ==> Parameters: 
+26-02-07.21:20:07.698 [scheduling-1    ] DEBUG selectReadyTasks       - <==      Total: 0
+26-02-07.21:20:07.698 [scheduling-1    ] DEBUG selectByStatus         - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = ?::task_status_enum ORDER BY created_at ASC
+26-02-07.21:20:07.698 [scheduling-1    ] DEBUG selectByStatus         - ==> Parameters: REFINING(String)
+26-02-07.21:20:07.699 [scheduling-1    ] DEBUG selectByStatus         - <==      Total: 0
+26-02-07.21:20:07.699 [scheduling-1    ] DEBUG selectByStatus         - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = ?::task_status_enum ORDER BY created_at ASC
+26-02-07.21:20:07.699 [scheduling-1    ] DEBUG selectByStatus         - ==> Parameters: PENDING(String)
+26-02-07.21:20:07.700 [scheduling-1    ] DEBUG selectByStatus         - <==      Total: 0
+26-02-07.21:20:08.704 [scheduling-1    ] DEBUG selectReadyTasks       - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = 'READY'::task_status_enum ORDER BY plan_id, created_at ASC LIMIT 100
+26-02-07.21:20:08.704 [scheduling-1    ] DEBUG selectReadyTasks       - ==> Parameters: 
+26-02-07.21:20:08.705 [scheduling-1    ] DEBUG selectReadyTasks       - <==      Total: 0
+26-02-07.21:20:08.705 [scheduling-1    ] DEBUG selectByStatus         - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = ?::task_status_enum ORDER BY created_at ASC
+26-02-07.21:20:08.705 [scheduling-1    ] DEBUG selectByStatus         - ==> Parameters: REFINING(String)
+26-02-07.21:20:08.706 [scheduling-1    ] DEBUG selectByStatus         - <==      Total: 0
+26-02-07.21:20:08.706 [scheduling-1    ] DEBUG selectByStatus         - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = ?::task_status_enum ORDER BY created_at ASC
+26-02-07.21:20:08.706 [scheduling-1    ] DEBUG selectByStatus         - ==> Parameters: PENDING(String)
+26-02-07.21:20:08.707 [scheduling-1    ] DEBUG selectByStatus         - <==      Total: 0
+26-02-07.21:20:09.712 [scheduling-1    ] DEBUG selectReadyTasks       - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = 'READY'::task_status_enum ORDER BY plan_id, created_at ASC LIMIT 100
+26-02-07.21:20:09.712 [scheduling-1    ] DEBUG selectReadyTasks       - ==> Parameters: 
+26-02-07.21:20:09.713 [scheduling-1    ] DEBUG selectReadyTasks       - <==      Total: 0
+26-02-07.21:20:09.713 [scheduling-1    ] DEBUG selectByStatus         - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = ?::task_status_enum ORDER BY created_at ASC
+26-02-07.21:20:09.713 [scheduling-1    ] DEBUG selectByStatus         - ==> Parameters: REFINING(String)
+26-02-07.21:20:09.715 [scheduling-1    ] DEBUG selectByStatus         - <==      Total: 0
+26-02-07.21:20:09.715 [scheduling-1    ] DEBUG selectByStatus         - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = ?::task_status_enum ORDER BY created_at ASC
+26-02-07.21:20:09.715 [scheduling-1    ] DEBUG selectByStatus         - ==> Parameters: PENDING(String)
+26-02-07.21:20:09.716 [scheduling-1    ] DEBUG selectByStatus         - <==      Total: 0
+26-02-07.21:20:10.718 [scheduling-1    ] DEBUG selectReadyTasks       - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = 'READY'::task_status_enum ORDER BY plan_id, created_at ASC LIMIT 100
+26-02-07.21:20:10.718 [scheduling-1    ] DEBUG selectReadyTasks       - ==> Parameters: 
+26-02-07.21:20:10.719 [scheduling-1    ] DEBUG selectReadyTasks       - <==      Total: 0
+26-02-07.21:20:10.720 [scheduling-1    ] DEBUG selectByStatus         - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = ?::task_status_enum ORDER BY created_at ASC
+26-02-07.21:20:10.720 [scheduling-1    ] DEBUG selectByStatus         - ==> Parameters: REFINING(String)
+26-02-07.21:20:10.721 [scheduling-1    ] DEBUG selectByStatus         - <==      Total: 0
+26-02-07.21:20:10.721 [scheduling-1    ] DEBUG selectByStatus         - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = ?::task_status_enum ORDER BY created_at ASC
+26-02-07.21:20:10.721 [scheduling-1    ] DEBUG selectByStatus         - ==> Parameters: PENDING(String)
+26-02-07.21:20:10.723 [scheduling-1    ] DEBUG selectByStatus         - <==      Total: 0
+26-02-07.21:20:11.728 [scheduling-1    ] DEBUG selectReadyTasks       - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = 'READY'::task_status_enum ORDER BY plan_id, created_at ASC LIMIT 100
+26-02-07.21:20:11.728 [scheduling-1    ] DEBUG selectReadyTasks       - ==> Parameters: 
+26-02-07.21:20:11.731 [scheduling-1    ] DEBUG selectReadyTasks       - <==      Total: 0
+26-02-07.21:20:11.732 [scheduling-1    ] DEBUG selectByStatus         - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = ?::task_status_enum ORDER BY created_at ASC
+26-02-07.21:20:11.732 [scheduling-1    ] DEBUG selectByStatus         - ==> Parameters: REFINING(String)
+26-02-07.21:20:11.733 [scheduling-1    ] DEBUG selectByStatus         - <==      Total: 0
+26-02-07.21:20:11.733 [scheduling-1    ] DEBUG selectByStatus         - ==>  Preparing: SELECT id, plan_id, node_id, name, task_type, status, dependency_node_ids, input_context, config_snapshot, output_result, max_retries, current_retry, version, created_at, updated_at FROM agent_tasks WHERE status = ?::task_status_enum ORDER BY created_at ASC
+26-02-07.21:20:11.733 [scheduling-1    ] DEBUG selectByStatus         - ==> Parameters: PENDING(String)
+26-02-07.21:20:11.735 [scheduling-1    ] DEBUG selectByStatus         - <==      Total: 0
+26-02-07.21:20:12.284 [SpringApplicationShutdownHook] INFO  GracefulShutdown       - Commencing graceful shutdown. Waiting for active requests to complete
+26-02-07.21:20:14.290 [tomcat-shutdown ] INFO  GracefulShutdown       - Graceful shutdown complete
+26-02-07.21:20:14.293 [SpringApplicationShutdownHook] INFO  HikariDataSource       - HikariPool-1 - Shutdown initiated...
+26-02-07.21:20:14.294 [SpringApplicationShutdownHook] INFO  HikariDataSource       - HikariPool-1 - Shutdown completed.
