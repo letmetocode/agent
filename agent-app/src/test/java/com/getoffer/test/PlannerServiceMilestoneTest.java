@@ -8,6 +8,7 @@ import com.getoffer.domain.planning.model.entity.SopTemplateEntity;
 import com.getoffer.domain.planning.service.PlannerService;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
+import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.infrastructure.planning.PlannerServiceImpl;
 import com.getoffer.infrastructure.util.JsonCodec;
 import com.getoffer.types.enums.PlanStatusEnum;
@@ -302,6 +303,20 @@ public class PlannerServiceMilestoneTest {
         }
 
         @Override
+        public List<AgentPlanEntity> findByStatusPaged(PlanStatusEnum status, int offset, int limit) {
+            if (limit <= 0) {
+                return Collections.emptyList();
+            }
+            List<AgentPlanEntity> matched = findByStatus(status);
+            if (matched.isEmpty() || offset >= matched.size()) {
+                return Collections.emptyList();
+            }
+            int from = Math.max(0, offset);
+            int to = Math.min(from + limit, matched.size());
+            return new ArrayList<>(matched.subList(from, to));
+        }
+
+        @Override
         public List<AgentPlanEntity> findAll() {
             return new ArrayList<>(store.values());
         }
@@ -424,6 +439,11 @@ public class PlannerServiceMilestoneTest {
                 updated = true;
             }
             return updated;
+        }
+
+        @Override
+        public List<PlanTaskStatusStat> summarizeByPlanIds(List<Long> planIds) {
+            return Collections.emptyList();
         }
     }
 }

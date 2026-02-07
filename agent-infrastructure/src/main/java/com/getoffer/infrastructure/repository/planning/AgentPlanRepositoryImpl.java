@@ -59,12 +59,18 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
     @Override
     public AgentPlanEntity update(AgentPlanEntity entity) {
         entity.validate();
-        entity.incrementVersion();
+        Integer oldVersion = entity.getVersion();
+        if (oldVersion == null) {
+            throw new IllegalStateException("Version cannot be null for AgentPlan update: " + entity.getId());
+        }
         AgentPlanPO po = toPO(entity);
         int affected = agentPlanDao.updateWithVersion(po);
         if (affected == 0) {
             throw new RuntimeException("Optimistic lock failed for AgentPlan: " + entity.getId());
         }
+        Integer newVersion = oldVersion + 1;
+        entity.setVersion(newVersion);
+        po.setVersion(newVersion);
         return toEntity(po);
     }
 
@@ -111,6 +117,17 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
     @Override
     public List<AgentPlanEntity> findByStatusAndPriority(PlanStatusEnum status) {
         return agentPlanDao.selectByStatusAndPriority(status).stream()
+                .map(this::toEntity)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<AgentPlanEntity> findByStatusPaged(PlanStatusEnum status, int offset, int limit) {
+        if (limit <= 0) {
+            return java.util.Collections.emptyList();
+        }
+        int safeOffset = Math.max(0, offset);
+        return agentPlanDao.selectByStatusPaged(status, safeOffset, limit).stream()
                 .map(this::toEntity)
                 .collect(Collectors.toList());
     }

@@ -1,6 +1,7 @@
 package com.getoffer.infrastructure.dao;
 
 import com.getoffer.infrastructure.dao.po.AgentTaskPO;
+import com.getoffer.infrastructure.dao.po.PlanTaskStatusStatPO;
 import com.getoffer.types.enums.TaskStatusEnum;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -79,4 +80,9 @@ public interface AgentTaskDao {
     int batchUpdateStatus(@Param("planId") Long planId,
                           @Param("fromStatus") TaskStatusEnum fromStatus,
                           @Param("toStatus") TaskStatusEnum toStatus);
+
+    /**
+     * 按 Plan IDs 聚合任务状态统计。
+     */
+    List<PlanTaskStatusStatPO> selectPlanStatusStats(@Param("planIds") List<Long> planIds);
 }

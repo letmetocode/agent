@@ -1,0 +1,233 @@
+package com.getoffer.trigger.job;
+
+import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
+import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
+import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
+import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
+import com.getoffer.types.enums.PlanStatusEnum;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Plan 状态推进守护进程：由 Task 聚合状态驱动 Plan 状态闭环。
+ */
+@Slf4j
+@Component
+public class PlanStatusDaemon {
+
+    private final IAgentPlanRepository agentPlanRepository;
+    private final IAgentTaskRepository agentTaskRepository;
+
+    private final int batchSize;
+    private final int maxPlansPerRound;
+
+    public PlanStatusDaemon(IAgentPlanRepository agentPlanRepository,
+                            IAgentTaskRepository agentTaskRepository,
+                            @Value("${plan-status.batch-size:200}") int batchSize,
+                            @Value("${plan-status.max-plans-per-round:1000}") int maxPlansPerRound) {
+        this.agentPlanRepository = agentPlanRepository;
+        this.agentTaskRepository = agentTaskRepository;
+        this.batchSize = batchSize > 0 ? batchSize : 200;
+        this.maxPlansPerRound = maxPlansPerRound > 0 ? maxPlansPerRound : 1000;
+    }
+
+    @Scheduled(fixedDelayString = "${plan-status.poll-interval-ms:1000}")
+    public void syncPlanStatuses() {
+        List<AgentPlanEntity> readyPlans = loadPlansByStatus(PlanStatusEnum.READY, maxPlansPerRound);
+        int remaining = Math.max(0, maxPlansPerRound - readyPlans.size());
+        List<AgentPlanEntity> runningPlans = remaining > 0
+                ? loadPlansByStatus(PlanStatusEnum.RUNNING, remaining)
+                : Collections.emptyList();
+        List<AgentPlanEntity> plans = mergePlans(readyPlans, runningPlans);
+        if (plans.isEmpty()) {
+            return;
+        }
+
+        for (int i = 0; i < plans.size(); i += batchSize) {
+            int end = Math.min(i + batchSize, plans.size());
+            List<AgentPlanEntity> batch = plans.subList(i, end);
+            processBatch(batch);
+        }
+    }
+
+    private List<AgentPlanEntity> loadPlansByStatus(PlanStatusEnum status, int maxCount) {
+        if (status == null || maxCount <= 0) {
+            return Collections.emptyList();
+        }
+        List<AgentPlanEntity> result = new ArrayList<>();
+        int offset = 0;
+        while (result.size() < maxCount) {
+            int limit = Math.min(batchSize, maxCount - result.size());
+            List<AgentPlanEntity> page = agentPlanRepository.findByStatusPaged(status, offset, limit);
+            if (page == null || page.isEmpty()) {
+                break;
+            }
+            result.addAll(page);
+            if (page.size() < limit) {
+                break;
+            }
+            offset += page.size();
+        }
+        return result;
+    }
+
+    private List<AgentPlanEntity> mergePlans(List<AgentPlanEntity> readyPlans, List<AgentPlanEntity> runningPlans) {
+        Map<Long, AgentPlanEntity> planMap = new LinkedHashMap<>();
+        appendPlans(planMap, readyPlans);
+        appendPlans(planMap, runningPlans);
+        if (planMap.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return new ArrayList<>(planMap.values());
+    }
+
+    private void appendPlans(Map<Long, AgentPlanEntity> planMap, List<AgentPlanEntity> plans) {
+        if (plans == null || plans.isEmpty()) {
+            return;
+        }
+        for (AgentPlanEntity plan : plans) {
+            if (plan == null || plan.getId() == null || plan.getStatus() == null) {
+                continue;
+            }
+            planMap.putIfAbsent(plan.getId(), plan);
+        }
+    }
+
+    private void processBatch(List<AgentPlanEntity> plans) {
+        if (plans == null || plans.isEmpty()) {
+            return;
+        }
+        List<Long> planIds = new ArrayList<>(plans.size());
+        for (AgentPlanEntity plan : plans) {
+            if (plan != null && plan.getId() != null) {
+                planIds.add(plan.getId());
+            }
+        }
+        if (planIds.isEmpty()) {
+            return;
+        }
+
+        Map<Long, PlanTaskStatusStat> statMap = new HashMap<>();
+        List<PlanTaskStatusStat> stats = agentTaskRepository.summarizeByPlanIds(planIds);
+        if (stats != null) {
+            for (PlanTaskStatusStat stat : stats) {
+                if (stat == null || stat.getPlanId() == null) {
+                    continue;
+                }
+                statMap.put(stat.getPlanId(), stat);
+            }
+        }
+
+        for (AgentPlanEntity plan : plans) {
+            if (plan == null || plan.getId() == null || plan.getStatus() == null) {
+                continue;
+            }
+            reconcilePlan(plan, statMap.get(plan.getId()));
+        }
+    }
+
+    private void reconcilePlan(AgentPlanEntity plan, PlanTaskStatusStat stat) {
+        PlanAggregateStatus aggregateStatus = resolveAggregateStatus(stat);
+        PlanStatusEnum targetStatus = resolveTargetStatus(plan.getStatus(), aggregateStatus);
+        if (targetStatus == null || targetStatus == plan.getStatus()) {
+            return;
+        }
+        PlanStatusEnum beforeStatus = plan.getStatus();
+
+        try {
+            if (targetStatus == PlanStatusEnum.RUNNING) {
+                plan.startExecution();
+            } else if (targetStatus == PlanStatusEnum.COMPLETED) {
+                plan.completeFromReadyOrRunning();
+            } else if (targetStatus == PlanStatusEnum.FAILED) {
+                plan.fail("Task aggregate detected FAILED");
+            } else {
+                return;
+            }
+            agentPlanRepository.update(plan);
+            log.debug("Plan status advanced by task aggregate. planId={}, from={}, to={}",
+                    plan.getId(), beforeStatus, targetStatus);
+        } catch (RuntimeException ex) {
+            if (isOptimisticLock(ex)) {
+                log.debug("Plan status reconcile skipped due to optimistic lock. planId={}, status={}, error={}",
+                        plan.getId(), beforeStatus, ex.getMessage());
+                return;
+            }
+            log.warn("Plan status reconcile failed. planId={}, status={}, target={}, error={}",
+                    plan.getId(), beforeStatus, targetStatus, ex.getMessage());
+        }
+    }
+
+    private boolean isOptimisticLock(RuntimeException ex) {
+        String message = ex.getMessage();
+        return message != null && message.contains("Optimistic lock");
+    }
+
+    private PlanAggregateStatus resolveAggregateStatus(PlanTaskStatusStat stat) {
+        if (stat == null || valueOf(stat.getTotal()) <= 0) {
+            return PlanAggregateStatus.NONE;
+        }
+
+        long failedCount = valueOf(stat.getFailedCount());
+        if (failedCount > 0) {
+            return PlanAggregateStatus.FAILED;
+        }
+
+        long runningLikeCount = valueOf(stat.getRunningLikeCount());
+        if (runningLikeCount > 0) {
+            return PlanAggregateStatus.RUNNING;
+        }
+
+        long total = valueOf(stat.getTotal());
+        long terminalCount = valueOf(stat.getTerminalCount());
+        if (terminalCount == total) {
+            return PlanAggregateStatus.COMPLETED;
+        }
+        return PlanAggregateStatus.READY;
+    }
+
+    private long valueOf(Long value) {
+        return value == null ? 0L : value;
+    }
+
+    private PlanStatusEnum resolveTargetStatus(PlanStatusEnum currentStatus, PlanAggregateStatus aggregateStatus) {
+        if (currentStatus == null || aggregateStatus == PlanAggregateStatus.NONE) {
+            return null;
+        }
+        if (currentStatus == PlanStatusEnum.COMPLETED
+                || currentStatus == PlanStatusEnum.FAILED
+                || currentStatus == PlanStatusEnum.CANCELLED) {
+            return null;
+        }
+
+        if (aggregateStatus == PlanAggregateStatus.FAILED
+                && (currentStatus == PlanStatusEnum.READY || currentStatus == PlanStatusEnum.RUNNING)) {
+            return PlanStatusEnum.FAILED;
+        }
+        if (aggregateStatus == PlanAggregateStatus.RUNNING && currentStatus == PlanStatusEnum.READY) {
+            return PlanStatusEnum.RUNNING;
+        }
+        if (aggregateStatus == PlanAggregateStatus.COMPLETED
+                && (currentStatus == PlanStatusEnum.READY || currentStatus == PlanStatusEnum.RUNNING)) {
+            return PlanStatusEnum.COMPLETED;
+        }
+        return null;
+    }
+
+    private enum PlanAggregateStatus {
+        NONE,
+        READY,
+        RUNNING,
+        COMPLETED,
+        FAILED
+    }
+}

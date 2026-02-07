@@ -51,74 +51,74 @@
 #### 1.1 Agent 工厂构建流程
 ```mermaid
 flowchart TD
-    A[输入 agentKey / agentId] --> B[读取 AgentRegistry]
-    B --> C{Agent 是否存在且激活?}
+    A[输入 agentKey 与 agentId] --> B[读取 AgentRegistry]
+    B --> C{Agent 是否存在且激活}
     C -- 否 --> X[抛出异常]
     C -- 是 --> D[解析 agent_tools 关联关系]
     D --> E[过滤禁用/未激活工具]
-    E --> F[解析工具类型: SPRING_BEAN/MCP_FUNCTION]
-    F --> G[生成 toolNames / toolCallbacks]
-    G --> H[构建 toolContext: agentId/agentKey/conversationId]
-    H --> I[解析 ChatModel: provider Bean 或默认]
+    E --> F[解析工具类型 SPRING_BEAN 与 MCP_FUNCTION]
+    F --> G[生成 toolNames 与 toolCallbacks]
+    G --> H[构建 toolContext 包含 agentId agentKey conversationId]
+    H --> I[解析 ChatModel provider Bean 或默认]
     I --> J[构建 ChatOptions]
     J --> K[AdvisorFactory 解析 advisor_config]
-    K --> L[拼接 system prompt base + suffix]
-    L --> M[ChatClient.builder 组装]
+    K --> L[拼接 system prompt base 与 suffix]
+    L --> M[ChatClient builder 组装]
     M --> N[build ChatClient]
 ```
 
 #### 1.2 Advisor 选择流程
 ```mermaid
 flowchart TD
-    A[读取 advisor_config] --> B{tool 配置?}
+    A[读取 advisor_config] --> B{tool 配置}
     B -- 未配置且有工具 --> B1[启用 ToolCallAdvisor]
     B -- enabled=true --> B2[启用 ToolCallAdvisor]
-    A --> C{memory enabled?}
-    C -- 是 --> C1[解析 ChatMemory Bean; type=prompt 用 PromptChatMemoryAdvisor]
+    A --> C{memory enabled}
+    C -- 是 --> C1[解析 ChatMemory Bean 使用 PromptChatMemoryAdvisor]
     C -- 否 --> C2[跳过]
-    A --> D{rag enabled?}
-    D -- 是 --> D1[解析 VectorStore Bean; 构建 SearchRequest]
+    A --> D{rag enabled}
+    D -- 是 --> D1[解析 VectorStore Bean 并构建 SearchRequest]
     D -- 否 --> D2[跳过]
-    A --> E{logger enabled?}
+    A --> E{logger enabled}
     E -- 是 --> E1[SimpleLoggerAdvisor]
 ```
 
 #### 1.3 规划与建图流程（Planner）
 ```mermaid
 flowchart TD
-    A[用户消息/JSON 输入] --> B[matchSop: 触发描述匹配]
-    B --> C{匹配到 SOP?}
+    A[用户消息或 JSON 输入] --> B[matchSop 触发描述匹配]
+    B --> C{匹配到 SOP}
     C -- 否 --> X[抛出异常]
-    C -- 是 --> D[深拷贝 graph_definition -> execution_graph]
-    D --> E[解析用户输入并校验 input_schema.required]
+    C -- 是 --> D[深拷贝 graph_definition 到 execution_graph]
+    D --> E[解析用户输入并校验 input_schema required]
     E --> F[构建 global_context]
-    F --> G[保存 plan: PLANNING + priority]
-    G --> H[展开 nodes/edges 生成 agent_tasks 状态 PENDING]
+    F --> G[保存 plan 状态 PLANNING 与 priority]
+    G --> H[展开 nodes 与 edges 生成 agent_tasks 状态 PENDING]
     H --> I[保存 tasks]
-    I --> J[plan.ready -> READY]
+    I --> J[plan ready 进入 READY]
 ```
 
 #### 1.4 任务调度与执行流程
 ```mermaid
 flowchart TD
-    A[TaskSchedulerDaemon 扫描 PENDING] --> B{依赖完成?}
-    B -- 有 FAILED/SKIPPED --> C[task.skip -> SKIPPED]
-    B -- 全部 COMPLETED --> D[task.markReady -> READY]
+    A[TaskSchedulerDaemon 扫描 PENDING] --> B{依赖完成}
+    B -- 有 FAILED 或 SKIPPED --> C[task skip 进入 SKIPPED]
+    B -- 全部 COMPLETED --> D[task markReady 进入 READY]
     B -- 其他 --> E[等待下一轮]
-    D --> F[TaskExecutor 处理 READY/REFINING]
+    D --> F[TaskExecutor 处理 READY 与 REFINING]
     F --> G[task.start -> RUNNING]
-    G --> H[构建 prompt/criticPrompt/refinePrompt]
+    G --> H[构建 prompt 与 criticPrompt 与 refinePrompt]
     H --> I[ChatClient 调用 LLM]
-    I --> J{Critic 任务?}
-    J -- 是 --> K[解析 JSON: pass/feedback]
-    K -- pass --> L[task.complete + 记录 execution]
-    K -- fail --> M[回滚目标任务 -> REFINING/FAILED]
-    J -- 否 --> N{是否开启 validator?}
+    I --> J{Critic 任务}
+    J -- 是 --> K[解析 JSON 获取 pass 与 feedback]
+    K -- pass --> L[task complete 并记录 execution]
+    K -- fail --> M[回滚目标任务到 REFINING 或 FAILED]
+    J -- 否 --> N{是否开启 validator}
     N -- 否 --> L
-    N -- 是 --> O[关键字校验 pass/fail]
+    N -- 是 --> O[关键字校验 pass 或 fail]
     O -- pass --> L
-    O -- fail --> P[task.startRefining 或 task.fail]
-    L --> Q[同步 blackboard: outputKey/mergeOutput]
+    O -- fail --> P[task startRefining 或 task fail]
+    L --> Q[同步 blackboard outputKey 与 mergeOutput]
 ```
 
 ### 2. 关键算法说明

@@ -138,6 +138,22 @@ public class AgentPlanEntity {
     }
 
     /**
+     * 从 READY 或 RUNNING 进入完成态。
+     */
+    public void completeFromReadyOrRunning() {
+        if (this.status == PlanStatusEnum.READY) {
+            this.status = PlanStatusEnum.COMPLETED;
+            this.updatedAt = LocalDateTime.now();
+            return;
+        }
+        if (this.status == PlanStatusEnum.RUNNING) {
+            complete();
+            return;
+        }
+        throw new IllegalStateException("Plan must be in READY or RUNNING status to complete");
+    }
+
+    /**
      * 标记为失败
      */
     public void fail(String errorSummary) {

@@ -54,7 +54,7 @@ sequenceDiagram
 
             Scheduler->>DB: 9. 更新 Attempt #1 (is_valid=False)
             Scheduler->>DB: 10. 任务回滚 (Status -> RETRY)
-            Note right of Scheduler: 包含错误信息，<br/>准备下一次修复生成
+            Note right of Scheduler: 包含错误信息 <br/> 准备下一次修复生成
         end
     end
 ```

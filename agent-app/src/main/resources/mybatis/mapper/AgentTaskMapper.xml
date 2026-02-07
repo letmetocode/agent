@@ -132,4 +132,19 @@
           AND status = #{fromStatus}::task_status_enum
     </update>
 
+    <select id="selectPlanStatusStats" resultType="com.getoffer.infrastructure.dao.po.PlanTaskStatusStatPO">
+        SELECT
+            plan_id,
+            COUNT(*) AS total,
+            SUM(CASE WHEN status = 'FAILED'::task_status_enum THEN 1 ELSE 0 END) AS failed_count,
+            SUM(CASE WHEN status IN ('RUNNING'::task_status_enum, 'VALIDATING'::task_status_enum, 'REFINING'::task_status_enum) THEN 1 ELSE 0 END) AS running_like_count,
+            SUM(CASE WHEN status IN ('COMPLETED'::task_status_enum, 'FAILED'::task_status_enum, 'SKIPPED'::task_status_enum) THEN 1 ELSE 0 END) AS terminal_count
+        FROM agent_tasks
+        WHERE plan_id IN
+        <foreach collection="planIds" item="planId" open="(" separator="," close=")">
+            #{planId}
+        </foreach>
+        GROUP BY plan_id
+    </select>
+
 </mapper>

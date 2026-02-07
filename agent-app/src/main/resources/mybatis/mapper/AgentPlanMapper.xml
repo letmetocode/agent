@@ -81,6 +81,15 @@
         LIMIT 100
     </select>
 
+    <select id="selectByStatusPaged" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_plans
+        WHERE status = #{status}::plan_status_enum
+        ORDER BY priority DESC, created_at ASC
+        OFFSET #{offset}
+        LIMIT #{limit}
+    </select>
+
     <select id="selectAll" resultMap="BaseResultMap">
         SELECT <include refid="Base_Column_List"/>
         FROM agent_plans

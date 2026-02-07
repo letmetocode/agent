@@ -49,6 +49,11 @@ public interface IAgentPlanRepository {
     List<AgentPlanEntity> findByStatusAndPriority(PlanStatusEnum status);
 
     /**
+     * 按状态分页查询。
+     */
+    List<AgentPlanEntity> findByStatusPaged(PlanStatusEnum status, int offset, int limit);
+
+    /**
      * 查询所有计划
      */
     List<AgentPlanEntity> findAll();

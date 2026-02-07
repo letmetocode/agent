@@ -1,6 +1,7 @@
 package com.getoffer.domain.task.adapter.repository;
 
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
+import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.types.enums.TaskStatusEnum;
 
 import java.util.List;
@@ -72,4 +73,9 @@ public interface IAgentTaskRepository {
      * 批量更新状态
      */
     boolean batchUpdateStatus(Long planId, TaskStatusEnum fromStatus, TaskStatusEnum toStatus);
+
+    /**
+     * 按 Plan IDs 聚合任务状态统计。
+     */
+    List<PlanTaskStatusStat> summarizeByPlanIds(List<Long> planIds);
 }

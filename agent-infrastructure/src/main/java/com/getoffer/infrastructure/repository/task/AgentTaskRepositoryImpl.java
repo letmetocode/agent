@@ -1,15 +1,18 @@
 package com.getoffer.infrastructure.repository.task;
 
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
+import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.infrastructure.dao.AgentTaskDao;
 import com.getoffer.infrastructure.dao.po.AgentTaskPO;
+import com.getoffer.infrastructure.dao.po.PlanTaskStatusStatPO;
 import com.getoffer.infrastructure.util.JsonCodec;
 import com.getoffer.types.enums.TaskStatusEnum;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Collections;
 import java.util.stream.Collectors;
 
 /**
@@ -60,12 +63,18 @@ public class AgentTaskRepositoryImpl implements IAgentTaskRepository {
     @Override
     public AgentTaskEntity update(AgentTaskEntity entity) {
         entity.validate();
-        entity.incrementVersion();
+        Integer oldVersion = entity.getVersion();
+        if (oldVersion == null) {
+            throw new IllegalStateException("Version cannot be null for AgentTask update: " + entity.getId());
+        }
         AgentTaskPO po = toPO(entity);
         int affected = agentTaskDao.updateWithVersion(po);
         if (affected == 0) {
             throw new RuntimeException("Optimistic lock failed for AgentTask: " + entity.getId());
         }
+        Integer newVersion = oldVersion + 1;
+        entity.setVersion(newVersion);
+        po.setVersion(newVersion);
         return toEntity(po);
     }
 
@@ -165,6 +174,20 @@ public class AgentTaskRepositoryImpl implements IAgentTaskRepository {
         return agentTaskDao.batchUpdateStatus(planId, fromStatus, toStatus) > 0;
     }
 
+    @Override
+    public List<PlanTaskStatusStat> summarizeByPlanIds(List<Long> planIds) {
+        if (planIds == null || planIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<PlanTaskStatusStatPO> stats = agentTaskDao.selectPlanStatusStats(planIds);
+        if (stats == null || stats.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return stats.stream()
+                .map(this::toStatusStat)
+                .collect(Collectors.toList());
+    }
+
     /**
      * PO 转换为 Entity
      */
@@ -234,5 +257,18 @@ public class AgentTaskRepositoryImpl implements IAgentTaskRepository {
         }
 
         return po;
+    }
+
+    private PlanTaskStatusStat toStatusStat(PlanTaskStatusStatPO po) {
+        if (po == null) {
+            return null;
+        }
+        return PlanTaskStatusStat.builder()
+                .planId(po.getPlanId())
+                .total(po.getTotal())
+                .failedCount(po.getFailedCount())
+                .runningLikeCount(po.getRunningLikeCount())
+                .terminalCount(po.getTerminalCount())
+                .build();
     }
 }

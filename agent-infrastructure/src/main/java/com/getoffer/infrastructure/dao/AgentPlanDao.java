@@ -52,6 +52,13 @@ public interface AgentPlanDao {
     List<AgentPlanPO> selectByStatusAndPriority(@Param("status") PlanStatusEnum status);
 
     /**
+     * 按状态分页查询。
+     */
+    List<AgentPlanPO> selectByStatusPaged(@Param("status") PlanStatusEnum status,
+                                          @Param("offset") Integer offset,
+                                          @Param("limit") Integer limit);
+
+    /**
      * 查询所有计划
      */
     List<AgentPlanPO> selectAll();
