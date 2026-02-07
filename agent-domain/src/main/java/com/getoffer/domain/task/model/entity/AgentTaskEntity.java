@@ -77,6 +77,26 @@ public class AgentTaskEntity {
     private Integer currentRetry;
 
     /**
+     * claim 持有者
+     */
+    private String claimOwner;
+
+    /**
+     * claim 时间
+     */
+    private LocalDateTime claimAt;
+
+    /**
+     * lease 过期时间
+     */
+    private LocalDateTime leaseUntil;
+
+    /**
+     * 执行代际（每次 claim 递增）
+     */
+    private Integer executionAttempt;
+
+    /**
      * 版本号 (乐观锁)
      */
     private Integer version;

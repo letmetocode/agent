@@ -21,6 +21,10 @@ CREATE TABLE agent_tasks (
 
                              max_retries         INTEGER DEFAULT 3,
                              current_retry       INTEGER DEFAULT 0,
+                             claim_owner         VARCHAR(128),
+                             claim_at            TIMESTAMP WITH TIME ZONE,
+                             lease_until         TIMESTAMP WITH TIME ZONE,
+                             execution_attempt   INTEGER NOT NULL DEFAULT 0,
 
                              version             INTEGER DEFAULT 0, -- 乐观锁
                              created_at          TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -33,3 +37,5 @@ CREATE TABLE agent_tasks (
 CREATE INDEX idx_tasks_plan_id ON agent_tasks(plan_id);
 -- 调度器轮询索引
 CREATE INDEX idx_tasks_scheduling ON agent_tasks(plan_id, status);
+CREATE INDEX idx_tasks_claim_scan ON agent_tasks(status, lease_until, plan_id, created_at);
+CREATE INDEX idx_tasks_claim_owner_lease ON agent_tasks(claim_owner, lease_until);

@@ -154,6 +154,45 @@ public class AgentTaskRepositoryImpl implements IAgentTaskRepository {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public List<AgentTaskEntity> claimExecutableTasks(String claimOwner, int limit, int leaseSeconds) {
+        if (claimOwner == null || claimOwner.trim().isEmpty() || limit <= 0 || leaseSeconds <= 0) {
+            return Collections.emptyList();
+        }
+        List<AgentTaskPO> pos = agentTaskDao.claimExecutableTasks(claimOwner, limit, leaseSeconds);
+        if (pos == null || pos.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return pos.stream().map(this::toEntity).collect(Collectors.toList());
+    }
+
+    @Override
+    public boolean renewClaimLease(Long taskId, String claimOwner, Integer executionAttempt, int leaseSeconds) {
+        if (taskId == null || executionAttempt == null || leaseSeconds <= 0
+                || claimOwner == null || claimOwner.trim().isEmpty()) {
+            return false;
+        }
+        return agentTaskDao.renewClaimLease(taskId, claimOwner, executionAttempt, leaseSeconds) > 0;
+    }
+
+    @Override
+    public boolean updateClaimedTaskState(AgentTaskEntity entity) {
+        if (entity == null || entity.getId() == null
+                || entity.getClaimOwner() == null || entity.getClaimOwner().trim().isEmpty()
+                || entity.getExecutionAttempt() == null || entity.getStatus() == null) {
+            return false;
+        }
+        AgentTaskPO po = toPO(entity);
+        int affected = agentTaskDao.updateClaimedTaskState(po);
+        return affected > 0;
+    }
+
+    @Override
+    public long countExpiredRunningTasks() {
+        Long count = agentTaskDao.countExpiredRunningTasks();
+        return count == null ? 0L : count;
+    }
+
     /**
      * 执行 batch save。
      */
@@ -217,6 +256,10 @@ public class AgentTaskRepositoryImpl implements IAgentTaskRepository {
         entity.setOutputResult(po.getOutputResult());
         entity.setMaxRetries(po.getMaxRetries());
         entity.setCurrentRetry(po.getCurrentRetry());
+        entity.setClaimOwner(po.getClaimOwner());
+        entity.setClaimAt(po.getClaimAt());
+        entity.setLeaseUntil(po.getLeaseUntil());
+        entity.setExecutionAttempt(po.getExecutionAttempt());
         entity.setVersion(po.getVersion());
         entity.setCreatedAt(po.getCreatedAt());
         entity.setUpdatedAt(po.getUpdatedAt());
@@ -240,6 +283,10 @@ public class AgentTaskRepositoryImpl implements IAgentTaskRepository {
                 .outputResult(entity.getOutputResult())
                 .maxRetries(entity.getMaxRetries())
                 .currentRetry(entity.getCurrentRetry())
+                .claimOwner(entity.getClaimOwner())
+                .claimAt(entity.getClaimAt())
+                .leaseUntil(entity.getLeaseUntil())
+                .executionAttempt(entity.getExecutionAttempt())
                 .version(entity.getVersion())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())

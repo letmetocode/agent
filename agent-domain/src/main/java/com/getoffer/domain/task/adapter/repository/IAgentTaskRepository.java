@@ -65,6 +65,26 @@ public interface IAgentTaskRepository {
     List<AgentTaskEntity> findReadyTasks();
 
     /**
+     * 原子 claim 可执行任务（READY/REFINING/过期RUNNING -> RUNNING）。
+     */
+    List<AgentTaskEntity> claimExecutableTasks(String claimOwner, int limit, int leaseSeconds);
+
+    /**
+     * 续约 claim lease。
+     */
+    boolean renewClaimLease(Long taskId, String claimOwner, Integer executionAttempt, int leaseSeconds);
+
+    /**
+     * 按 claim_owner + execution_attempt 条件更新任务终态，防止旧执行者回写污染。
+     */
+    boolean updateClaimedTaskState(AgentTaskEntity entity);
+
+    /**
+     * 查询过期 RUNNING 任务数量（用于监控/报警）。
+     */
+    long countExpiredRunningTasks();
+
+    /**
      * 批量保存任务
      */
     List<AgentTaskEntity> batchSave(List<AgentTaskEntity> entities);

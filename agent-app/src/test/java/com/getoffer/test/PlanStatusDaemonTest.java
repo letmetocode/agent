@@ -293,6 +293,26 @@ public class PlanStatusDaemonTest {
         }
 
         @Override
+        public List<AgentTaskEntity> claimExecutableTasks(String claimOwner, int limit, int leaseSeconds) {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public boolean renewClaimLease(Long taskId, String claimOwner, Integer executionAttempt, int leaseSeconds) {
+            return false;
+        }
+
+        @Override
+        public boolean updateClaimedTaskState(AgentTaskEntity entity) {
+            return false;
+        }
+
+        @Override
+        public long countExpiredRunningTasks() {
+            return 0L;
+        }
+
+        @Override
         public List<AgentTaskEntity> batchSave(List<AgentTaskEntity> entities) {
             if (entities == null || entities.isEmpty()) {
                 return Collections.emptyList();

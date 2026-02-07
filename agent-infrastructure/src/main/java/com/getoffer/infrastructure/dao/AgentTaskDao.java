@@ -70,6 +70,31 @@ public interface AgentTaskDao {
     List<AgentTaskPO> selectReadyTasks();
 
     /**
+     * 原子 claim 可执行任务。
+     */
+    List<AgentTaskPO> claimExecutableTasks(@Param("claimOwner") String claimOwner,
+                                           @Param("limit") Integer limit,
+                                           @Param("leaseSeconds") Integer leaseSeconds);
+
+    /**
+     * 续约 claim lease。
+     */
+    int renewClaimLease(@Param("id") Long id,
+                        @Param("claimOwner") String claimOwner,
+                        @Param("executionAttempt") Integer executionAttempt,
+                        @Param("leaseSeconds") Integer leaseSeconds);
+
+    /**
+     * 按 claim_owner + execution_attempt 条件更新任务状态。
+     */
+    int updateClaimedTaskState(AgentTaskPO po);
+
+    /**
+     * 查询过期 RUNNING 数量。
+     */
+    Long countExpiredRunningTasks();
+
+    /**
      * 批量插入任务
      */
     int batchInsert(@Param("list") List<AgentTaskPO> list);

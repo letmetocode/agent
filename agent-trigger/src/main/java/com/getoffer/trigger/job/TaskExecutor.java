@@ -14,14 +14,21 @@ import com.getoffer.types.enums.TaskStatusEnum;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Task executor: run READY tasks, write results, and sync blackboard.
@@ -37,44 +44,61 @@ public class TaskExecutor {
     private final ITaskExecutionRepository taskExecutionRepository;
     private final IAgentFactory agentFactory;
     private final ObjectMapper objectMapper;
+    private final String claimOwner;
+    private final int claimBatchSize;
+    private final int claimLeaseSeconds;
+    private final int claimHeartbeatSeconds;
+    private final ScheduledExecutorService heartbeatScheduler;
+    private final AtomicLong monitorTick;
 
     public TaskExecutor(IAgentTaskRepository agentTaskRepository,
                         IAgentPlanRepository agentPlanRepository,
                         ITaskExecutionRepository taskExecutionRepository,
                         IAgentFactory agentFactory,
-                        ObjectMapper objectMapper) {
+                        ObjectMapper objectMapper,
+                        @Value("${executor.instance-id:}") String configuredInstanceId,
+                        @Value("${executor.claim.batch-size:100}") int claimBatchSize,
+                        @Value("${executor.claim.lease-seconds:120}") int claimLeaseSeconds,
+                        @Value("${executor.claim.heartbeat-seconds:30}") int claimHeartbeatSeconds) {
         this.agentTaskRepository = agentTaskRepository;
         this.agentPlanRepository = agentPlanRepository;
         this.taskExecutionRepository = taskExecutionRepository;
         this.agentFactory = agentFactory;
         this.objectMapper = objectMapper;
+        this.claimOwner = resolveInstanceId(configuredInstanceId);
+        this.claimBatchSize = claimBatchSize > 0 ? claimBatchSize : 100;
+        this.claimLeaseSeconds = claimLeaseSeconds > 0 ? claimLeaseSeconds : 120;
+        this.claimHeartbeatSeconds = claimHeartbeatSeconds > 0 ? claimHeartbeatSeconds : 30;
+        this.heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread thread = new Thread(r, "task-claim-heartbeat");
+            thread.setDaemon(true);
+            return thread;
+        });
+        this.monitorTick = new AtomicLong(0L);
     }
 
     @Scheduled(fixedDelayString = "${executor.poll-interval-ms:1000}")
     public void executeReadyTasks() {
-        List<AgentTaskEntity> readyTasks = agentTaskRepository.findReadyTasks();
-        List<AgentTaskEntity> refiningTasks = agentTaskRepository.findByStatus(TaskStatusEnum.REFINING);
-        if ((readyTasks == null || readyTasks.isEmpty()) && (refiningTasks == null || refiningTasks.isEmpty())) {
+        List<AgentTaskEntity> tasks = agentTaskRepository.claimExecutableTasks(claimOwner, claimBatchSize, claimLeaseSeconds);
+        if (tasks == null || tasks.isEmpty()) {
+            emitExpiredRunningMetric();
             return;
         }
-        List<AgentTaskEntity> tasks = new ArrayList<>();
-        if (readyTasks != null) {
-            tasks.addAll(readyTasks);
-        }
-        if (refiningTasks != null) {
-            tasks.addAll(refiningTasks);
-        }
         for (AgentTaskEntity task : tasks) {
-            if (task == null || task.getStatus() != TaskStatusEnum.READY) {
-                if (task == null || task.getStatus() != TaskStatusEnum.REFINING) {
-                    continue;
-                }
+            if (task == null) {
+                continue;
             }
             executeTask(task);
         }
+        emitExpiredRunningMetric();
     }
 
     private void executeTask(AgentTaskEntity task) {
+        if (StringUtils.isBlank(task.getClaimOwner()) || task.getExecutionAttempt() == null) {
+            log.warn("Skip claimed task execution because claim metadata missing. taskId={}, claimOwner={}, attempt={}",
+                    task.getId(), task.getClaimOwner(), task.getExecutionAttempt());
+            return;
+        }
         AgentPlanEntity plan = agentPlanRepository.findById(task.getPlanId());
         if (plan == null) {
             log.warn("Skip task execution because plan not found. taskId={}, planId={}", task.getId(), task.getPlanId());
@@ -86,15 +110,8 @@ public class TaskExecutor {
         }
 
         boolean criticTask = isCriticTask(task);
-        boolean refining = task.getStatus() == TaskStatusEnum.REFINING;
-        try {
-            task.start();
-            agentTaskRepository.update(task);
-        } catch (Exception ex) {
-            log.warn("Failed to mark task RUNNING. taskId={}, nodeId={}, error={}",
-                    task.getId(), task.getNodeId(), ex.getMessage());
-            return;
-        }
+        boolean refining = task.getCurrentRetry() != null && task.getCurrentRetry() > 0;
+        ScheduledFuture<?> heartbeatFuture = startHeartbeat(task);
 
         long startTime = System.currentTimeMillis();
         String prompt = criticTask ? buildCriticPrompt(task, plan)
@@ -123,11 +140,11 @@ public class TaskExecutor {
                 task.startValidation();
                 if (decision.pass) {
                     task.complete(response);
-                    safeUpdateTask(task);
+                    safeUpdateClaimedTask(task);
                 } else {
                     task.setOutputResult(response);
                     task.resetToPending();
-                    safeUpdateTask(task);
+                    safeUpdateClaimedTask(task);
                     rollbackTarget(plan, task, decision.feedback);
                 }
                 return;
@@ -147,7 +164,7 @@ public class TaskExecutor {
                     return;
                 }
                 task.complete(response);
-                if (safeUpdateTask(task)) {
+                if (safeUpdateClaimedTask(task)) {
                     syncBlackboard(plan, task, response);
                 }
             } else {
@@ -156,7 +173,7 @@ public class TaskExecutor {
 
                 task.startValidation();
                 task.complete(response);
-                if (safeUpdateTask(task)) {
+                if (safeUpdateClaimedTask(task)) {
                     syncBlackboard(plan, task, response);
                 }
             }
@@ -166,20 +183,22 @@ public class TaskExecutor {
             safeSaveExecution(execution);
 
             task.fail(ex.getMessage());
-            safeUpdateTask(task);
+            safeUpdateClaimedTask(task);
             log.warn("Task execution failed. taskId={}, nodeId={}, error={}",
                     task.getId(), task.getNodeId(), ex.getMessage());
+        } finally {
+            stopHeartbeat(heartbeatFuture);
         }
     }
 
     private void handleValidationFailure(AgentTaskEntity task, String feedback) {
         try {
             task.startRefining();
-            safeUpdateTask(task);
+            safeUpdateClaimedTask(task);
         } catch (Exception ex) {
             String reason = StringUtils.isBlank(feedback) ? ex.getMessage() : feedback;
             task.fail("Validation failed: " + reason);
-            safeUpdateTask(task);
+            safeUpdateClaimedTask(task);
         }
     }
 
@@ -701,6 +720,76 @@ public class TaskExecutor {
         } catch (Exception ex) {
             log.warn("Failed to update task status. taskId={}, error={}", task.getId(), ex.getMessage());
             return false;
+        }
+    }
+
+    private boolean safeUpdateClaimedTask(AgentTaskEntity task) {
+        try {
+            boolean updated = agentTaskRepository.updateClaimedTaskState(task);
+            if (!updated) {
+                log.debug("Claimed task update skipped by ownership/attempt guard. taskId={}, owner={}, attempt={}, status={}",
+                        task.getId(), task.getClaimOwner(), task.getExecutionAttempt(), task.getStatus());
+            }
+            return updated;
+        } catch (Exception ex) {
+            log.warn("Failed to update claimed task. taskId={}, owner={}, attempt={}, error={}",
+                    task.getId(), task.getClaimOwner(), task.getExecutionAttempt(), ex.getMessage());
+            return false;
+        }
+    }
+
+    private ScheduledFuture<?> startHeartbeat(AgentTaskEntity task) {
+        if (task == null || task.getId() == null || StringUtils.isBlank(task.getClaimOwner())
+                || task.getExecutionAttempt() == null || claimHeartbeatSeconds <= 0) {
+            return null;
+        }
+        return heartbeatScheduler.scheduleAtFixedRate(() -> {
+            try {
+                boolean renewed = agentTaskRepository.renewClaimLease(
+                        task.getId(), task.getClaimOwner(), task.getExecutionAttempt(), claimLeaseSeconds);
+                if (!renewed) {
+                    log.debug("Claim lease renew skipped. taskId={}, owner={}, attempt={}",
+                            task.getId(), task.getClaimOwner(), task.getExecutionAttempt());
+                }
+            } catch (Exception ex) {
+                log.warn("Failed to renew claim lease. taskId={}, owner={}, attempt={}, error={}",
+                        task.getId(), task.getClaimOwner(), task.getExecutionAttempt(), ex.getMessage());
+            }
+        }, claimHeartbeatSeconds, claimHeartbeatSeconds, TimeUnit.SECONDS);
+    }
+
+    private void stopHeartbeat(ScheduledFuture<?> future) {
+        if (future != null) {
+            future.cancel(false);
+        }
+    }
+
+    private String resolveInstanceId(String configuredInstanceId) {
+        if (StringUtils.isNotBlank(configuredInstanceId)) {
+            return configuredInstanceId.trim();
+        }
+        String host = System.getenv("HOSTNAME");
+        if (StringUtils.isBlank(host)) {
+            host = "local";
+        }
+        String pid = ManagementFactory.getRuntimeMXBean().getName();
+        return host + ":" + pid;
+    }
+
+    private void emitExpiredRunningMetric() {
+        long tick = monitorTick.incrementAndGet();
+        if (tick % 30 != 0) {
+            return;
+        }
+        try {
+            long count = agentTaskRepository.countExpiredRunningTasks();
+            if (count > 0) {
+                log.warn("Detected expired running tasks. count={}", count);
+            } else {
+                log.debug("Expired running tasks check. count=0");
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to check expired running tasks. error={}", ex.getMessage());
         }
     }
 

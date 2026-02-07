@@ -15,6 +15,10 @@
         <result column="output_result" property="outputResult" jdbcType="VARCHAR"/>
         <result column="max_retries" property="maxRetries" jdbcType="INTEGER"/>
         <result column="current_retry" property="currentRetry" jdbcType="INTEGER"/>
+        <result column="claim_owner" property="claimOwner" jdbcType="VARCHAR"/>
+        <result column="claim_at" property="claimAt" jdbcType="TIMESTAMP"/>
+        <result column="lease_until" property="leaseUntil" jdbcType="TIMESTAMP"/>
+        <result column="execution_attempt" property="executionAttempt" jdbcType="INTEGER"/>
         <result column="version" property="version" jdbcType="INTEGER"/>
         <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
         <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
@@ -23,6 +27,7 @@
     <sql id="Base_Column_List">
         id, plan_id, node_id, name, task_type, status, dependency_node_ids,
         input_context, config_snapshot, output_result, max_retries, current_retry,
+        claim_owner, claim_at, lease_until, execution_attempt,
         version, created_at, updated_at
     </sql>
 
@@ -31,12 +36,14 @@
         INSERT INTO agent_tasks (
             plan_id, node_id, name, task_type, status, dependency_node_ids,
             input_context, config_snapshot, output_result, max_retries,
-            current_retry, version, created_at, updated_at
+            current_retry, claim_owner, claim_at, lease_until, execution_attempt,
+            version, created_at, updated_at
         ) VALUES (
             #{planId}, #{nodeId}, #{name}, #{taskType},
             #{status}::task_status_enum, #{dependencyNodeIds}::jsonb,
             #{inputContext}::jsonb, #{configSnapshot}::jsonb, #{outputResult},
-            #{maxRetries}, #{currentRetry}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            #{maxRetries}, #{currentRetry}, null, null, null, 0,
+            0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
         )
     </insert>
 
@@ -53,6 +60,10 @@
             output_result = #{outputResult},
             max_retries = #{maxRetries},
             current_retry = #{currentRetry},
+            claim_owner = #{claimOwner},
+            claim_at = #{claimAt},
+            lease_until = #{leaseUntil},
+            execution_attempt = #{executionAttempt},
             version = version + 1,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id} AND version = #{version}
@@ -109,17 +120,82 @@
         LIMIT 100
     </select>
 
+    <select id="claimExecutableTasks" resultMap="BaseResultMap">
+        WITH picked AS (
+            SELECT id
+            FROM agent_tasks
+            WHERE status IN ('READY'::task_status_enum, 'REFINING'::task_status_enum)
+               OR (status = 'RUNNING'::task_status_enum AND (lease_until IS NULL OR lease_until &lt; CURRENT_TIMESTAMP))
+            ORDER BY plan_id, created_at ASC
+            LIMIT #{limit}
+            FOR UPDATE SKIP LOCKED
+        )
+        UPDATE agent_tasks t
+        SET
+            status = 'RUNNING'::task_status_enum,
+            claim_owner = #{claimOwner},
+            claim_at = CURRENT_TIMESTAMP,
+            lease_until = CURRENT_TIMESTAMP + (#{leaseSeconds} * INTERVAL '1 second'),
+            execution_attempt = t.execution_attempt + 1,
+            version = t.version + 1,
+            updated_at = CURRENT_TIMESTAMP
+        FROM picked
+        WHERE t.id = picked.id
+        RETURNING
+            t.id, t.plan_id, t.node_id, t.name, t.task_type, t.status, t.dependency_node_ids,
+            t.input_context, t.config_snapshot, t.output_result, t.max_retries, t.current_retry,
+            t.claim_owner, t.claim_at, t.lease_until, t.execution_attempt,
+            t.version, t.created_at, t.updated_at
+    </select>
+
+    <update id="renewClaimLease">
+        UPDATE agent_tasks
+        SET
+            lease_until = CURRENT_TIMESTAMP + (#{leaseSeconds} * INTERVAL '1 second'),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND status = 'RUNNING'::task_status_enum
+          AND claim_owner = #{claimOwner}
+          AND execution_attempt = #{executionAttempt}
+    </update>
+
+    <update id="updateClaimedTaskState" parameterType="com.getoffer.infrastructure.dao.po.AgentTaskPO">
+        UPDATE agent_tasks
+        SET
+            status = #{status}::task_status_enum,
+            input_context = #{inputContext}::jsonb,
+            output_result = #{outputResult},
+            current_retry = #{currentRetry},
+            claim_owner = null,
+            claim_at = null,
+            lease_until = null,
+            version = version + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND claim_owner = #{claimOwner}
+          AND execution_attempt = #{executionAttempt}
+    </update>
+
+    <select id="countExpiredRunningTasks" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM agent_tasks
+        WHERE status = 'RUNNING'::task_status_enum
+          AND (lease_until IS NULL OR lease_until &lt; CURRENT_TIMESTAMP)
+    </select>
+
     <insert id="batchInsert" parameterType="java.util.List">
         INSERT INTO agent_tasks (
             plan_id, node_id, name, task_type, status, dependency_node_ids,
             input_context, config_snapshot, output_result, max_retries,
-            current_retry, version, created_at, updated_at
+            current_retry, claim_owner, claim_at, lease_until, execution_attempt,
+            version, created_at, updated_at
         ) VALUES
         <foreach collection="list" item="item" separator=",">
             (#{item.planId}, #{item.nodeId}, #{item.name}, #{item.taskType},
              #{item.status}::task_status_enum, #{item.dependencyNodeIds}::jsonb,
              #{item.inputContext}::jsonb, #{item.configSnapshot}::jsonb,
              #{item.outputResult}, #{item.maxRetries}, #{item.currentRetry},
+             null, null, null, 0,
              0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         </foreach>
     </insert>
