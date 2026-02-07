@@ -8,7 +8,6 @@ import com.getoffer.domain.agent.model.entity.AgentRegistryEntity;
 import com.getoffer.domain.agent.model.entity.AgentToolCatalogEntity;
 import com.getoffer.domain.agent.model.entity.AgentToolRelationEntity;
 import com.getoffer.infrastructure.mcp.McpClientManager;
-import com.getoffer.infrastructure.mcp.McpToolCallback;
 import com.getoffer.infrastructure.util.JsonCodec;
 import com.getoffer.types.enums.ToolTypeEnum;
 import lombok.extern.slf4j.Slf4j;
@@ -19,7 +18,6 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -406,20 +404,11 @@ public class AgentFactoryImpl implements IAgentFactory {
             log.warn("MCP server config not found for tool '{}'", tool.getName());
             return null;
         }
-        ToolDefinition toolDefinition = buildToolDefinition(tool);
-        return new McpToolCallback(toolDefinition, serverConfig, mcpClientManager);
-    }
-
-    /**
-     * 构建工具定义。
-     */
-    private ToolDefinition buildToolDefinition(AgentToolCatalogEntity tool) {
-        String inputSchema = tool.getInputSchema() == null ? "{}" : jsonCodec.writeValue(tool.getInputSchema());
-        return ToolDefinition.builder()
-                .name(tool.getName())
-                .description(StringUtils.defaultIfBlank(tool.getDescription(), tool.getName()))
-                .inputSchema(inputSchema)
-                .build();
+        ToolCallback callback = mcpClientManager.getToolCallback(serverConfig, tool.getName());
+        if (callback == null) {
+            log.warn("MCP tool callback not found for tool '{}'", tool.getName());
+        }
+        return callback;
     }
 
     /**
