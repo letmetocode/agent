@@ -41,4 +41,34 @@ public interface IAgentFactory {
      * @return ChatClient实例
      */
     ChatClient createAgent(AgentRegistryEntity agent, String conversationId);
+
+    /**
+     * 根据业务唯一标识创建Agent，追加系统提示词。
+     *
+     * @param agentKey 业务唯一标识
+     * @param conversationId 会话ID
+     * @param systemPromptSuffix 追加的系统提示词
+     * @return ChatClient实例
+     */
+    ChatClient createAgent(String agentKey, String conversationId, String systemPromptSuffix);
+
+    /**
+     * 根据主键ID创建Agent，追加系统提示词。
+     *
+     * @param agentId Agent主键ID
+     * @param conversationId 会话ID
+     * @param systemPromptSuffix 追加的系统提示词
+     * @return ChatClient实例
+     */
+    ChatClient createAgent(Long agentId, String conversationId, String systemPromptSuffix);
+
+    /**
+     * 根据Agent实体创建Agent，追加系统提示词。
+     *
+     * @param agent Agent实体对象
+     * @param conversationId 会话ID
+     * @param systemPromptSuffix 追加的系统提示词
+     * @return ChatClient实例
+     */
+    ChatClient createAgent(AgentRegistryEntity agent, String conversationId, String systemPromptSuffix);
 }

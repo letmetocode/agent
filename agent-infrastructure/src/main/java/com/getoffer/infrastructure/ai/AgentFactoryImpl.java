@@ -108,7 +108,7 @@ public class AgentFactoryImpl implements IAgentFactory {
         if (agent == null) {
             throw new IllegalStateException("Agent not found: " + agentKey);
         }
-        return createAgent(agent, conversationId);
+        return createAgent(agent, conversationId, null);
     }
 
     /**
@@ -129,7 +129,7 @@ public class AgentFactoryImpl implements IAgentFactory {
         if (agent == null) {
             throw new IllegalStateException("Agent not found: " + agentId);
         }
-        return createAgent(agent, conversationId);
+        return createAgent(agent, conversationId, null);
     }
 
     /**
@@ -154,6 +154,35 @@ public class AgentFactoryImpl implements IAgentFactory {
      */
     @Override
     public ChatClient createAgent(AgentRegistryEntity agent, String conversationId) {
+        return createAgent(agent, conversationId, null);
+    }
+
+    @Override
+    public ChatClient createAgent(String agentKey, String conversationId, String systemPromptSuffix) {
+        if (StringUtils.isBlank(agentKey)) {
+            throw new IllegalArgumentException("agentKey cannot be blank");
+        }
+        AgentRegistryEntity agent = agentRegistryRepository.findByKey(agentKey);
+        if (agent == null) {
+            throw new IllegalStateException("Agent not found: " + agentKey);
+        }
+        return createAgent(agent, conversationId, systemPromptSuffix);
+    }
+
+    @Override
+    public ChatClient createAgent(Long agentId, String conversationId, String systemPromptSuffix) {
+        if (agentId == null) {
+            throw new IllegalArgumentException("agentId cannot be null");
+        }
+        AgentRegistryEntity agent = agentRegistryRepository.findById(agentId);
+        if (agent == null) {
+            throw new IllegalStateException("Agent not found: " + agentId);
+        }
+        return createAgent(agent, conversationId, systemPromptSuffix);
+    }
+
+    @Override
+    public ChatClient createAgent(AgentRegistryEntity agent, String conversationId, String systemPromptSuffix) {
         if (agent == null) {
             throw new IllegalArgumentException("agent cannot be null");
         }
@@ -169,8 +198,9 @@ public class AgentFactoryImpl implements IAgentFactory {
 
         ChatModel chatModel = resolveChatModel(agent);
         ChatClient.Builder builder = ChatClient.builder(chatModel);
-        if (StringUtils.isNotBlank(agent.getBaseSystemPrompt())) {
-            builder.defaultSystem(agent.getBaseSystemPrompt());
+        String systemPrompt = buildSystemPrompt(agent.getBaseSystemPrompt(), systemPromptSuffix);
+        if (StringUtils.isNotBlank(systemPrompt)) {
+            builder.defaultSystem(systemPrompt);
         }
         if (options != null) {
             builder.defaultOptions(options);
@@ -188,6 +218,17 @@ public class AgentFactoryImpl implements IAgentFactory {
             builder.defaultAdvisors(advisors);
         }
         return builder.build();
+    }
+
+    private String buildSystemPrompt(String basePrompt, String suffix) {
+        String trimmedSuffix = StringUtils.trimToNull(suffix);
+        if (StringUtils.isBlank(basePrompt)) {
+            return trimmedSuffix;
+        }
+        if (trimmedSuffix == null) {
+            return basePrompt;
+        }
+        return basePrompt + "\n" + trimmedSuffix;
     }
 
     /**

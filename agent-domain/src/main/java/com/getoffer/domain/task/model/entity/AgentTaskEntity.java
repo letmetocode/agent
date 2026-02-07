@@ -130,8 +130,8 @@ public class AgentTaskEntity {
      * 开始执行
      */
     public void start() {
-        if (this.status != TaskStatusEnum.READY) {
-            throw new IllegalStateException("Task must be in READY status to start");
+        if (this.status != TaskStatusEnum.READY && this.status != TaskStatusEnum.REFINING) {
+            throw new IllegalStateException("Task must be in READY or REFINING status to start");
         }
         this.status = TaskStatusEnum.RUNNING;
         this.updatedAt = LocalDateTime.now();
@@ -192,6 +192,22 @@ public class AgentTaskEntity {
             throw new IllegalStateException("Only PENDING tasks can be skipped");
         }
         this.status = TaskStatusEnum.SKIPPED;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * 回滚为待执行。
+     */
+    public void resetToPending() {
+        this.status = TaskStatusEnum.PENDING;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * 回滚为需要重试。
+     */
+    public void rollbackToRefining() {
+        this.status = TaskStatusEnum.REFINING;
         this.updatedAt = LocalDateTime.now();
     }
 

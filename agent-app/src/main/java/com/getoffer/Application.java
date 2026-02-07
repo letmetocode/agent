@@ -3,6 +3,7 @@ package com.getoffer;
 import org.springframework.beans.factory.annotation.Configurable;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * AI Agent 框架应用启动类。
@@ -15,6 +16,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * @since 2025-01-29
  */
 @SpringBootApplication
+@EnableScheduling
 @Configurable
 public class Application {
 
