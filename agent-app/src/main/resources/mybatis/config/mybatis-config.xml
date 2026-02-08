@@ -37,6 +37,7 @@
         <typeAlias type="com.getoffer.infrastructure.dao.po.SopTemplatePO" alias="SopTemplatePO"/>
         <typeAlias type="com.getoffer.infrastructure.dao.po.AgentPlanPO" alias="AgentPlanPO"/>
         <typeAlias type="com.getoffer.infrastructure.dao.po.AgentTaskPO" alias="AgentTaskPO"/>
+        <typeAlias type="com.getoffer.infrastructure.dao.po.PlanTaskEventPO" alias="PlanTaskEventPO"/>
         <typeAlias type="com.getoffer.infrastructure.dao.po.TaskExecutionPO" alias="TaskExecutionPO"/>
         <typeAlias type="com.getoffer.infrastructure.dao.po.AgentToolCatalogPO" alias="AgentToolCatalogPO"/>
         <typeAlias type="com.getoffer.infrastructure.dao.po.AgentToolRelationPO" alias="AgentToolRelationPO"/>
@@ -47,6 +48,7 @@
         <typeAlias type="com.getoffer.types.enums.PlanStatusEnum" alias="PlanStatusEnum"/>
         <typeAlias type="com.getoffer.types.enums.TaskStatusEnum" alias="TaskStatusEnum"/>
         <typeAlias type="com.getoffer.types.enums.TaskTypeEnum" alias="TaskTypeEnum"/>
+        <typeAlias type="com.getoffer.types.enums.PlanTaskEventTypeEnum" alias="PlanTaskEventTypeEnum"/>
         <typeAlias type="com.getoffer.types.enums.ToolTypeEnum" alias="ToolTypeEnum"/>
         <typeAlias type="com.getoffer.types.enums.VectorStoreTypeEnum" alias="VectorStoreTypeEnum"/>
     </typeAliases>

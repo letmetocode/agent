@@ -75,6 +75,11 @@ public class TaskExecutionPO {
     private String errorMessage;
 
     /**
+     * 错误类型（结构化分类）
+     */
+    private String errorType;
+
+    /**
      * 创建时间
      */
     private LocalDateTime createdAt;

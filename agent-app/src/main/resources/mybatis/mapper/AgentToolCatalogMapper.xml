@@ -20,6 +20,24 @@
         is_active, created_at, updated_at
     </sql>
 
+    <resultMap id="BindingResultMap" type="com.getoffer.infrastructure.dao.po.AgentToolBindingPO">
+        <id column="relation_id" property="relationId" jdbcType="BIGINT"/>
+        <result column="agent_id" property="agentId" jdbcType="BIGINT"/>
+        <result column="tool_id" property="toolId" jdbcType="BIGINT"/>
+        <result column="relation_enabled" property="relationEnabled" jdbcType="BOOLEAN"/>
+        <result column="priority" property="priority" jdbcType="INTEGER"/>
+        <result column="relation_created_at" property="relationCreatedAt" jdbcType="TIMESTAMP"/>
+        <result column="tool_name" property="toolName" jdbcType="VARCHAR"/>
+        <result column="tool_type" property="toolType" jdbcType="VARCHAR" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="description" property="description" jdbcType="VARCHAR"/>
+        <result column="tool_config" property="toolConfig" jdbcType="VARCHAR"/>
+        <result column="input_schema" property="inputSchema" jdbcType="VARCHAR"/>
+        <result column="output_schema" property="outputSchema" jdbcType="VARCHAR"/>
+        <result column="tool_active" property="toolActive" jdbcType="BOOLEAN"/>
+        <result column="tool_created_at" property="toolCreatedAt" jdbcType="TIMESTAMP"/>
+        <result column="tool_updated_at" property="toolUpdatedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
     <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.AgentToolCatalogPO"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO agent_tool_catalog (
@@ -71,6 +89,40 @@
         FROM agent_tool_catalog
         WHERE tool_type = #{type}
         ORDER BY created_at DESC
+    </select>
+
+    <select id="selectEnabledBindingsByAgentId" parameterType="java.lang.Long" resultMap="BindingResultMap">
+        SELECT
+            rel.id AS relation_id,
+            rel.agent_id,
+            rel.tool_id,
+            rel.is_enabled AS relation_enabled,
+            rel.priority,
+            rel.created_at AS relation_created_at,
+            cat.tool_name,
+            cat.tool_type,
+            cat.description,
+            cat.tool_config,
+            cat.input_schema,
+            cat.output_schema,
+            cat.is_active AS tool_active,
+            cat.created_at AS tool_created_at,
+            cat.updated_at AS tool_updated_at
+        FROM agent_tools rel
+            JOIN agent_tool_catalog cat ON rel.tool_id = cat.id
+        WHERE rel.agent_id = #{agentId}
+          AND rel.is_enabled = TRUE
+          AND cat.is_active = TRUE
+        ORDER BY COALESCE(rel.priority, 2147483647) ASC, rel.created_at ASC, rel.id ASC
+    </select>
+
+    <select id="selectByIds" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tool_catalog
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
     </select>
 
 </mapper>

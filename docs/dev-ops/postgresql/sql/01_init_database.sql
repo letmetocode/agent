@@ -123,7 +123,9 @@ COMMENT ON TABLE agent_plans IS 'Agent 执行计划表：存储任务执行计�
 -- =====================================================
 -- 5. Agent 任务表
 -- =====================================================
+DROP TYPE IF EXISTS task_type_enum CASCADE;
 DROP TYPE IF EXISTS task_status_enum CASCADE;
+CREATE TYPE task_type_enum AS ENUM ('WORKER', 'CRITIC');
 CREATE TYPE task_status_enum AS ENUM ('PENDING', 'READY', 'RUNNING', 'VALIDATING', 'REFINING', 'COMPLETED', 'FAILED', 'SKIPPED');
 
 CREATE TABLE IF NOT EXISTS agent_tasks (
@@ -132,7 +134,7 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
 
     node_id             VARCHAR(50) NOT NULL, -- 图谱中的节点ID
     name                VARCHAR(200),
-    task_type           VARCHAR(50) NOT NULL, -- 'WORKER', 'CRITIC'
+    task_type           task_type_enum NOT NULL,
 
     status              task_status_enum NOT NULL DEFAULT 'PENDING',
 
@@ -187,6 +189,7 @@ CREATE TABLE IF NOT EXISTS task_executions (
     is_valid            BOOLEAN,
     validation_feedback TEXT,
     error_message       TEXT,
+    error_type          VARCHAR(64),
 
     created_at          TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -197,7 +200,27 @@ CREATE INDEX IF NOT EXISTS idx_executions_lookup ON task_executions(task_id, att
 COMMENT ON TABLE task_executions IS '任务执行记录表：存储每次执行的详细历史';
 
 -- =====================================================
--- 7. Agent 工具目录表
+-- 7. Plan/Task 事件表
+-- =====================================================
+DROP TYPE IF EXISTS plan_task_event_type_enum CASCADE;
+CREATE TYPE plan_task_event_type_enum AS ENUM ('TASK_STARTED', 'TASK_COMPLETED', 'TASK_LOG', 'PLAN_FINISHED');
+
+CREATE TABLE IF NOT EXISTS plan_task_events (
+    id                  BIGSERIAL PRIMARY KEY,
+    plan_id             BIGINT NOT NULL,
+    task_id             BIGINT,
+    event_type          plan_task_event_type_enum NOT NULL,
+    event_data          JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_plan_task_events_plan_id_id ON plan_task_events(plan_id, id);
+CREATE INDEX IF NOT EXISTS idx_plan_task_events_created_at ON plan_task_events(created_at);
+
+COMMENT ON TABLE plan_task_events IS 'Plan/Task 事件流表：用于 SSE 增量分发与审计';
+
+-- =====================================================
+-- 8. Agent 工具目录表
 -- =====================================================
 CREATE TABLE IF NOT EXISTS agent_tool_catalog (
     id                  BIGSERIAL PRIMARY KEY,
@@ -218,7 +241,7 @@ CREATE TABLE IF NOT EXISTS agent_tool_catalog (
 COMMENT ON TABLE agent_tool_catalog IS 'Agent 工具目录：注册和管理可用的工具/函数';
 
 -- =====================================================
--- 8. Agent 工具关联表
+-- 9. Agent 工具关联表
 -- =====================================================
 CREATE TABLE IF NOT EXISTS agent_tools (
     id                  BIGSERIAL PRIMARY KEY,
@@ -239,7 +262,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_tools_tool ON agent_tools(tool_id);
 COMMENT ON TABLE agent_tools IS 'Agent 与工具的关联表：定义哪些 Agent 可以使用哪些工具';
 
 -- =====================================================
--- 9. 向量存储注册表
+-- 10. 向量存储注册表
 -- =====================================================
 CREATE TABLE IF NOT EXISTS vector_store_registry (
     id                  BIGSERIAL PRIMARY KEY,

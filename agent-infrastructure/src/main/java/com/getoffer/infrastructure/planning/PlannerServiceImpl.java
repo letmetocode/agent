@@ -11,6 +11,7 @@ import com.getoffer.infrastructure.util.JsonCodec;
 import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.types.enums.ResponseCode;
 import com.getoffer.types.enums.TaskStatusEnum;
+import com.getoffer.types.enums.TaskTypeEnum;
 import com.getoffer.types.exception.AppException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -278,9 +279,15 @@ public class PlannerServiceImpl implements PlannerService {
             if (StringUtils.isBlank(nodeId)) {
                 throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "Node id is required");
             }
-            String taskType = getString(node, "type", "taskType", "task_type");
-            if (StringUtils.isBlank(taskType)) {
-                taskType = "WORKER";
+            String rawTaskType = getString(node, "type", "taskType", "task_type");
+            TaskTypeEnum taskType = TaskTypeEnum.WORKER;
+            if (StringUtils.isNotBlank(rawTaskType)) {
+                try {
+                    taskType = TaskTypeEnum.fromText(rawTaskType);
+                } catch (IllegalArgumentException ex) {
+                    throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(),
+                            "Unsupported task type: " + rawTaskType);
+                }
             }
             String name = getString(node, "name", "title", "label");
             List<String> deps = dependencies.getOrDefault(nodeId, Collections.emptyList());

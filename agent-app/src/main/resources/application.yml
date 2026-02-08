@@ -3,3 +3,55 @@ spring:
     name: agent-app
   profiles:
     active: dev
+
+# 调度器隔离配置，避免长耗时执行阻塞状态推进守护任务
+scheduling:
+  task-executor:
+    pool-size: 1
+    thread-name-prefix: task-executor-scheduler-
+    await-termination-seconds: 30
+  daemon:
+    pool-size: 2
+    thread-name-prefix: daemon-scheduler-
+    await-termination-seconds: 30
+
+executor:
+  claim:
+    # 每轮最多 claim 数量，最终仍受 worker 可用槽位限制
+    max-per-tick: 100
+    # true: READY-like 优先后再 REFINING；false: 先 REFINING 后 READY-like
+    ready-first: true
+    # 每轮最多给 REFINING 的配额比例（0~1）
+    refining-max-ratio: 0.3
+    # 每轮给 REFINING 的最小保障
+    refining-min-per-tick: 1
+  worker:
+    core-size: 8
+    max-size: 8
+    queue-capacity: 0
+    keep-alive-seconds: 60
+    rejection-policy: AbortPolicy
+    thread-name-prefix: task-exec-worker-
+  observability:
+    audit-log-enabled: true
+    audit-success-log-enabled: false
+
+agent:
+  tool:
+    config:
+      # 兼容回滚开关：true 时保留 OpenAiChatOptions 工具字段写入
+      legacy-options-write: false
+    query:
+      # 批量查询分片大小，避免 IN 过大
+      batch-size: 500
+      # 工具查询慢日志阈值
+      slow-threshold-ms: 200
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

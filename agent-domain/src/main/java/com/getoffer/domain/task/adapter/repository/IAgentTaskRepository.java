@@ -4,6 +4,7 @@ import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.types.enums.TaskStatusEnum;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -68,6 +69,22 @@ public interface IAgentTaskRepository {
      * 原子 claim 可执行任务（READY/REFINING/过期RUNNING -> RUNNING）。
      */
     List<AgentTaskEntity> claimExecutableTasks(String claimOwner, int limit, int leaseSeconds);
+
+    /**
+     * 原子 claim READY + 过期 RUNNING 任务（READY 优先路径）。
+     * 默认回退到 claimExecutableTasks，便于兼容旧实现与测试替身。
+     */
+    default List<AgentTaskEntity> claimReadyLikeTasks(String claimOwner, int limit, int leaseSeconds) {
+        return claimExecutableTasks(claimOwner, limit, leaseSeconds);
+    }
+
+    /**
+     * 原子 claim REFINING 任务。
+     * 默认返回空，避免旧实现在无显式支持时破坏 READY 优先语义。
+     */
+    default List<AgentTaskEntity> claimRefiningTasks(String claimOwner, int limit, int leaseSeconds) {
+        return Collections.emptyList();
+    }
 
     /**
      * 续约 claim lease。

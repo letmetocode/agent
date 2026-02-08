@@ -77,6 +77,20 @@ public interface AgentTaskDao {
                                            @Param("leaseSeconds") Integer leaseSeconds);
 
     /**
+     * 原子 claim READY + 过期 RUNNING（READY 优先路径）。
+     */
+    List<AgentTaskPO> claimReadyLikeTasks(@Param("claimOwner") String claimOwner,
+                                          @Param("limit") Integer limit,
+                                          @Param("leaseSeconds") Integer leaseSeconds);
+
+    /**
+     * 原子 claim REFINING。
+     */
+    List<AgentTaskPO> claimRefiningTasks(@Param("claimOwner") String claimOwner,
+                                         @Param("limit") Integer limit,
+                                         @Param("leaseSeconds") Integer leaseSeconds);
+
+    /**
      * 续约 claim lease。
      */
     int renewClaimLease(@Param("id") Long id,

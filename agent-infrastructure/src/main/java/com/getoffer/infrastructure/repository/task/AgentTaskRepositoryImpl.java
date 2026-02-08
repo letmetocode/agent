@@ -167,6 +167,30 @@ public class AgentTaskRepositoryImpl implements IAgentTaskRepository {
     }
 
     @Override
+    public List<AgentTaskEntity> claimReadyLikeTasks(String claimOwner, int limit, int leaseSeconds) {
+        if (claimOwner == null || claimOwner.trim().isEmpty() || limit <= 0 || leaseSeconds <= 0) {
+            return Collections.emptyList();
+        }
+        List<AgentTaskPO> pos = agentTaskDao.claimReadyLikeTasks(claimOwner, limit, leaseSeconds);
+        if (pos == null || pos.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return pos.stream().map(this::toEntity).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<AgentTaskEntity> claimRefiningTasks(String claimOwner, int limit, int leaseSeconds) {
+        if (claimOwner == null || claimOwner.trim().isEmpty() || limit <= 0 || leaseSeconds <= 0) {
+            return Collections.emptyList();
+        }
+        List<AgentTaskPO> pos = agentTaskDao.claimRefiningTasks(claimOwner, limit, leaseSeconds);
+        if (pos == null || pos.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return pos.stream().map(this::toEntity).collect(Collectors.toList());
+    }
+
+    @Override
     public boolean renewClaimLease(Long taskId, String claimOwner, Integer executionAttempt, int leaseSeconds) {
         if (taskId == null || executionAttempt == null || leaseSeconds <= 0
                 || claimOwner == null || claimOwner.trim().isEmpty()) {
@@ -260,6 +284,7 @@ public class AgentTaskRepositoryImpl implements IAgentTaskRepository {
         entity.setClaimAt(po.getClaimAt());
         entity.setLeaseUntil(po.getLeaseUntil());
         entity.setExecutionAttempt(po.getExecutionAttempt());
+        entity.setLeaseReclaimed(po.getLeaseReclaimed());
         entity.setVersion(po.getVersion());
         entity.setCreatedAt(po.getCreatedAt());
         entity.setUpdatedAt(po.getUpdatedAt());
@@ -287,6 +312,7 @@ public class AgentTaskRepositoryImpl implements IAgentTaskRepository {
                 .claimAt(entity.getClaimAt())
                 .leaseUntil(entity.getLeaseUntil())
                 .executionAttempt(entity.getExecutionAttempt())
+                .leaseReclaimed(entity.getLeaseReclaimed())
                 .version(entity.getVersion())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())

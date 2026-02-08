@@ -148,6 +148,7 @@ public class TaskExecutionRepositoryImpl implements ITaskExecutionRepository {
         entity.setIsValid(po.getIsValid());
         entity.setValidationFeedback(po.getValidationFeedback());
         entity.setErrorMessage(po.getErrorMessage());
+        entity.setErrorType(po.getErrorType());
         entity.setCreatedAt(po.getCreatedAt());
 
         // JSONB 字段转换
@@ -176,6 +177,7 @@ public class TaskExecutionRepositoryImpl implements ITaskExecutionRepository {
                 .isValid(entity.getIsValid())
                 .validationFeedback(entity.getValidationFeedback())
                 .errorMessage(entity.getErrorMessage())
+                .errorType(entity.getErrorType())
                 .createdAt(entity.getCreatedAt())
                 .build();
 

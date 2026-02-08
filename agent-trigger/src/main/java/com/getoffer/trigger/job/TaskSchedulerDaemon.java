@@ -25,7 +25,7 @@ public class TaskSchedulerDaemon {
         this.agentTaskRepository = agentTaskRepository;
     }
 
-    @Scheduled(fixedDelayString = "${scheduler.poll-interval-ms:1000}")
+    @Scheduled(fixedDelayString = "${scheduler.poll-interval-ms:1000}", scheduler = "daemonScheduler")
     public void promotePendingTasks() {
         List<AgentTaskEntity> pendingTasks = agentTaskRepository.findByStatus(TaskStatusEnum.PENDING);
         if (pendingTasks == null || pendingTasks.isEmpty()) {

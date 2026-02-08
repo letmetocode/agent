@@ -133,13 +133,13 @@ public class AgentFactoryIntegrationTest {
                                           McpClientManager mcpClientManager,
                                           JsonCodec jsonCodec) {
             return new AgentFactoryImpl(agentRegistryRepository,
-                    agentToolRelationRepository,
                     agentToolCatalogRepository,
                     chatModelProvider,
                     beanFactory,
                     agentAdvisorFactory,
                     mcpClientManager,
-                    jsonCodec);
+                    jsonCodec,
+                    false);
         }
     }
 
@@ -378,6 +378,16 @@ public class AgentFactoryIntegrationTest {
 
         @Override
         public List<AgentToolCatalogEntity> findByType(ToolTypeEnum type) {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public List<AgentToolCatalogEntity> findEnabledByAgentId(Long agentId) {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public List<AgentToolCatalogEntity> findByIds(java.util.Collection<Long> ids) {
             return Collections.emptyList();
         }
 

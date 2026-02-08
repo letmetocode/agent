@@ -4,7 +4,9 @@ import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
+import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import com.getoffer.types.enums.PlanStatusEnum;
+import com.getoffer.trigger.event.PlanTaskEventPublisher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -26,21 +28,24 @@ public class PlanStatusDaemon {
 
     private final IAgentPlanRepository agentPlanRepository;
     private final IAgentTaskRepository agentTaskRepository;
+    private final PlanTaskEventPublisher planTaskEventPublisher;
 
     private final int batchSize;
     private final int maxPlansPerRound;
 
     public PlanStatusDaemon(IAgentPlanRepository agentPlanRepository,
                             IAgentTaskRepository agentTaskRepository,
+                            PlanTaskEventPublisher planTaskEventPublisher,
                             @Value("${plan-status.batch-size:200}") int batchSize,
                             @Value("${plan-status.max-plans-per-round:1000}") int maxPlansPerRound) {
         this.agentPlanRepository = agentPlanRepository;
         this.agentTaskRepository = agentTaskRepository;
+        this.planTaskEventPublisher = planTaskEventPublisher;
         this.batchSize = batchSize > 0 ? batchSize : 200;
         this.maxPlansPerRound = maxPlansPerRound > 0 ? maxPlansPerRound : 1000;
     }
 
-    @Scheduled(fixedDelayString = "${plan-status.poll-interval-ms:1000}")
+    @Scheduled(fixedDelayString = "${plan-status.poll-interval-ms:1000}", scheduler = "daemonScheduler")
     public void syncPlanStatuses() {
         List<AgentPlanEntity> readyPlans = loadPlansByStatus(PlanStatusEnum.READY, maxPlansPerRound);
         int remaining = Math.max(0, maxPlansPerRound - readyPlans.size());
@@ -154,6 +159,9 @@ public class PlanStatusDaemon {
                 return;
             }
             agentPlanRepository.update(plan);
+            if (targetStatus == PlanStatusEnum.COMPLETED || targetStatus == PlanStatusEnum.FAILED) {
+                publishPlanFinishedEvent(plan);
+            }
             log.debug("Plan status advanced by task aggregate. planId={}, from={}, to={}",
                     plan.getId(), beforeStatus, targetStatus);
         } catch (RuntimeException ex) {
@@ -170,6 +178,20 @@ public class PlanStatusDaemon {
     private boolean isOptimisticLock(RuntimeException ex) {
         String message = ex.getMessage();
         return message != null && message.contains("Optimistic lock");
+    }
+
+    private void publishPlanFinishedEvent(AgentPlanEntity plan) {
+        if (plan == null || plan.getId() == null) {
+            return;
+        }
+        try {
+            Map<String, Object> data = new HashMap<>();
+            data.put("planId", plan.getId());
+            data.put("status", plan.getStatus() == null ? null : plan.getStatus().name());
+            planTaskEventPublisher.publish(PlanTaskEventTypeEnum.PLAN_FINISHED, plan.getId(), null, data);
+        } catch (Exception ex) {
+            log.warn("Failed to publish plan finished event. planId={}, error={}", plan.getId(), ex.getMessage());
+        }
     }
 
     private PlanAggregateStatus resolveAggregateStatus(PlanTaskStatusStat stat) {

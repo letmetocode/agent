@@ -1,6 +1,7 @@
 package com.getoffer.infrastructure.dao.po;
 
 import com.getoffer.types.enums.TaskStatusEnum;
+import com.getoffer.types.enums.TaskTypeEnum;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -41,9 +42,9 @@ public class AgentTaskPO {
     private String name;
 
     /**
-     * 任务类型 ('WORKER', 'CRITIC')
+     * 任务类型
      */
-    private String taskType;
+    private TaskTypeEnum taskType;
 
     /**
      * 状态
@@ -99,6 +100,11 @@ public class AgentTaskPO {
      * 执行代际（每次 claim 递增）
      */
     private Integer executionAttempt;
+
+    /**
+     * 是否由过期 lease 重领（仅查询映射字段，不持久化）
+     */
+    private Boolean leaseReclaimed;
 
     /**
      * 版本号 (乐观锁)

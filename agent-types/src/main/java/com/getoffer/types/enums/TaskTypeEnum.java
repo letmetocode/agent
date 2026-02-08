@@ -32,14 +32,22 @@ public enum TaskTypeEnum {
     }
 
     public static TaskTypeEnum fromCode(String code) {
-        if (code == null) {
+        return fromText(code);
+    }
+
+    public static TaskTypeEnum fromText(String text) {
+        if (text == null) {
+            return null;
+        }
+        String normalized = text.trim();
+        if (normalized.isEmpty()) {
             return null;
         }
         for (TaskTypeEnum type : TaskTypeEnum.values()) {
-            if (type.code.equals(code)) {
+            if (type.code.equalsIgnoreCase(normalized) || type.name().equalsIgnoreCase(normalized)) {
                 return type;
             }
         }
-        throw new IllegalArgumentException("Unknown task type code: " + code);
+        throw new IllegalArgumentException("Unknown task type: " + text);
     }
 }

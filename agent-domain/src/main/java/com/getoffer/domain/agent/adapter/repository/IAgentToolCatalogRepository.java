@@ -3,6 +3,7 @@ package com.getoffer.domain.agent.adapter.repository;
 import com.getoffer.domain.agent.model.entity.AgentToolCatalogEntity;
 import com.getoffer.types.enums.ToolTypeEnum;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -47,6 +48,16 @@ public interface IAgentToolCatalogRepository {
      * 根据类型查询
      */
     List<AgentToolCatalogEntity> findByType(ToolTypeEnum type);
+
+    /**
+     * 按 Agent 查询启用工具（含关联启用状态），并按优先级稳定排序。
+     */
+    List<AgentToolCatalogEntity> findEnabledByAgentId(Long agentId);
+
+    /**
+     * 按 ID 集合查询。
+     */
+    List<AgentToolCatalogEntity> findByIds(Collection<Long> ids);
 
     /**
      * 检查工具名是否存在

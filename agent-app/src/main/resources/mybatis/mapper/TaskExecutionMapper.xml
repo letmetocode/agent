@@ -14,13 +14,14 @@
         <result column="is_valid" property="isValid" jdbcType="BOOLEAN"/>
         <result column="validation_feedback" property="validationFeedback" jdbcType="VARCHAR"/>
         <result column="error_message" property="errorMessage" jdbcType="VARCHAR"/>
+        <result column="error_type" property="errorType" jdbcType="VARCHAR"/>
         <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
     </resultMap>
 
     <sql id="Base_Column_List">
         id, task_id, attempt_number, prompt_snapshot, llm_response_raw,
         model_name, token_usage, execution_time_ms, is_valid,
-        validation_feedback, error_message, created_at
+        validation_feedback, error_message, error_type, created_at
     </sql>
 
     <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.TaskExecutionPO"
@@ -28,11 +29,11 @@
         INSERT INTO task_executions (
             task_id, attempt_number, prompt_snapshot, llm_response_raw,
             model_name, token_usage, execution_time_ms, is_valid,
-            validation_feedback, error_message, created_at
+            validation_feedback, error_message, error_type, created_at
         ) VALUES (
             #{taskId}, #{attemptNumber}, #{promptSnapshot}, #{llmResponseRaw},
             #{modelName}, #{tokenUsage}::jsonb, #{executionTimeMs}, #{isValid},
-            #{validationFeedback}, #{errorMessage}, CURRENT_TIMESTAMP
+            #{validationFeedback}, #{errorMessage}, #{errorType}, CURRENT_TIMESTAMP
         )
     </insert>
 
@@ -82,12 +83,12 @@
         INSERT INTO task_executions (
             task_id, attempt_number, prompt_snapshot, llm_response_raw,
             model_name, token_usage, execution_time_ms, is_valid,
-            validation_feedback, error_message, created_at
+            validation_feedback, error_message, error_type, created_at
         ) VALUES
         <foreach collection="list" item="item" separator=",">
             (#{item.taskId}, #{item.attemptNumber}, #{item.promptSnapshot}, #{item.llmResponseRaw},
              #{item.modelName}, #{item.tokenUsage}::jsonb, #{item.executionTimeMs}, #{item.isValid},
-             #{item.validationFeedback}, #{item.errorMessage}, CURRENT_TIMESTAMP)
+             #{item.validationFeedback}, #{item.errorMessage}, #{item.errorType}, CURRENT_TIMESTAMP)
         </foreach>
     </insert>
 

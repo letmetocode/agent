@@ -1,6 +1,7 @@
 package com.getoffer.domain.task.model.entity;
 
 import com.getoffer.types.enums.TaskStatusEnum;
+import com.getoffer.types.enums.TaskTypeEnum;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -37,9 +38,9 @@ public class AgentTaskEntity {
     private String name;
 
     /**
-     * 任务类型 ('WORKER', 'CRITIC')
+     * 任务类型
      */
-    private String taskType;
+    private TaskTypeEnum taskType;
 
     /**
      * 状态
@@ -97,6 +98,11 @@ public class AgentTaskEntity {
     private Integer executionAttempt;
 
     /**
+     * 是否由过期 lease 重领（仅运行时观测字段，不持久化）
+     */
+    private Boolean leaseReclaimed;
+
+    /**
      * 版本号 (乐观锁)
      */
     private Integer version;
@@ -121,7 +127,7 @@ public class AgentTaskEntity {
         if (nodeId == null || nodeId.trim().isEmpty()) {
             throw new IllegalStateException("Node ID cannot be empty");
         }
-        if (taskType == null || taskType.trim().isEmpty()) {
+        if (taskType == null) {
             throw new IllegalStateException("Task type cannot be empty");
         }
         if (status == null) {
@@ -287,14 +293,14 @@ public class AgentTaskEntity {
      * 检查是否为 Worker 任务
      */
     public boolean isWorkerTask() {
-        return "WORKER".equalsIgnoreCase(this.taskType);
+        return this.taskType == TaskTypeEnum.WORKER;
     }
 
     /**
      * 检查是否为 Critic 任务
      */
     public boolean isCriticTask() {
-        return "CRITIC".equalsIgnoreCase(this.taskType);
+        return this.taskType == TaskTypeEnum.CRITIC;
     }
 
     /**

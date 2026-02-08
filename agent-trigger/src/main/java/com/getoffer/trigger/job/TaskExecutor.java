@@ -10,24 +10,44 @@ import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
+import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import com.getoffer.types.enums.TaskStatusEnum;
+import com.getoffer.types.enums.TaskTypeEnum;
+import com.getoffer.trigger.event.PlanTaskEventPublisher;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
+import org.springframework.ai.chat.metadata.Usage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.lang.management.ManagementFactory;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -38,9 +58,13 @@ import java.util.concurrent.atomic.AtomicLong;
 public class TaskExecutor {
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<Map<String, Object>>() {};
+    private static final String METRIC_EXECUTION_TOTAL = "agent.task.execution.total";
+    private static final String METRIC_EXECUTION_DURATION = "agent.task.execution.duration";
+    private static final String METRIC_EXECUTION_FAILURE_TOTAL = "agent.task.execution.failure.total";
 
     private final IAgentTaskRepository agentTaskRepository;
     private final IAgentPlanRepository agentPlanRepository;
+    private final PlanTaskEventPublisher planTaskEventPublisher;
     private final ITaskExecutionRepository taskExecutionRepository;
     private final IAgentFactory agentFactory;
     private final ObjectMapper objectMapper;
@@ -48,83 +72,406 @@ public class TaskExecutor {
     private final int claimBatchSize;
     private final int claimLeaseSeconds;
     private final int claimHeartbeatSeconds;
+    private final int claimMaxPerTick;
+    private final boolean claimReadyFirst;
+    private final double refiningMaxRatio;
+    private final int refiningMinPerTick;
+    private final ThreadPoolExecutor taskExecutionWorker;
+    private final Semaphore dispatchPermits;
+    private final AtomicInteger inFlightTasks;
     private final ScheduledExecutorService heartbeatScheduler;
     private final AtomicLong monitorTick;
+    private final AtomicLong expiredRunningGauge;
+    private final MeterRegistry meterRegistry;
+    private final Counter claimPollCounter;
+    private final Counter claimSuccessCounter;
+    private final Counter claimEmptyCounter;
+    private final Counter claimNullOnlyCounter;
+    private final Counter claimReclaimedCounter;
+    private final Counter claimReadyCounter;
+    private final Counter claimRefiningCounter;
+    private final Counter claimReadyFallbackCounter;
+    private final Counter claimRefiningFallbackCounter;
+    private final DistributionSummary claimAttemptSummary;
+    private final Counter heartbeatSuccessCounter;
+    private final Counter heartbeatGuardRejectCounter;
+    private final Counter heartbeatErrorCounter;
+    private final Counter claimedUpdateSuccessCounter;
+    private final Counter claimedUpdateGuardRejectCounter;
+    private final Counter claimedUpdateErrorCounter;
+    private final Counter dispatchSuccessCounter;
+    private final Counter dispatchRejectCounter;
+    private final DistributionSummary claimToStartLatencySummary;
+    private final DistributionSummary executionRetrySummary;
+    private final Counter expiredRunningDetectedCounter;
+    private final Counter expiredRunningCheckErrorCounter;
+    private final boolean auditLogEnabled;
+    private final boolean auditSuccessLogEnabled;
 
     public TaskExecutor(IAgentTaskRepository agentTaskRepository,
                         IAgentPlanRepository agentPlanRepository,
+                        PlanTaskEventPublisher planTaskEventPublisher,
                         ITaskExecutionRepository taskExecutionRepository,
                         IAgentFactory agentFactory,
                         ObjectMapper objectMapper,
+                        @Qualifier("taskExecutionWorker") ThreadPoolExecutor taskExecutionWorker,
+                        ObjectProvider<MeterRegistry> meterRegistryProvider,
                         @Value("${executor.instance-id:}") String configuredInstanceId,
                         @Value("${executor.claim.batch-size:100}") int claimBatchSize,
+                        @Value("${executor.claim.max-per-tick:100}") int claimMaxPerTick,
+                        @Value("${executor.claim.ready-first:true}") boolean claimReadyFirst,
+                        @Value("${executor.claim.refining-max-ratio:0.3}") double refiningMaxRatio,
+                        @Value("${executor.claim.refining-min-per-tick:1}") int refiningMinPerTick,
                         @Value("${executor.claim.lease-seconds:120}") int claimLeaseSeconds,
-                        @Value("${executor.claim.heartbeat-seconds:30}") int claimHeartbeatSeconds) {
+                        @Value("${executor.claim.heartbeat-seconds:30}") int claimHeartbeatSeconds,
+                        @Value("${executor.observability.audit-log-enabled:true}") boolean auditLogEnabled,
+                        @Value("${executor.observability.audit-success-log-enabled:false}") boolean auditSuccessLogEnabled) {
         this.agentTaskRepository = agentTaskRepository;
         this.agentPlanRepository = agentPlanRepository;
+        this.planTaskEventPublisher = planTaskEventPublisher;
         this.taskExecutionRepository = taskExecutionRepository;
         this.agentFactory = agentFactory;
         this.objectMapper = objectMapper;
+        this.taskExecutionWorker = taskExecutionWorker;
+        this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
         this.claimOwner = resolveInstanceId(configuredInstanceId);
         this.claimBatchSize = claimBatchSize > 0 ? claimBatchSize : 100;
+        this.claimMaxPerTick = claimMaxPerTick > 0 ? claimMaxPerTick : this.claimBatchSize;
+        this.claimReadyFirst = claimReadyFirst;
+        double normalizedRatio = Double.isNaN(refiningMaxRatio) || Double.isInfinite(refiningMaxRatio) ? 0.3D : refiningMaxRatio;
+        this.refiningMaxRatio = Math.max(0D, Math.min(normalizedRatio, 1D));
+        this.refiningMinPerTick = Math.max(refiningMinPerTick, 0);
         this.claimLeaseSeconds = claimLeaseSeconds > 0 ? claimLeaseSeconds : 120;
         this.claimHeartbeatSeconds = claimHeartbeatSeconds > 0 ? claimHeartbeatSeconds : 30;
+        int maxInflight = Math.max(taskExecutionWorker.getMaximumPoolSize(), 1);
+        this.dispatchPermits = new Semaphore(maxInflight);
+        this.inFlightTasks = new AtomicInteger(0);
         this.heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread thread = new Thread(r, "task-claim-heartbeat");
             thread.setDaemon(true);
             return thread;
         });
         this.monitorTick = new AtomicLong(0L);
+        this.expiredRunningGauge = new AtomicLong(0L);
+        this.claimPollCounter = counter("agent.task.claim.poll.total");
+        this.claimSuccessCounter = counter("agent.task.claim.success.total");
+        this.claimEmptyCounter = counter("agent.task.claim.empty.total");
+        this.claimNullOnlyCounter = counter("agent.task.claim.null_only.total");
+        this.claimReclaimedCounter = counter("agent.task.claim.reclaimed.total");
+        this.claimReadyCounter = counter("agent.task.claim.ready.count");
+        this.claimRefiningCounter = counter("agent.task.claim.refining.count");
+        this.claimReadyFallbackCounter = counter("agent.task.claim.ready.fallback.count");
+        this.claimRefiningFallbackCounter = counter("agent.task.claim.refining.fallback.count");
+        this.claimAttemptSummary = DistributionSummary.builder("agent.task.claim.execution_attempt")
+                .description("Claim 成功任务的 execution_attempt 分布")
+                .baseUnit("attempt")
+                .register(meterRegistry);
+        this.heartbeatSuccessCounter = counter("agent.task.heartbeat.success.total");
+        this.heartbeatGuardRejectCounter = counter("agent.task.heartbeat.guard_reject.total");
+        this.heartbeatErrorCounter = counter("agent.task.heartbeat.error.total");
+        this.claimedUpdateSuccessCounter = counter("agent.task.claimed_update.success.total");
+        this.claimedUpdateGuardRejectCounter = counter("agent.task.claimed_update.guard_reject.total");
+        this.claimedUpdateErrorCounter = counter("agent.task.claimed_update.error.total");
+        this.dispatchSuccessCounter = counter("agent.task.dispatch.success.total");
+        this.dispatchRejectCounter = counter("agent.task.dispatch.reject.total");
+        this.claimToStartLatencySummary = DistributionSummary.builder("agent.task.claim_to_start.latency")
+                .description("任务 claim 到执行开始的延迟分布")
+                .baseUnit("ms")
+                .register(meterRegistry);
+        this.executionRetrySummary = DistributionSummary.builder("agent.task.execution.retry.count")
+                .description("任务执行时的 current_retry 分布")
+                .baseUnit("retry")
+                .register(meterRegistry);
+        this.expiredRunningDetectedCounter = counter("agent.task.expired_running.detected.total");
+        this.expiredRunningCheckErrorCounter = counter("agent.task.expired_running.check_error.total");
+        this.auditLogEnabled = auditLogEnabled;
+        this.auditSuccessLogEnabled = auditSuccessLogEnabled;
+        Gauge.builder("agent.task.expired_running.current", expiredRunningGauge, AtomicLong::get)
+                .description("当前过期 RUNNING 任务数量")
+                .register(meterRegistry);
+        Gauge.builder("agent.task.worker.inflight.current", inFlightTasks, AtomicInteger::get)
+                .description("任务执行线程池当前 in-flight 数量")
+                .register(meterRegistry);
+        Gauge.builder("agent.task.worker.queue.current", taskExecutionWorker, executor -> executor.getQueue().size())
+                .description("任务执行线程池当前排队任务数量")
+                .register(meterRegistry);
     }
 
-    @Scheduled(fixedDelayString = "${executor.poll-interval-ms:1000}")
+    @Scheduled(fixedDelayString = "${executor.poll-interval-ms:1000}", scheduler = "taskExecutorScheduler")
     public void executeReadyTasks() {
-        List<AgentTaskEntity> tasks = agentTaskRepository.claimExecutableTasks(claimOwner, claimBatchSize, claimLeaseSeconds);
-        if (tasks == null || tasks.isEmpty()) {
+        int claimLimit = resolveClaimLimit();
+        if (claimLimit <= 0) {
             emitExpiredRunningMetric();
             return;
         }
+
+        int reservedSlots = reserveDispatchSlots(claimLimit);
+        if (reservedSlots <= 0) {
+            emitExpiredRunningMetric();
+            return;
+        }
+
+        List<AgentTaskEntity> claimedTasks = claimTasks(reservedSlots);
+        if (claimedTasks.isEmpty()) {
+            releaseDispatchSlots(reservedSlots);
+            emitExpiredRunningMetric();
+            return;
+        }
+
+        int redundantSlots = reservedSlots - claimedTasks.size();
+        if (redundantSlots > 0) {
+            releaseDispatchSlots(redundantSlots);
+        }
+        for (AgentTaskEntity task : claimedTasks) {
+            if (!dispatchClaimedTask(task)) {
+                releaseDispatchSlots(1);
+            }
+        }
+
+        emitExpiredRunningMetric();
+    }
+
+    private int resolveClaimLimit() {
+        int perTickLimit = Math.max(Math.min(claimBatchSize, claimMaxPerTick), 0);
+        if (perTickLimit <= 0) {
+            return 0;
+        }
+        return Math.min(perTickLimit, dispatchPermits.availablePermits());
+    }
+
+    private int reserveDispatchSlots(int expected) {
+        int limit = Math.max(expected, 0);
+        int reserved = 0;
+        for (int i = 0; i < limit; i++) {
+            if (!dispatchPermits.tryAcquire()) {
+                break;
+            }
+            reserved++;
+        }
+        return reserved;
+    }
+
+    private void releaseDispatchSlots(int count) {
+        if (count > 0) {
+            dispatchPermits.release(count);
+        }
+    }
+
+    private List<AgentTaskEntity> claimTasks(int limit) {
+        claimPollCounter.increment();
+        int normalizedLimit = Math.max(limit, 0);
+        if (normalizedLimit <= 0) {
+            claimEmptyCounter.increment();
+            return Collections.emptyList();
+        }
+
+        int refiningQuota = resolveRefiningQuota(normalizedLimit);
+        int readyQuota = Math.max(normalizedLimit - refiningQuota, 0);
+        List<AgentTaskEntity> claimed = new ArrayList<>(normalizedLimit);
+
+        if (claimReadyFirst) {
+            claimTasksByType(claimed, readyQuota, true, false);
+            claimTasksByType(claimed, refiningQuota, false, false);
+        } else {
+            claimTasksByType(claimed, refiningQuota, false, false);
+            claimTasksByType(claimed, readyQuota, true, false);
+        }
+
+        int remaining = normalizedLimit - claimed.size();
+        if (remaining > 0) {
+            if (claimReadyFirst) {
+                claimTasksByType(claimed, remaining, true, true);
+                remaining = normalizedLimit - claimed.size();
+                if (remaining > 0) {
+                    claimTasksByType(claimed, remaining, false, true);
+                }
+            } else {
+                claimTasksByType(claimed, remaining, false, true);
+                remaining = normalizedLimit - claimed.size();
+                if (remaining > 0) {
+                    claimTasksByType(claimed, remaining, true, true);
+                }
+            }
+        }
+
+        if (claimed.isEmpty() && normalizedLimit > 0) {
+            claimEmptyCounter.increment();
+        }
+        return claimed;
+    }
+
+    private int resolveRefiningQuota(int claimLimit) {
+        int normalizedLimit = Math.max(claimLimit, 0);
+        if (normalizedLimit <= 0) {
+            return 0;
+        }
+        int ratioQuota = (int) Math.floor(normalizedLimit * refiningMaxRatio);
+        int minQuota = Math.min(refiningMinPerTick, normalizedLimit);
+        int quota = Math.max(ratioQuota, minQuota);
+        return Math.min(Math.max(quota, 0), normalizedLimit);
+    }
+
+    private void claimTasksByType(List<AgentTaskEntity> claimed,
+                                  int limit,
+                                  boolean readyLike,
+                                  boolean fallback) {
+        int normalizedLimit = Math.max(limit, 0);
+        if (normalizedLimit <= 0) {
+            return;
+        }
+        List<AgentTaskEntity> tasks = readyLike
+                ? agentTaskRepository.claimReadyLikeTasks(claimOwner, normalizedLimit, claimLeaseSeconds)
+                : agentTaskRepository.claimRefiningTasks(claimOwner, normalizedLimit, claimLeaseSeconds);
+        if (tasks == null || tasks.isEmpty()) {
+            return;
+        }
+        int accepted = 0;
         for (AgentTaskEntity task : tasks) {
             if (task == null) {
                 continue;
             }
-            executeTask(task);
+            onTaskClaimed(task);
+            claimed.add(task);
+            accepted++;
+            if (readyLike) {
+                claimReadyCounter.increment();
+            } else {
+                claimRefiningCounter.increment();
+            }
         }
-        emitExpiredRunningMetric();
+        if (accepted == 0) {
+            claimNullOnlyCounter.increment();
+            log.warn("Claim result contains only null task records. owner={}, requestedLimit={}, type={}",
+                    claimOwner, normalizedLimit, readyLike ? "ready_like" : "refining");
+            return;
+        }
+        if (fallback) {
+            if (readyLike) {
+                claimReadyFallbackCounter.increment(accepted);
+            } else {
+                claimRefiningFallbackCounter.increment(accepted);
+            }
+        }
+    }
+
+    private void onTaskClaimed(AgentTaskEntity task) {
+        claimSuccessCounter.increment();
+        if (task.getExecutionAttempt() != null && task.getExecutionAttempt() > 0) {
+            claimAttemptSummary.record(task.getExecutionAttempt());
+        }
+        if (Boolean.TRUE.equals(task.getLeaseReclaimed())) {
+            claimReclaimedCounter.increment();
+            emitTaskAudit("claim_reclaimed", task,
+                    "lease_reclaimed=true");
+        } else if (auditLogEnabled && auditSuccessLogEnabled) {
+            emitTaskAudit("claim_acquired", task, "lease_reclaimed=false");
+        }
+    }
+
+    private boolean dispatchClaimedTask(AgentTaskEntity task) {
+        if (task == null) {
+            return false;
+        }
+        try {
+            taskExecutionWorker.execute(() -> executeClaimedTask(task));
+            dispatchSuccessCounter.increment();
+            if (auditLogEnabled && auditSuccessLogEnabled) {
+                emitTaskAudit("dispatch_submitted", task, "-");
+            }
+            return true;
+        } catch (RejectedExecutionException ex) {
+            dispatchRejectCounter.increment();
+            log.warn("Dispatch rejected by worker executor. taskId={}, owner={}, attempt={}, active={}, queueSize={}, error={}",
+                    task.getId(), task.getClaimOwner(), task.getExecutionAttempt(),
+                    taskExecutionWorker.getActiveCount(),
+                    taskExecutionWorker.getQueue().size(),
+                    ex.getMessage());
+            emitTaskAudit("dispatch_rejected", task, "error_type=rejected");
+            return false;
+        } catch (Exception ex) {
+            dispatchRejectCounter.increment();
+            log.warn("Dispatch failed unexpectedly. taskId={}, owner={}, attempt={}, error={}",
+                    task.getId(), task.getClaimOwner(), task.getExecutionAttempt(), ex.getMessage());
+            emitTaskAudit("dispatch_error", task, "error_type=" + classifyError(ex));
+            return false;
+        }
+    }
+
+    private void executeClaimedTask(AgentTaskEntity task) {
+        inFlightTasks.incrementAndGet();
+        recordClaimToStartLatency(task);
+        if (auditLogEnabled && auditSuccessLogEnabled) {
+            emitTaskAudit("execution_started", task, "-");
+        }
+        publishTaskEvent(PlanTaskEventTypeEnum.TASK_STARTED, task, buildTaskData(task));
+        try {
+            executeTask(task);
+        } finally {
+            inFlightTasks.decrementAndGet();
+            releaseDispatchSlots(1);
+        }
+    }
+
+    private void recordClaimToStartLatency(AgentTaskEntity task) {
+        if (task == null || task.getClaimAt() == null) {
+            return;
+        }
+        long latencyMs = Duration.between(task.getClaimAt(), LocalDateTime.now()).toMillis();
+        if (latencyMs >= 0) {
+            claimToStartLatencySummary.record(latencyMs);
+        }
     }
 
     private void executeTask(AgentTaskEntity task) {
-        if (StringUtils.isBlank(task.getClaimOwner()) || task.getExecutionAttempt() == null) {
-            log.warn("Skip claimed task execution because claim metadata missing. taskId={}, claimOwner={}, attempt={}",
-                    task.getId(), task.getClaimOwner(), task.getExecutionAttempt());
-            return;
-        }
-        AgentPlanEntity plan = agentPlanRepository.findById(task.getPlanId());
-        if (plan == null) {
-            log.warn("Skip task execution because plan not found. taskId={}, planId={}", task.getId(), task.getPlanId());
-            return;
-        }
-        if (!plan.isExecutable()) {
-            log.debug("Skip task execution because plan is not executable. planId={}, status={}", plan.getId(), plan.getStatus());
-            return;
-        }
-
-        boolean criticTask = isCriticTask(task);
-        boolean refining = task.getCurrentRetry() != null && task.getCurrentRetry() > 0;
-        ScheduledFuture<?> heartbeatFuture = startHeartbeat(task);
-
-        long startTime = System.currentTimeMillis();
-        String prompt = criticTask ? buildCriticPrompt(task, plan)
-                : (refining ? buildRefinePrompt(task, plan) : buildPrompt(task, plan));
-        TaskExecutionEntity execution = new TaskExecutionEntity();
-        execution.setTaskId(task.getId());
-        execution.setAttemptNumber(resolveAttemptNumber(task));
-        execution.setPromptSnapshot(prompt);
+        long startedNanos = System.nanoTime();
+        String outcome = "unknown";
+        String errorType = "none";
+        ScheduledFuture<?> heartbeatFuture = null;
+        TaskExecutionEntity execution = null;
 
         try {
+            if (task == null) {
+                outcome = "skip_null_task";
+                return;
+            }
+            if (StringUtils.isBlank(task.getClaimOwner()) || task.getExecutionAttempt() == null) {
+                outcome = "skip_invalid_claim";
+                log.warn("Skip claimed task execution because claim metadata missing. taskId={}, claimOwner={}, attempt={}",
+                        task.getId(), task.getClaimOwner(), task.getExecutionAttempt());
+                return;
+            }
+            AgentPlanEntity plan = agentPlanRepository.findById(task.getPlanId());
+            if (plan == null) {
+                outcome = "skip_plan_not_found";
+                log.warn("Skip task execution because plan not found. taskId={}, planId={}", task.getId(), task.getPlanId());
+                return;
+            }
+            if (!plan.isExecutable()) {
+                outcome = "skip_plan_not_executable";
+                log.debug("Skip task execution because plan is not executable. planId={}, status={}", plan.getId(), plan.getStatus());
+                return;
+            }
+
+            recordRetryDistribution(task);
+            boolean criticTask = isCriticTask(task);
+            boolean refining = task.getCurrentRetry() != null && task.getCurrentRetry() > 0;
+            heartbeatFuture = startHeartbeat(task);
+
+            long startTime = System.currentTimeMillis();
+            String prompt = criticTask ? buildCriticPrompt(task, plan)
+                    : (refining ? buildRefinePrompt(task, plan) : buildPrompt(task, plan));
+            execution = new TaskExecutionEntity();
+            execution.setTaskId(task.getId());
+            execution.setAttemptNumber(resolveAttemptNumber(task));
+            execution.setPromptSnapshot(prompt);
+
             String systemPromptSuffix = buildRetrySystemPrompt(task);
             ChatClient client = resolveAgent(task, plan, systemPromptSuffix);
-            String response = client.prompt(prompt).call().content();
+            ChatClient.CallResponseSpec callResponse = client.prompt(prompt).call();
+            ChatResponse chatResponse = callResponse == null ? null : callResponse.chatResponse();
+            String response = extractContent(chatResponse);
+            execution.setModelName(extractModelName(chatResponse));
+            execution.setTokenUsage(extractTokenUsage(chatResponse));
 
             execution.setLlmResponseRaw(response);
             execution.setExecutionTime(startTime);
@@ -140,11 +487,20 @@ public class TaskExecutor {
                 task.startValidation();
                 if (decision.pass) {
                     task.complete(response);
-                    safeUpdateClaimedTask(task);
+                    boolean updated = safeUpdateClaimedTask(task);
+                    outcome = updated ? "completed" : "update_guard_reject";
+                    if (updated) {
+                        publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, buildTaskData(task));
+                        publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, buildTaskLog(task));
+                    }
                 } else {
                     task.setOutputResult(response);
                     task.resetToPending();
-                    safeUpdateClaimedTask(task);
+                    boolean updated = safeUpdateClaimedTask(task);
+                    outcome = updated ? "critic_rejected" : "update_guard_reject";
+                    if (updated) {
+                        publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, buildTaskLog(task));
+                    }
                     rollbackTarget(plan, task, decision.feedback);
                 }
                 return;
@@ -161,11 +517,17 @@ public class TaskExecutor {
                 task.startValidation();
                 if (!validation.valid) {
                     handleValidationFailure(task, validation.feedback);
+                    outcome = "validation_rejected";
                     return;
                 }
                 task.complete(response);
                 if (safeUpdateClaimedTask(task)) {
                     syncBlackboard(plan, task, response);
+                    outcome = "completed";
+                    publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, buildTaskData(task));
+                    publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, buildTaskLog(task));
+                } else {
+                    outcome = "update_guard_reject";
                 }
             } else {
                 execution.markAsValid("no validator");
@@ -175,19 +537,39 @@ public class TaskExecutor {
                 task.complete(response);
                 if (safeUpdateClaimedTask(task)) {
                     syncBlackboard(plan, task, response);
+                    outcome = "completed";
+                    publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, buildTaskData(task));
+                    publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, buildTaskLog(task));
+                } else {
+                    outcome = "update_guard_reject";
                 }
             }
         } catch (Exception ex) {
+            errorType = classifyError(ex);
+            outcome = "failed";
+            if (execution == null) {
+                execution = new TaskExecutionEntity();
+                execution.setTaskId(task == null ? null : task.getId());
+            }
             execution.recordError(ex.getMessage());
-            execution.setExecutionTime(startTime);
+            execution.setErrorType(errorType);
+            execution.setExecutionTime(System.currentTimeMillis());
             safeSaveExecution(execution);
 
-            task.fail(ex.getMessage());
-            safeUpdateClaimedTask(task);
-            log.warn("Task execution failed. taskId={}, nodeId={}, error={}",
-                    task.getId(), task.getNodeId(), ex.getMessage());
+            if (task != null) {
+                task.fail(ex.getMessage());
+                if (safeUpdateClaimedTask(task)) {
+                    publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, buildTaskData(task));
+                    publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, buildTaskLog(task));
+                }
+                log.warn("Task execution failed. taskId={}, nodeId={}, error={}",
+                        task.getId(), task.getNodeId(), ex.getMessage());
+            } else {
+                log.warn("Task execution failed before task initialization. error={}", ex.getMessage());
+            }
         } finally {
             stopHeartbeat(heartbeatFuture);
+            recordExecutionMetrics(task, outcome, errorType, startedNanos);
         }
     }
 
@@ -268,7 +650,7 @@ public class TaskExecutor {
         if (StringUtils.isNotBlank(agentKey)) {
             return agentFactory.createAgent(agentKey, conversationId, systemPromptSuffix);
         }
-        String fallbackKey = "CRITIC".equalsIgnoreCase(task.getTaskType()) ? "critic" : "worker";
+        String fallbackKey = task.getTaskType() == TaskTypeEnum.CRITIC ? "critic" : "worker";
         return agentFactory.createAgent(fallbackKey, conversationId, systemPromptSuffix);
     }
 
@@ -491,7 +873,7 @@ public class TaskExecutor {
     }
 
     private boolean isCriticTask(AgentTaskEntity task) {
-        return task != null && "CRITIC".equalsIgnoreCase(task.getTaskType());
+        return task != null && task.getTaskType() == TaskTypeEnum.CRITIC;
     }
 
     private String defaultPrompt(AgentTaskEntity task, AgentPlanEntity plan, Map<String, Object> context) {
@@ -693,6 +1075,190 @@ public class TaskExecutor {
         return 1;
     }
 
+    private Counter counter(String name) {
+        return Counter.builder(name).register(meterRegistry);
+    }
+
+    private void recordRetryDistribution(AgentTaskEntity task) {
+        if (task == null) {
+            return;
+        }
+        int retry = task.getCurrentRetry() == null ? 0 : Math.max(task.getCurrentRetry(), 0);
+        executionRetrySummary.record(retry);
+    }
+
+    private void recordExecutionMetrics(AgentTaskEntity task, String outcome, String errorType, long startedNanos) {
+        String result = StringUtils.defaultIfBlank(outcome, "unknown");
+        String taskType = resolveTaskType(task);
+        long durationNanos = Math.max(0L, System.nanoTime() - startedNanos);
+        Timer.builder(METRIC_EXECUTION_DURATION)
+                .tag("result", result)
+                .tag("task_type", taskType)
+                .register(meterRegistry)
+                .record(durationNanos, TimeUnit.NANOSECONDS);
+        meterRegistry.counter(METRIC_EXECUTION_TOTAL,
+                "result", result,
+                "task_type", taskType).increment();
+        if ("failed".equals(result)) {
+            meterRegistry.counter(METRIC_EXECUTION_FAILURE_TOTAL,
+                    "task_type", taskType,
+                    "error_type", StringUtils.defaultIfBlank(errorType, "unknown")).increment();
+        }
+        if (auditLogEnabled && shouldEmitAudit(result)) {
+            emitTaskAudit("execution_" + result, task, "error_type=" + StringUtils.defaultIfBlank(errorType, "none"));
+        }
+    }
+
+    private boolean shouldEmitAudit(String result) {
+        if (auditSuccessLogEnabled) {
+            return true;
+        }
+        return "failed".equals(result)
+                || "validation_rejected".equals(result)
+                || "critic_rejected".equals(result)
+                || "update_guard_reject".equals(result);
+    }
+
+    private String resolveTaskType(AgentTaskEntity task) {
+        if (task == null || task.getTaskType() == null) {
+            return "unknown";
+        }
+        return task.getTaskType().name().toLowerCase();
+    }
+
+    private String classifyError(Throwable throwable) {
+        if (throwable == null) {
+            return "unknown";
+        }
+        String type = throwable.getClass().getSimpleName();
+        String message = StringUtils.defaultString(throwable.getMessage()).toLowerCase();
+        if (message.contains("optimistic lock")) {
+            return "optimistic_lock";
+        }
+        if (message.contains("timeout")) {
+            return "timeout";
+        }
+        if (message.contains("connection") || message.contains("jdbc")
+                || message.contains("sql")) {
+            return "db_error";
+        }
+        if (type.contains("Json") || message.contains("json")) {
+            return "json_error";
+        }
+        return "runtime_error";
+    }
+
+    private String extractModelName(ChatResponse chatResponse) {
+        if (chatResponse == null || chatResponse.getMetadata() == null) {
+            return null;
+        }
+        return chatResponse.getMetadata().getModel();
+    }
+
+    private Map<String, Object> extractTokenUsage(ChatResponse chatResponse) {
+        if (chatResponse == null) {
+            return null;
+        }
+        ChatResponseMetadata metadata = chatResponse.getMetadata();
+        if (metadata == null) {
+            return null;
+        }
+        Usage usage = metadata.getUsage();
+        if (usage == null) {
+            return null;
+        }
+        Map<String, Object> tokenUsage = new HashMap<>();
+        if (usage.getPromptTokens() != null) {
+            tokenUsage.put("prompt_tokens", usage.getPromptTokens());
+        }
+        if (usage.getCompletionTokens() != null) {
+            tokenUsage.put("completion_tokens", usage.getCompletionTokens());
+        }
+        if (usage.getTotalTokens() != null) {
+            tokenUsage.put("total_tokens", usage.getTotalTokens());
+        }
+        Object nativeUsage = usage.getNativeUsage();
+        if (nativeUsage != null) {
+            tokenUsage.put("native_usage", normalizeNativeUsage(nativeUsage));
+        }
+        return tokenUsage.isEmpty() ? null : tokenUsage;
+    }
+
+    private Object normalizeNativeUsage(Object nativeUsage) {
+        if (nativeUsage == null) {
+            return null;
+        }
+        if (nativeUsage instanceof Map<?, ?>) {
+            return nativeUsage;
+        }
+        try {
+            return objectMapper.convertValue(nativeUsage, MAP_TYPE);
+        } catch (IllegalArgumentException ex) {
+            return String.valueOf(nativeUsage);
+        }
+    }
+
+    private String extractContent(ChatResponse chatResponse) {
+        if (chatResponse == null || chatResponse.getResult() == null || chatResponse.getResult().getOutput() == null) {
+            return "";
+        }
+        return StringUtils.defaultString(chatResponse.getResult().getOutput().getText());
+    }
+
+    private Map<String, Object> buildTaskData(AgentTaskEntity task) {
+        Map<String, Object> data = new HashMap<>();
+        if (task == null) {
+            return data;
+        }
+        data.put("planId", task.getPlanId());
+        data.put("taskId", task.getId());
+        data.put("nodeId", task.getNodeId());
+        data.put("status", task.getStatus() == null ? null : task.getStatus().name());
+        data.put("taskType", task.getTaskType() == null ? null : task.getTaskType().name());
+        return data;
+    }
+
+    private Map<String, Object> buildTaskLog(AgentTaskEntity task) {
+        Map<String, Object> data = buildTaskData(task);
+        data.put("output", task == null ? null : task.getOutputResult());
+        return data;
+    }
+
+    private void publishTaskEvent(PlanTaskEventTypeEnum eventType, AgentTaskEntity task, Map<String, Object> data) {
+        if (eventType == null || task == null || task.getPlanId() == null) {
+            return;
+        }
+        try {
+            planTaskEventPublisher.publish(eventType,
+                    task.getPlanId(),
+                    task.getId(),
+                    data == null ? Collections.emptyMap() : data);
+        } catch (Exception ex) {
+            log.warn("Failed to publish task event. planId={}, taskId={}, type={}, error={}",
+                    task.getPlanId(), task.getId(), eventType, ex.getMessage());
+        }
+    }
+
+    private void emitTaskAudit(String event, AgentTaskEntity task, String detail) {
+        if (!auditLogEnabled || StringUtils.isBlank(event)) {
+            return;
+        }
+        String normalizedDetail = StringUtils.defaultIfBlank(detail, "-");
+        if (task == null) {
+            log.info("TASK_AUDIT event={}, taskId=null, planId=null, nodeId=null, owner={}, attempt=null, detail={}",
+                    event, claimOwner, normalizedDetail);
+            return;
+        }
+        log.info("TASK_AUDIT event={}, taskId={}, planId={}, nodeId={}, owner={}, attempt={}, detail={}",
+                event,
+                task.getId(),
+                task.getPlanId(),
+                task.getNodeId(),
+                StringUtils.defaultIfBlank(task.getClaimOwner(), claimOwner),
+                task.getExecutionAttempt(),
+                normalizedDetail);
+    }
+
     private static final class ValidationResult {
         private final boolean valid;
         private final String feedback;
@@ -727,13 +1293,20 @@ public class TaskExecutor {
         try {
             boolean updated = agentTaskRepository.updateClaimedTaskState(task);
             if (!updated) {
+                claimedUpdateGuardRejectCounter.increment();
                 log.debug("Claimed task update skipped by ownership/attempt guard. taskId={}, owner={}, attempt={}, status={}",
                         task.getId(), task.getClaimOwner(), task.getExecutionAttempt(), task.getStatus());
+                emitTaskAudit("claimed_update_guard_reject", task,
+                        "status=" + (task.getStatus() == null ? "null" : task.getStatus().name()));
+            } else {
+                claimedUpdateSuccessCounter.increment();
             }
             return updated;
         } catch (Exception ex) {
+            claimedUpdateErrorCounter.increment();
             log.warn("Failed to update claimed task. taskId={}, owner={}, attempt={}, error={}",
                     task.getId(), task.getClaimOwner(), task.getExecutionAttempt(), ex.getMessage());
+            emitTaskAudit("claimed_update_error", task, "error_type=" + classifyError(ex));
             return false;
         }
     }
@@ -748,12 +1321,18 @@ public class TaskExecutor {
                 boolean renewed = agentTaskRepository.renewClaimLease(
                         task.getId(), task.getClaimOwner(), task.getExecutionAttempt(), claimLeaseSeconds);
                 if (!renewed) {
+                    heartbeatGuardRejectCounter.increment();
                     log.debug("Claim lease renew skipped. taskId={}, owner={}, attempt={}",
                             task.getId(), task.getClaimOwner(), task.getExecutionAttempt());
+                    emitTaskAudit("lease_renew_guard_reject", task, "renewed=false");
+                } else {
+                    heartbeatSuccessCounter.increment();
                 }
             } catch (Exception ex) {
+                heartbeatErrorCounter.increment();
                 log.warn("Failed to renew claim lease. taskId={}, owner={}, attempt={}, error={}",
                         task.getId(), task.getClaimOwner(), task.getExecutionAttempt(), ex.getMessage());
+                emitTaskAudit("lease_renew_error", task, "error_type=" + classifyError(ex));
             }
         }, claimHeartbeatSeconds, claimHeartbeatSeconds, TimeUnit.SECONDS);
     }
@@ -783,12 +1362,15 @@ public class TaskExecutor {
         }
         try {
             long count = agentTaskRepository.countExpiredRunningTasks();
+            expiredRunningGauge.set(count);
             if (count > 0) {
+                expiredRunningDetectedCounter.increment();
                 log.warn("Detected expired running tasks. count={}", count);
             } else {
                 log.debug("Expired running tasks check. count=0");
             }
         } catch (Exception ex) {
+            expiredRunningCheckErrorCounter.increment();
             log.warn("Failed to check expired running tasks. error={}", ex.getMessage());
         }
     }

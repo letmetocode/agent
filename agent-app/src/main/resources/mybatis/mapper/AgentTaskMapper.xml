@@ -7,7 +7,7 @@
         <result column="plan_id" property="planId" jdbcType="BIGINT"/>
         <result column="node_id" property="nodeId" jdbcType="VARCHAR"/>
         <result column="name" property="name" jdbcType="VARCHAR"/>
-        <result column="task_type" property="taskType" jdbcType="VARCHAR"/>
+        <result column="task_type" property="taskType" jdbcType="OTHER" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
         <result column="status" property="status" jdbcType="OTHER" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
         <result column="dependency_node_ids" property="dependencyNodeIds" jdbcType="VARCHAR"/>
         <result column="input_context" property="inputContext" jdbcType="VARCHAR"/>
@@ -19,6 +19,7 @@
         <result column="claim_at" property="claimAt" jdbcType="TIMESTAMP"/>
         <result column="lease_until" property="leaseUntil" jdbcType="TIMESTAMP"/>
         <result column="execution_attempt" property="executionAttempt" jdbcType="INTEGER"/>
+        <result column="lease_reclaimed" property="leaseReclaimed" jdbcType="BOOLEAN"/>
         <result column="version" property="version" jdbcType="INTEGER"/>
         <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
         <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
@@ -39,7 +40,7 @@
             current_retry, claim_owner, claim_at, lease_until, execution_attempt,
             version, created_at, updated_at
         ) VALUES (
-            #{planId}, #{nodeId}, #{name}, #{taskType},
+            #{planId}, #{nodeId}, #{name}, #{taskType}::task_type_enum,
             #{status}::task_status_enum, #{dependencyNodeIds}::jsonb,
             #{inputContext}::jsonb, #{configSnapshot}::jsonb, #{outputResult},
             #{maxRetries}, #{currentRetry}, null, null, null, 0,
@@ -52,7 +53,7 @@
             plan_id = #{planId},
             node_id = #{nodeId},
             name = #{name},
-            task_type = #{taskType},
+            task_type = #{taskType}::task_type_enum,
             status = #{status}::task_status_enum,
             dependency_node_ids = #{dependencyNodeIds}::jsonb,
             input_context = #{inputContext}::jsonb,
@@ -122,7 +123,8 @@
 
     <select id="claimExecutableTasks" resultMap="BaseResultMap">
         WITH picked AS (
-            SELECT id
+            SELECT id,
+                   (status = 'RUNNING'::task_status_enum AND (lease_until IS NULL OR lease_until &lt; CURRENT_TIMESTAMP)) AS lease_reclaimed
             FROM agent_tasks
             WHERE status IN ('READY'::task_status_enum, 'REFINING'::task_status_enum)
                OR (status = 'RUNNING'::task_status_enum AND (lease_until IS NULL OR lease_until &lt; CURRENT_TIMESTAMP))
@@ -145,6 +147,66 @@
             t.id, t.plan_id, t.node_id, t.name, t.task_type, t.status, t.dependency_node_ids,
             t.input_context, t.config_snapshot, t.output_result, t.max_retries, t.current_retry,
             t.claim_owner, t.claim_at, t.lease_until, t.execution_attempt,
+            picked.lease_reclaimed,
+            t.version, t.created_at, t.updated_at
+    </select>
+
+    <select id="claimReadyLikeTasks" resultMap="BaseResultMap">
+        WITH picked AS (
+            SELECT id,
+                   (status = 'RUNNING'::task_status_enum AND (lease_until IS NULL OR lease_until &lt; CURRENT_TIMESTAMP)) AS lease_reclaimed
+            FROM agent_tasks
+            WHERE status = 'READY'::task_status_enum
+               OR (status = 'RUNNING'::task_status_enum AND (lease_until IS NULL OR lease_until &lt; CURRENT_TIMESTAMP))
+            ORDER BY CASE WHEN status = 'READY'::task_status_enum THEN 0 ELSE 1 END, plan_id, created_at ASC
+            LIMIT #{limit}
+            FOR UPDATE SKIP LOCKED
+        )
+        UPDATE agent_tasks t
+        SET
+            status = 'RUNNING'::task_status_enum,
+            claim_owner = #{claimOwner},
+            claim_at = CURRENT_TIMESTAMP,
+            lease_until = CURRENT_TIMESTAMP + (#{leaseSeconds} * INTERVAL '1 second'),
+            execution_attempt = t.execution_attempt + 1,
+            version = t.version + 1,
+            updated_at = CURRENT_TIMESTAMP
+        FROM picked
+        WHERE t.id = picked.id
+        RETURNING
+            t.id, t.plan_id, t.node_id, t.name, t.task_type, t.status, t.dependency_node_ids,
+            t.input_context, t.config_snapshot, t.output_result, t.max_retries, t.current_retry,
+            t.claim_owner, t.claim_at, t.lease_until, t.execution_attempt,
+            picked.lease_reclaimed,
+            t.version, t.created_at, t.updated_at
+    </select>
+
+    <select id="claimRefiningTasks" resultMap="BaseResultMap">
+        WITH picked AS (
+            SELECT id,
+                   FALSE AS lease_reclaimed
+            FROM agent_tasks
+            WHERE status = 'REFINING'::task_status_enum
+            ORDER BY plan_id, created_at ASC
+            LIMIT #{limit}
+            FOR UPDATE SKIP LOCKED
+        )
+        UPDATE agent_tasks t
+        SET
+            status = 'RUNNING'::task_status_enum,
+            claim_owner = #{claimOwner},
+            claim_at = CURRENT_TIMESTAMP,
+            lease_until = CURRENT_TIMESTAMP + (#{leaseSeconds} * INTERVAL '1 second'),
+            execution_attempt = t.execution_attempt + 1,
+            version = t.version + 1,
+            updated_at = CURRENT_TIMESTAMP
+        FROM picked
+        WHERE t.id = picked.id
+        RETURNING
+            t.id, t.plan_id, t.node_id, t.name, t.task_type, t.status, t.dependency_node_ids,
+            t.input_context, t.config_snapshot, t.output_result, t.max_retries, t.current_retry,
+            t.claim_owner, t.claim_at, t.lease_until, t.execution_attempt,
+            picked.lease_reclaimed,
             t.version, t.created_at, t.updated_at
     </select>
 
@@ -191,7 +253,7 @@
             version, created_at, updated_at
         ) VALUES
         <foreach collection="list" item="item" separator=",">
-            (#{item.planId}, #{item.nodeId}, #{item.name}, #{item.taskType},
+            (#{item.planId}, #{item.nodeId}, #{item.name}, #{item.taskType}::task_type_enum,
              #{item.status}::task_status_enum, #{item.dependencyNodeIds}::jsonb,
              #{item.inputContext}::jsonb, #{item.configSnapshot}::jsonb,
              #{item.outputResult}, #{item.maxRetries}, #{item.currentRetry},

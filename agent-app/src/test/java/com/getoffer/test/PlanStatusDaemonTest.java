@@ -3,11 +3,15 @@ package com.getoffer.test;
 import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
+import com.getoffer.domain.task.adapter.repository.IPlanTaskEventRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
+import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
 import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.trigger.job.PlanStatusDaemon;
+import com.getoffer.trigger.event.PlanTaskEventPublisher;
 import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.types.enums.TaskStatusEnum;
+import com.getoffer.types.enums.TaskTypeEnum;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -26,7 +30,8 @@ public class PlanStatusDaemonTest {
     public void shouldPromoteReadyPlanToRunningWhenAnyTaskRunningLike() {
         InMemoryAgentPlanRepository planRepository = new InMemoryAgentPlanRepository();
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
-        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, 100, 1000);
+        InMemoryPlanTaskEventRepository eventRepository = new InMemoryPlanTaskEventRepository();
+        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), 100, 1000);
 
         AgentPlanEntity plan = newPlan(1L, PlanStatusEnum.READY);
         planRepository.save(plan);
@@ -42,7 +47,8 @@ public class PlanStatusDaemonTest {
     public void shouldCompleteRunningPlanWhenAllTasksTerminalWithoutFailed() {
         InMemoryAgentPlanRepository planRepository = new InMemoryAgentPlanRepository();
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
-        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, 100, 1000);
+        InMemoryPlanTaskEventRepository eventRepository = new InMemoryPlanTaskEventRepository();
+        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), 100, 1000);
 
         AgentPlanEntity plan = newPlan(2L, PlanStatusEnum.RUNNING);
         planRepository.save(plan);
@@ -58,7 +64,8 @@ public class PlanStatusDaemonTest {
     public void shouldCompleteReadyPlanDirectlyWhenAllTasksTerminalWithoutFailed() {
         InMemoryAgentPlanRepository planRepository = new InMemoryAgentPlanRepository();
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
-        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, 100, 1000);
+        InMemoryPlanTaskEventRepository eventRepository = new InMemoryPlanTaskEventRepository();
+        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), 100, 1000);
 
         AgentPlanEntity plan = newPlan(3L, PlanStatusEnum.READY);
         planRepository.save(plan);
@@ -74,7 +81,8 @@ public class PlanStatusDaemonTest {
     public void shouldFailPlanWhenAnyTaskFailed() {
         InMemoryAgentPlanRepository planRepository = new InMemoryAgentPlanRepository();
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
-        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, 100, 1000);
+        InMemoryPlanTaskEventRepository eventRepository = new InMemoryPlanTaskEventRepository();
+        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), 100, 1000);
 
         AgentPlanEntity plan = newPlan(4L, PlanStatusEnum.RUNNING);
         planRepository.save(plan);
@@ -90,7 +98,8 @@ public class PlanStatusDaemonTest {
     public void shouldKeepReadyWhenNoRunningAndNotAllTerminal() {
         InMemoryAgentPlanRepository planRepository = new InMemoryAgentPlanRepository();
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
-        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, 100, 1000);
+        InMemoryPlanTaskEventRepository eventRepository = new InMemoryPlanTaskEventRepository();
+        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), 100, 1000);
 
         AgentPlanEntity plan = newPlan(5L, PlanStatusEnum.READY);
         planRepository.save(plan);
@@ -106,7 +115,8 @@ public class PlanStatusDaemonTest {
     public void shouldCompleteWhenAllTasksSkippedWithoutFailed() {
         InMemoryAgentPlanRepository planRepository = new InMemoryAgentPlanRepository();
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
-        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, 100, 1000);
+        InMemoryPlanTaskEventRepository eventRepository = new InMemoryPlanTaskEventRepository();
+        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), 100, 1000);
 
         AgentPlanEntity plan = newPlan(6L, PlanStatusEnum.READY);
         planRepository.save(plan);
@@ -137,7 +147,7 @@ public class PlanStatusDaemonTest {
         task.setPlanId(planId);
         task.setNodeId("node-" + id);
         task.setName("task-" + id);
-        task.setTaskType("WORKER");
+        task.setTaskType(TaskTypeEnum.WORKER);
         task.setStatus(status);
         task.setDependencyNodeIds(Collections.emptyList());
         task.setConfigSnapshot(new HashMap<>());
@@ -387,6 +397,19 @@ public class PlanStatusDaemonTest {
                         .build());
             }
             return result;
+        }
+    }
+
+    private static final class InMemoryPlanTaskEventRepository implements IPlanTaskEventRepository {
+
+        @Override
+        public PlanTaskEventEntity save(PlanTaskEventEntity entity) {
+            return entity;
+        }
+
+        @Override
+        public List<PlanTaskEventEntity> findByPlanIdAfterEventId(Long planId, Long afterEventId, int limit) {
+            return Collections.emptyList();
         }
     }
 }

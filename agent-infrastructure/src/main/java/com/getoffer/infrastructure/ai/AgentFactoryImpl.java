@@ -3,10 +3,8 @@ package com.getoffer.infrastructure.ai;
 import com.getoffer.domain.agent.adapter.factory.IAgentFactory;
 import com.getoffer.domain.agent.adapter.repository.IAgentRegistryRepository;
 import com.getoffer.domain.agent.adapter.repository.IAgentToolCatalogRepository;
-import com.getoffer.domain.agent.adapter.repository.IAgentToolRelationRepository;
 import com.getoffer.domain.agent.model.entity.AgentRegistryEntity;
 import com.getoffer.domain.agent.model.entity.AgentToolCatalogEntity;
-import com.getoffer.domain.agent.model.entity.AgentToolRelationEntity;
 import com.getoffer.infrastructure.mcp.McpClientManager;
 import com.getoffer.infrastructure.util.JsonCodec;
 import com.getoffer.types.enums.ToolTypeEnum;
@@ -20,13 +18,14 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -51,19 +50,18 @@ import java.util.Set;
 public class AgentFactoryImpl implements IAgentFactory {
 
     private final IAgentRegistryRepository agentRegistryRepository;
-    private final IAgentToolRelationRepository agentToolRelationRepository;
     private final IAgentToolCatalogRepository agentToolCatalogRepository;
     private final ObjectProvider<ChatModel> chatModelProvider;
     private final ListableBeanFactory beanFactory;
     private final AgentAdvisorFactory advisorFactory;
     private final McpClientManager mcpClientManager;
     private final JsonCodec jsonCodec;
+    private final boolean legacyOptionsToolWrite;
 
     /**
      * 构造 AgentFactoryImpl 实例。
      *
      * @param agentRegistryRepository Agent注册表仓储
-     * @param agentToolRelationRepository Agent-工具关联关系仓储
      * @param agentToolCatalogRepository 工具目录仓储
      * @param chatModelProvider ChatModel提供者
      * @param beanFactory Spring Bean工厂
@@ -71,21 +69,21 @@ public class AgentFactoryImpl implements IAgentFactory {
      * @param mcpClientManager MCP客户端管理器
      */
     public AgentFactoryImpl(IAgentRegistryRepository agentRegistryRepository,
-                            IAgentToolRelationRepository agentToolRelationRepository,
                             IAgentToolCatalogRepository agentToolCatalogRepository,
                             ObjectProvider<ChatModel> chatModelProvider,
                             ListableBeanFactory beanFactory,
                             AgentAdvisorFactory advisorFactory,
                             McpClientManager mcpClientManager,
-                            JsonCodec jsonCodec) {
+                            JsonCodec jsonCodec,
+                            @Value("${agent.tool.config.legacy-options-write:false}") boolean legacyOptionsToolWrite) {
         this.agentRegistryRepository = agentRegistryRepository;
-        this.agentToolRelationRepository = agentToolRelationRepository;
         this.agentToolCatalogRepository = agentToolCatalogRepository;
         this.chatModelProvider = chatModelProvider;
         this.beanFactory = beanFactory;
         this.advisorFactory = advisorFactory;
         this.mcpClientManager = mcpClientManager;
         this.jsonCodec = jsonCodec;
+        this.legacyOptionsToolWrite = legacyOptionsToolWrite;
     }
 
     /**
@@ -191,7 +189,10 @@ public class AgentFactoryImpl implements IAgentFactory {
 
         ResolvedTools tools = resolveTools(agent.getId());
         Map<String, Object> toolContext = buildToolContext(agent, conversationId);
-        ChatOptions options = buildChatOptions(agent, tools.getToolNames(), toolContext);
+        ChatOptions options = buildChatOptions(agent);
+        if (legacyOptionsToolWrite && options instanceof OpenAiChatOptions) {
+            applyLegacyToolOptions((OpenAiChatOptions) options, tools.getToolNames(), toolContext);
+        }
         List<Advisor> advisors = advisorFactory.buildAdvisors(agent, conversationId, tools.hasTools());
 
         ChatModel chatModel = resolveChatModel(agent);
@@ -232,12 +233,10 @@ public class AgentFactoryImpl implements IAgentFactory {
     /**
      * 构建对话参数。
      */
-    private ChatOptions buildChatOptions(AgentRegistryEntity agent,
-                                         List<String> toolNames,
-                                         Map<String, Object> toolContext) {
+    private ChatOptions buildChatOptions(AgentRegistryEntity agent) {
         String provider = agent.getModelProvider();
         if (StringUtils.isBlank(provider) || "openai".equalsIgnoreCase(provider)) {
-            return buildOpenAiChatOptions(agent, toolNames, toolContext);
+            return buildOpenAiChatOptions(agent);
         }
         log.warn("Unsupported model provider '{}', fallback to basic ChatOptions", provider);
         return buildBasicOptions(agent);
@@ -275,11 +274,10 @@ public class AgentFactoryImpl implements IAgentFactory {
     /**
      * 构建 OpenAI 对话参数。
      */
-    private OpenAiChatOptions buildOpenAiChatOptions(AgentRegistryEntity agent,
-                                                     List<String> toolNames,
-                                                     Map<String, Object> toolContext) {
+    private OpenAiChatOptions buildOpenAiChatOptions(AgentRegistryEntity agent) {
         OpenAiChatOptions options = new OpenAiChatOptions();
         Map<String, Object> modelOptions = agent.getModelOptions();
+        boolean containsToolConfig = containsToolConfig(modelOptions);
         if (modelOptions != null && !modelOptions.isEmpty()) {
             try {
                 OpenAiChatOptions resolved = jsonCodec.convert(modelOptions, OpenAiChatOptions.class);
@@ -293,13 +291,65 @@ public class AgentFactoryImpl implements IAgentFactory {
         if (StringUtils.isNotBlank(agent.getModelName())) {
             options.setModel(agent.getModelName());
         }
+        if (!legacyOptionsToolWrite) {
+            clearToolOptions(options);
+            if (containsToolConfig) {
+                log.debug("Tool config in modelOptions ignored for agent '{}'; ChatClient.Builder is source of truth.",
+                        agent.getKey());
+            }
+        }
+        return options;
+    }
+
+    /**
+     * 兼容模式：同时写入 OpenAiChatOptions 的工具配置。
+     * 默认关闭，仅用于紧急回滚。
+     */
+    private void applyLegacyToolOptions(OpenAiChatOptions options,
+                                        List<String> toolNames,
+                                        Map<String, Object> toolContext) {
+        if (options == null) {
+            return;
+        }
         if (toolNames != null && !toolNames.isEmpty()) {
             options.setToolNames(new HashSet<>(toolNames));
         }
         if (toolContext != null && !toolContext.isEmpty()) {
-            options.setToolContext(toolContext);
+            options.setToolContext(new HashMap<>(toolContext));
         }
-        return options;
+    }
+
+    /**
+     * 单一来源策略：工具配置仅由 ChatClient.Builder 负责。
+     */
+    private void clearToolOptions(OpenAiChatOptions options) {
+        if (options == null) {
+            return;
+        }
+        options.setToolNames(Collections.emptySet());
+        options.setToolContext(Collections.emptyMap());
+    }
+
+    private boolean containsToolConfig(Map<String, Object> modelOptions) {
+        if (modelOptions == null || modelOptions.isEmpty()) {
+            return false;
+        }
+        for (String key : modelOptions.keySet()) {
+            if (StringUtils.isBlank(key)) {
+                continue;
+            }
+            String normalized = key.trim().toLowerCase();
+            if ("toolnames".equals(normalized)
+                    || "tool_names".equals(normalized)
+                    || "toolcontext".equals(normalized)
+                    || "tool_context".equals(normalized)
+                    || "tools".equals(normalized)
+                    || "defaulttoolnames".equals(normalized)
+                    || "defaulttoolcontext".equals(normalized)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -309,20 +359,14 @@ public class AgentFactoryImpl implements IAgentFactory {
         if (agentId == null) {
             return ResolvedTools.empty();
         }
-        List<AgentToolRelationEntity> relations = agentToolRelationRepository.findByAgentId(agentId);
-        if (relations == null || relations.isEmpty()) {
+        List<AgentToolCatalogEntity> tools = agentToolCatalogRepository.findEnabledByAgentId(agentId);
+        if (tools == null || tools.isEmpty()) {
             return ResolvedTools.empty();
         }
-        relations.sort(Comparator.comparingInt(rel ->
-                rel.getPriority() == null ? Integer.MAX_VALUE : rel.getPriority()));
 
-        Set<String> toolNames = new HashSet<>();
+        Set<String> toolNames = new LinkedHashSet<>();
         List<ToolCallback> toolCallbacks = new ArrayList<>();
-        for (AgentToolRelationEntity relation : relations) {
-            if (!Boolean.TRUE.equals(relation.getIsEnabled())) {
-                continue;
-            }
-            AgentToolCatalogEntity tool = agentToolCatalogRepository.findById(relation.getToolId());
+        for (AgentToolCatalogEntity tool : tools) {
             if (tool == null || !Boolean.TRUE.equals(tool.getIsActive())) {
                 continue;
             }

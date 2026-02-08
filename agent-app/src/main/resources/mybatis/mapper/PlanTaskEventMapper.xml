@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.getoffer.infrastructure.dao.PlanTaskEventDao">
+
+    <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.PlanTaskEventPO">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="plan_id" property="planId" jdbcType="BIGINT"/>
+        <result column="task_id" property="taskId" jdbcType="BIGINT"/>
+        <result column="event_type" property="eventType" jdbcType="OTHER" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="event_data" property="eventData" jdbcType="VARCHAR"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, plan_id, task_id, event_type, event_data, created_at
+    </sql>
+
+    <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.PlanTaskEventPO"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO plan_task_events (
+            plan_id, task_id, event_type, event_data, created_at
+        ) VALUES (
+            #{planId}, #{taskId}, #{eventType}::plan_task_event_type_enum, #{eventData}::jsonb, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <select id="selectByPlanIdAfterEventId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM plan_task_events
+        WHERE plan_id = #{planId}
+          AND id &gt; #{afterEventId}
+        ORDER BY id ASC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

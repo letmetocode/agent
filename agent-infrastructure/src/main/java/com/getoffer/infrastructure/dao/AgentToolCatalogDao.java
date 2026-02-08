@@ -1,6 +1,7 @@
 package com.getoffer.infrastructure.dao;
 
 import com.getoffer.infrastructure.dao.po.AgentToolCatalogPO;
+import com.getoffer.infrastructure.dao.po.AgentToolBindingPO;
 import com.getoffer.types.enums.ToolTypeEnum;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -50,4 +51,14 @@ public interface AgentToolCatalogDao {
      * 根据类型查询
      */
     List<AgentToolCatalogPO> selectByType(@Param("type") ToolTypeEnum type);
+
+    /**
+     * 按 Agent 查询启用工具绑定（关联+目录）。
+     */
+    List<AgentToolBindingPO> selectEnabledBindingsByAgentId(@Param("agentId") Long agentId);
+
+    /**
+     * 按 ID 集合查询工具。
+     */
+    List<AgentToolCatalogPO> selectByIds(@Param("ids") List<Long> ids);
 }
