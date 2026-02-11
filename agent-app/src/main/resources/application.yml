@@ -25,6 +25,11 @@ executor:
     refining-max-ratio: 0.3
     # 每轮给 REFINING 的最小保障
     refining-min-per-tick: 1
+  execution:
+    # 单次 TaskClient 调用超时时间（毫秒）
+    timeout-ms: 120000
+    # 调用超时后的额外重试次数（1 = 最多尝试 2 次）
+    timeout-retry-max: 1
   worker:
     core-size: 8
     max-size: 8
@@ -32,6 +37,12 @@ executor:
     keep-alive-seconds: 60
     rejection-policy: AbortPolicy
     thread-name-prefix: task-exec-worker-
+  agent:
+    # 任务未显式配置 agentKey/agentId 时的兜底 key 列表（按顺序尝试）
+    fallback-worker-keys: worker,assistant,java_coder,default
+    fallback-critic-keys: critic,assistant,java_coder,default
+    # 兜底“首个激活 Agent”查询缓存 TTL
+    default-cache-ttl-ms: 30000
   observability:
     audit-log-enabled: true
     audit-success-log-enabled: false
@@ -55,3 +66,36 @@ management:
   endpoint:
     health:
       show-details: always
+
+sse:
+  heartbeat-interval-ms: 10000
+  replay-interval-ms: 3000
+
+event:
+  notify:
+    channel: plan_task_events_channel
+  publisher:
+    instance-id: ${PUBLISHER_INSTANCE_ID:}
+
+cors:
+  allowed-origin-patterns: http://localhost:5173,http://127.0.0.1:5173
+
+observability:
+  http-log:
+    # 统一 HTTP 入口日志开关
+    enabled: true
+    # 记录路径（Ant 风格）
+    include-path-patterns: /api/**
+    # 排除路径（SSE 流仅记录建连，不做逐条事件日志）
+    exclude-path-patterns: /actuator/**,/api/plans/*/stream
+    # 默认不记录全量请求体，仅保留白名单字段摘要
+    log-request-body: false
+    request-body-whitelist: message,sessionId,turnId,planId
+    # 脱敏字段（大小写不敏感）
+    mask-fields: apiKey,authorization,password,token,secret
+    # 慢请求阈值（ms）
+    slow-request-threshold-ms: 1000
+    # 采样率（生产可按需下调）
+    sample-rate: 1.0
+    # 请求体摘要最大长度
+    max-body-length: 1024

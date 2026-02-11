@@ -53,3 +53,9 @@ logging:
     root: info
     com.getoffer: info
   config: classpath:logback-spring.xml
+observability:
+  http-log:
+    # 生产默认开启入口日志，支持通过 sample-rate 进行降载
+    enabled: true
+    sample-rate: 1.0
+    log-request-body: false

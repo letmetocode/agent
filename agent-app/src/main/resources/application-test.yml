@@ -47,9 +47,27 @@ mybatis:
   mapper-locations: classpath:/mybatis/mapper/*.xml
   config-location: classpath:/mybatis/config/mybatis-config.xml
 
+planner:
+  root:
+    enabled: false
+
+executor:
+  execution:
+    # 单次 TaskClient 调用超时时间（毫秒）
+    timeout-ms: 120000
+    # 调用超时后的额外重试次数（1 = 最多尝试 2 次）
+    timeout-retry-max: 1
+
 # 日志
 logging:
   level:
     root: info
     com.getoffer: debug
   config: classpath:logback-spring.xml
+
+observability:
+  http-log:
+    # 测试环境保持入口日志开启，便于回归定位
+    enabled: true
+    sample-rate: 1.0
+    log-request-body: false

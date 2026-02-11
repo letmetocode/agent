@@ -36,16 +36,33 @@ spring:
   ai:
     openai:
       api-key: ${OPENAI_API_KEY:a94406f9-86d4-4927-bd4d-f3c7bea874da}
-      base-url: ${OPENAI_BASE_URL:https://ark.cn-beijing.volces.com/api/v3}
+      base-url: ${OPENAI_BASE_URL:https://ark.cn-beijing.volces.com}
       chat:
-        options:
-          model: gpt-4
-          temperature: 0.7
+        completions-path: ${OPENAI_CHAT_COMPLETIONS_PATH:/api/v3/chat/completions}
 
 # MyBatis 配置
 mybatis:
   mapper-locations: classpath:/mybatis/mapper/*.xml
   config-location: classpath:/mybatis/config/mybatis-config.xml
+
+planner:
+  root:
+    enabled: true
+    agent-key: root
+    retry:
+      max-attempts: 3
+      backoff-ms: 300
+    fallback:
+      single-node:
+        enabled: true
+      agent-key: assistant
+
+executor:
+  execution:
+    # 单次 TaskClient 调用超时时间（毫秒）
+    timeout-ms: 120000
+    # 调用超时后的额外重试次数（1 = 最多尝试 2 次）
+    timeout-retry-max: 1
 
 # 日志
 logging:
@@ -54,3 +71,10 @@ logging:
     com.getoffer: debug
     org.springframework.ai: debug
   config: classpath:logback-spring.xml
+
+observability:
+  http-log:
+    # 开发环境默认开启全量入口日志，便于联调
+    enabled: true
+    sample-rate: 1.0
+    log-request-body: false
