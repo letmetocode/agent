@@ -26,7 +26,7 @@ public class Application {
      * @param args 命令行参数
      */
     public static void main(String[] args){
-        SpringApplication.run(Application.class);
+        SpringApplication.run(Application.class, args);
     }
 
 }

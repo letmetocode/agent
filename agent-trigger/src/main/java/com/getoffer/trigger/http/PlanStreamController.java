@@ -43,6 +43,7 @@ public class PlanStreamController {
     private final ConcurrentMap<Long, ConcurrentMap<String, SubscriberState>> subscribersByPlan;
     private final ExecutorService pushExecutor;
     private final int replayBatchSize;
+    private final int replayMaxBatchesPerSweep;
     private final AtomicLong heartbeatTick;
 
     public PlanStreamController(IAgentPlanRepository agentPlanRepository,
@@ -58,6 +59,7 @@ public class PlanStreamController {
             return thread;
         });
         this.replayBatchSize = 200;
+        this.replayMaxBatchesPerSweep = 1;
         this.heartbeatTick = new AtomicLong(0L);
     }
 
@@ -78,7 +80,7 @@ public class PlanStreamController {
         sendEvent(emitter, "StreamReady", Map.of("planId", planId, "lastEventId", cursor), null);
         sendPlanSnapshot(planId, emitter);
         subscribeRealtime(planId, subscriberId);
-        replayMissedEvents(planId, subscriberId);
+        replayMissedEvents(planId, subscriberId, Integer.MAX_VALUE);
         return emitter;
     }
 
@@ -91,12 +93,14 @@ public class PlanStreamController {
         });
     }
 
-    private void replayMissedEvents(Long planId, String subscriberId) {
+    private void replayMissedEvents(Long planId, String subscriberId, int maxBatches) {
+        int allowedBatches = maxBatches <= 0 ? 1 : maxBatches;
+        int currentBatch = 0;
         SubscriberState subscriber = getSubscriber(planId, subscriberId);
         if (subscriber == null) {
             return;
         }
-        while (true) {
+        while (currentBatch < allowedBatches) {
             List<PlanTaskEventEntity> events;
             try {
                 events = planTaskEventPublisher.replay(planId, subscriber.lastEventId.get(), replayBatchSize);
@@ -111,6 +115,7 @@ public class PlanStreamController {
             for (PlanTaskEventEntity event : events) {
                 deliverEvent(planId, subscriberId, event);
             }
+            currentBatch++;
             if (events.size() < replayBatchSize) {
                 return;
             }
@@ -122,18 +127,20 @@ public class PlanStreamController {
         if (subscriber == null || event == null || event.getId() == null) {
             return;
         }
-        long eventId = event.getId();
-        if (eventId <= subscriber.lastEventId.get()) {
-            return;
+        synchronized (subscriber) {
+            long eventId = event.getId();
+            if (eventId <= subscriber.lastEventId.get()) {
+                return;
+            }
+            if (!sendEvent(subscriber.emitter,
+                    event.getEventType() == null ? "PlanEvent" : event.getEventType().getEventName(),
+                    event.getEventData(),
+                    eventId)) {
+                removeSubscriber(planId, subscriberId);
+                return;
+            }
+            subscriber.lastEventId.updateAndGet(previous -> Math.max(previous, eventId));
         }
-        if (!sendEvent(subscriber.emitter,
-                event.getEventType() == null ? "PlanEvent" : event.getEventType().getEventName(),
-                event.getEventData(),
-                eventId)) {
-            removeSubscriber(planId, subscriberId);
-            return;
-        }
-        subscriber.lastEventId.updateAndGet(previous -> Math.max(previous, eventId));
     }
 
     @Scheduled(fixedDelayString = "${sse.heartbeat-interval-ms:10000}", scheduler = "daemonScheduler")
@@ -153,6 +160,23 @@ public class PlanStreamController {
                 if (!sendEvent(subscriberEntry.getValue().emitter, "Heartbeat", Map.of("planId", planId), null)) {
                     removeSubscriber(planId, subscriberEntry.getKey());
                 }
+            }
+        }
+    }
+
+    @Scheduled(fixedDelayString = "${sse.replay-interval-ms:3000}", scheduler = "daemonScheduler")
+    public void replaySweep() {
+        if (subscribersByPlan.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<Long, ConcurrentMap<String, SubscriberState>> entry : subscribersByPlan.entrySet()) {
+            Long planId = entry.getKey();
+            ConcurrentMap<String, SubscriberState> subscribers = entry.getValue();
+            if (subscribers == null || subscribers.isEmpty()) {
+                continue;
+            }
+            for (String subscriberId : subscribers.keySet()) {
+                pushExecutor.execute(() -> replayMissedEvents(planId, subscriberId, replayMaxBatchesPerSweep));
             }
         }
     }

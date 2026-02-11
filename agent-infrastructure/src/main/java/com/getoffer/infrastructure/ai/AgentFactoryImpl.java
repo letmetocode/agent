@@ -35,7 +35,7 @@ import java.util.Set;
  * <p>
  * 负责：
  * <ul>
- *   <li>根据Agent配置创建Spring AI ChatClient实例</li>
+ *   <li>根据 AgentProfile 配置创建 TaskClient（底层 ChatClient）实例</li>
  *   <li>解析并配置Agent可用的工具（Spring Bean和MCP工具）</li>
  *   <li>构建ChatOptions和Advisor链</li>
  *   <li>管理不同模型提供商的配置差异</li>
@@ -100,11 +100,11 @@ public class AgentFactoryImpl implements IAgentFactory {
         if (StringUtils.isBlank(agentKey)) {
             throw new IllegalArgumentException("agentKey cannot be blank");
         }
-        AgentRegistryEntity agent = agentRegistryRepository.findByKey(agentKey);
-        if (agent == null) {
+        AgentRegistryEntity agentProfile = agentRegistryRepository.findByKey(agentKey);
+        if (agentProfile == null) {
             throw new IllegalStateException("Agent not found: " + agentKey);
         }
-        return createAgent(agent, conversationId, null);
+        return createAgent(agentProfile, conversationId, null);
     }
 
     /**
@@ -121,15 +121,15 @@ public class AgentFactoryImpl implements IAgentFactory {
         if (agentId == null) {
             throw new IllegalArgumentException("agentId cannot be null");
         }
-        AgentRegistryEntity agent = agentRegistryRepository.findById(agentId);
-        if (agent == null) {
+        AgentRegistryEntity agentProfile = agentRegistryRepository.findById(agentId);
+        if (agentProfile == null) {
             throw new IllegalStateException("Agent not found: " + agentId);
         }
-        return createAgent(agent, conversationId, null);
+        return createAgent(agentProfile, conversationId, null);
     }
 
     /**
-     * 根据Agent实体创建ChatClient实例。
+     * 根据 AgentProfile 实体创建 TaskClient（ChatClient）实例。
      * <p>
      * 执行步骤：
      * <ol>
@@ -142,7 +142,7 @@ public class AgentFactoryImpl implements IAgentFactory {
      * </ol>
      * </p>
      *
-     * @param agent Agent实体对象
+     * @param agent AgentProfile 实体对象
      * @param conversationId 会话ID
      * @return 配置完成的ChatClient实例
      * @throws IllegalArgumentException 如果agent为空
@@ -158,11 +158,11 @@ public class AgentFactoryImpl implements IAgentFactory {
         if (StringUtils.isBlank(agentKey)) {
             throw new IllegalArgumentException("agentKey cannot be blank");
         }
-        AgentRegistryEntity agent = agentRegistryRepository.findByKey(agentKey);
-        if (agent == null) {
+        AgentRegistryEntity agentProfile = agentRegistryRepository.findByKey(agentKey);
+        if (agentProfile == null) {
             throw new IllegalStateException("Agent not found: " + agentKey);
         }
-        return createAgent(agent, conversationId, systemPromptSuffix);
+        return createAgent(agentProfile, conversationId, systemPromptSuffix);
     }
 
     @Override
@@ -170,11 +170,11 @@ public class AgentFactoryImpl implements IAgentFactory {
         if (agentId == null) {
             throw new IllegalArgumentException("agentId cannot be null");
         }
-        AgentRegistryEntity agent = agentRegistryRepository.findById(agentId);
-        if (agent == null) {
+        AgentRegistryEntity agentProfile = agentRegistryRepository.findById(agentId);
+        if (agentProfile == null) {
             throw new IllegalStateException("Agent not found: " + agentId);
         }
-        return createAgent(agent, conversationId, systemPromptSuffix);
+        return createAgent(agentProfile, conversationId, systemPromptSuffix);
     }
 
     @Override
@@ -182,22 +182,23 @@ public class AgentFactoryImpl implements IAgentFactory {
         if (agent == null) {
             throw new IllegalArgumentException("agent cannot be null");
         }
-        agent.validate();
-        if (!Boolean.TRUE.equals(agent.getIsActive())) {
-            throw new IllegalStateException("Agent is inactive: " + agent.getKey());
+        AgentRegistryEntity agentProfile = agent;
+        agentProfile.validate();
+        if (!Boolean.TRUE.equals(agentProfile.getIsActive())) {
+            throw new IllegalStateException("Agent is inactive: " + agentProfile.getKey());
         }
 
-        ResolvedTools tools = resolveTools(agent.getId());
-        Map<String, Object> toolContext = buildToolContext(agent, conversationId);
-        ChatOptions options = buildChatOptions(agent);
+        ResolvedTools tools = resolveTools(agentProfile.getId());
+        Map<String, Object> toolContext = buildToolContext(agentProfile, conversationId);
+        ChatOptions options = buildChatOptions(agentProfile);
         if (legacyOptionsToolWrite && options instanceof OpenAiChatOptions) {
             applyLegacyToolOptions((OpenAiChatOptions) options, tools.getToolNames(), toolContext);
         }
-        List<Advisor> advisors = advisorFactory.buildAdvisors(agent, conversationId, tools.hasTools());
+        List<Advisor> advisors = advisorFactory.buildAdvisors(agentProfile, conversationId, tools.hasTools());
 
-        ChatModel chatModel = resolveChatModel(agent);
+        ChatModel chatModel = resolveChatModel(agentProfile);
         ChatClient.Builder builder = ChatClient.builder(chatModel);
-        String systemPrompt = buildSystemPrompt(agent.getBaseSystemPrompt(), systemPromptSuffix);
+        String systemPrompt = buildSystemPrompt(agentProfile.getBaseSystemPrompt(), systemPromptSuffix);
         if (StringUtils.isNotBlank(systemPrompt)) {
             builder.defaultSystem(systemPrompt);
         }

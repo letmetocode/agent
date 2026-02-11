@@ -31,9 +31,19 @@ public class AgentPlanPO {
     private Long sessionId;
 
     /**
-     * SOP 模板 ID (关联 sop_templates.id，可空)
+     * 路由决策 ID (关联 routing_decisions.id)
      */
-    private Long sopTemplateId;
+    private Long routeDecisionId;
+
+    /**
+     * Workflow Definition ID（可空）
+     */
+    private Long workflowDefinitionId;
+
+    /**
+     * Workflow Draft ID（可空）
+     */
+    private Long workflowDraftId;
 
     /**
      * 计划目标
@@ -44,6 +54,11 @@ public class AgentPlanPO {
      * 执行图 (JSONB，运行时图谱副本)
      */
     private String executionGraph;
+
+    /**
+     * 定义审计快照 (JSONB，非执行事实)
+     */
+    private String definitionSnapshot;
 
     /**
      * 全局上下文 (JSONB，黑板)

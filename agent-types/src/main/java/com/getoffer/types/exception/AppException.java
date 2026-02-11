@@ -31,7 +31,9 @@ public class AppException extends RuntimeException {
      * @param code 异常码
      */
     public AppException(String code) {
+        super(code);
         this.code = code;
+        this.info = code;
     }
 
     /**
@@ -41,8 +43,9 @@ public class AppException extends RuntimeException {
      * @param cause 异常原因
      */
     public AppException(String code, Throwable cause) {
+        super(cause == null ? null : cause.getMessage(), cause);
         this.code = code;
-        super.initCause(cause);
+        this.info = cause == null ? null : cause.getMessage();
     }
 
     /**
@@ -52,6 +55,7 @@ public class AppException extends RuntimeException {
      * @param message 异常描述信息
      */
     public AppException(String code, String message) {
+        super(message);
         this.code = code;
         this.info = message;
     }
@@ -64,9 +68,14 @@ public class AppException extends RuntimeException {
      * @param cause 异常原因
      */
     public AppException(String code, String message, Throwable cause) {
+        super(message, cause);
         this.code = code;
         this.info = message;
-        super.initCause(cause);
+    }
+
+    @Override
+    public String getMessage() {
+        return info != null ? info : super.getMessage();
     }
 
     /**
@@ -76,7 +85,7 @@ public class AppException extends RuntimeException {
      */
     @Override
     public String toString() {
-        return "com.getoffer.x.api.types.exception.XApiException{" +
+        return "com.getoffer.types.exception.AppException{" +
                 "code='" + code + '\'' +
                 ", info='" + info + '\'' +
                 '}';

@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.getoffer.infrastructure.dao.WorkflowDraftDao">
+
+    <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.WorkflowDraftPO">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="draft_key" property="draftKey" jdbcType="VARCHAR"/>
+        <result column="tenant_id" property="tenantId" jdbcType="VARCHAR"/>
+        <result column="category" property="category" jdbcType="VARCHAR"/>
+        <result column="name" property="name" jdbcType="VARCHAR"/>
+        <result column="route_description" property="routeDescription" jdbcType="VARCHAR"/>
+        <result column="graph_definition" property="graphDefinition" jdbcType="VARCHAR"/>
+        <result column="input_schema" property="inputSchema" jdbcType="VARCHAR"/>
+        <result column="default_config" property="defaultConfig" jdbcType="VARCHAR"/>
+        <result column="tool_policy" property="toolPolicy" jdbcType="VARCHAR"/>
+        <result column="input_schema_version" property="inputSchemaVersion" jdbcType="VARCHAR"/>
+        <result column="constraints_json" property="constraints" jdbcType="VARCHAR"/>
+        <result column="node_signature" property="nodeSignature" jdbcType="VARCHAR"/>
+        <result column="dedup_hash" property="dedupHash" jdbcType="VARCHAR"/>
+        <result column="source_type" property="sourceType" jdbcType="VARCHAR"/>
+        <result column="source_definition_id" property="sourceDefinitionId" jdbcType="BIGINT"/>
+        <result column="status" property="status" javaType="com.getoffer.types.enums.WorkflowDraftStatusEnum" jdbcType="OTHER"/>
+        <result column="created_by" property="createdBy" jdbcType="VARCHAR"/>
+        <result column="approved_by" property="approvedBy" jdbcType="VARCHAR"/>
+        <result column="approved_at" property="approvedAt" jdbcType="TIMESTAMP"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+        <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, draft_key, tenant_id, category, name, route_description,
+        graph_definition, input_schema, default_config, tool_policy, input_schema_version,
+        constraints_json, node_signature, dedup_hash, source_type, source_definition_id,
+        status, created_by, approved_by, approved_at, created_at, updated_at
+    </sql>
+
+    <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.WorkflowDraftPO"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO workflow_drafts (
+            draft_key, tenant_id, category, name, route_description,
+            graph_definition, input_schema, default_config, tool_policy, input_schema_version,
+            constraints_json, node_signature, dedup_hash, source_type, source_definition_id,
+            status, created_by, approved_by, approved_at, created_at, updated_at
+        ) VALUES (
+            #{draftKey}, #{tenantId}, #{category}, #{name}, #{routeDescription},
+            #{graphDefinition}::jsonb, #{inputSchema}::jsonb, #{defaultConfig}::jsonb, #{toolPolicy}::jsonb,
+            #{inputSchemaVersion}, #{constraints}::jsonb, #{nodeSignature}, #{dedupHash},
+            #{sourceType}, #{sourceDefinitionId}, #{status}::workflow_draft_status_enum,
+            #{createdBy}, #{approvedBy}, #{approvedAt}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <update id="update" parameterType="com.getoffer.infrastructure.dao.po.WorkflowDraftPO">
+        UPDATE workflow_drafts SET
+            draft_key = #{draftKey},
+            category = #{category},
+            name = #{name},
+            route_description = #{routeDescription},
+            graph_definition = #{graphDefinition}::jsonb,
+            input_schema = #{inputSchema}::jsonb,
+            default_config = #{defaultConfig}::jsonb,
+            tool_policy = #{toolPolicy}::jsonb,
+            input_schema_version = #{inputSchemaVersion},
+            constraints_json = #{constraints}::jsonb,
+            node_signature = #{nodeSignature},
+            dedup_hash = #{dedupHash},
+            source_type = #{sourceType},
+            source_definition_id = #{sourceDefinitionId},
+            status = #{status}::workflow_draft_status_enum,
+            approved_by = #{approvedBy},
+            approved_at = #{approvedAt},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM workflow_drafts
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM workflow_drafts
+        ORDER BY updated_at DESC
+    </select>
+
+    <select id="selectByStatus" parameterType="com.getoffer.types.enums.WorkflowDraftStatusEnum" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM workflow_drafts
+        WHERE status = #{status}::workflow_draft_status_enum
+        ORDER BY updated_at DESC
+    </select>
+
+    <select id="selectLatestByDedupHash" parameterType="java.lang.String" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM workflow_drafts
+        WHERE dedup_hash = #{dedupHash}
+          AND status = 'DRAFT'::workflow_draft_status_enum
+        ORDER BY created_at DESC
+        LIMIT 1
+    </select>
+
+</mapper>
+

@@ -35,7 +35,7 @@ sequenceDiagram
     participant W as taskExecutionWorker
     participant AR as IAgentPlanRepository
     participant AF as IAgentFactory
-    participant LLM as ChatClient
+    participant LLM as TaskClient(ChatClient)
     participant EVT as PlanTaskEventPublisher
     EX->>EX: compute claim limit by free slots
     EX->>TR: claimExecutableTasks(owner limit leaseSeconds)
@@ -74,6 +74,8 @@ sequenceDiagram
 - 可 claim 条件：
   - `status in READY REFINING`
   - 或 `status RUNNING and lease_until < now`
+- Plan 过滤条件：
+  - 仅领取 `agent_plans.status in READY RUNNING` 的任务，避免 PAUSED/CANCELLED 计划任务被空转领取。
 - claim 时：
   - `status -> RUNNING`
   - 写入 `claim_owner claim_at lease_until`
@@ -84,6 +86,13 @@ sequenceDiagram
 - 续约条件：`id + claim_owner + execution_attempt`
 - 终态写回条件：`id + claim_owner + execution_attempt`
 - 不满足条件时返回 guard reject，避免旧执行者覆盖新执行者数据。
+- 调用超时治理：TaskClient 调用由独立线程池执行，使用 `Future.get(timeout)` 控制单次调用时长。
+- 超时时会先写入一条 `task_executions` 记录（`error_type=timeout`），再按策略决定重试或失败。
+- 默认策略：超时额外重试 1 次；若连续超时则任务置 `FAILED` 并释放 claim，确保 Plan/Turn 可收敛。
+- Plan 黑板（`global_context`）写回策略：
+  - 不直接使用执行开始时读取的旧 Plan 对象回写。
+  - 每次写回先 `findById(planId)` 获取最新 Plan，再合并本次输出增量。
+  - 遇到 Plan 乐观锁冲突执行有限重试（当前最多 3 次），避免高并发下频繁告警。
 
 ## 7. 配置项
 
@@ -95,6 +104,8 @@ sequenceDiagram
 - `executor.claim.refining-min-per-tick`
 - `executor.claim.lease-seconds`
 - `executor.claim.heartbeat-seconds`
+- `executor.execution.timeout-ms`
+- `executor.execution.timeout-retry-max`
 - `executor.worker.core-size`
 - `executor.worker.max-size`
 - `executor.worker.queue-capacity`
@@ -123,6 +134,9 @@ sequenceDiagram
 - `agent.task.claimed_update.guard_reject.total`
 - `agent.task.execution.total`
 - `agent.task.execution.failure.total`
+- `agent.task.execution.timeout.total`
+- `agent.task.execution.timeout.retry.total`
+- `agent.task.execution.timeout.final_fail.total`
 
 执行落库字段（`task_executions`）：
 - `attempt_number`
@@ -135,8 +149,14 @@ sequenceDiagram
 ## 9. 开发要点
 
 - claim 必须受可用执行槽位约束，禁止 claim 超过可派发能力。
+- 术语统一：总任务使用 `Plan`；节点执行客户端使用 `TaskClient`；`agent_registry` 记录的是 `AgentProfile`。
+- 当执行阶段发现 Plan 不可执行时，必须显式归还 claim：
+  - `current_retry > 0` 回滚到 `REFINING`
+  - 其余回滚到 `READY`
+  - 禁止仅 `return` 留下 RUNNING+lease 等待过期
 - 外部副作用调用应尽量幂等，可用 `taskId + executionAttempt` 作为幂等键。
 - 执行失败路径要保证有执行记录且任务状态可终结。
+- Critic 任务输出属于内部校验信息，不作为最终对用户展示文案来源。
 
 ## 10. 测试场景
 

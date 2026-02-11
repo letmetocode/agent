@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.getoffer.infrastructure.dao.WorkflowDefinitionDao">
+
+    <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.WorkflowDefinitionPO">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="definition_key" property="definitionKey" jdbcType="VARCHAR"/>
+        <result column="tenant_id" property="tenantId" jdbcType="VARCHAR"/>
+        <result column="category" property="category" jdbcType="VARCHAR"/>
+        <result column="name" property="name" jdbcType="VARCHAR"/>
+        <result column="version" property="version" jdbcType="INTEGER"/>
+        <result column="route_description" property="routeDescription" jdbcType="VARCHAR"/>
+        <result column="graph_definition" property="graphDefinition" jdbcType="VARCHAR"/>
+        <result column="input_schema" property="inputSchema" jdbcType="VARCHAR"/>
+        <result column="default_config" property="defaultConfig" jdbcType="VARCHAR"/>
+        <result column="tool_policy" property="toolPolicy" jdbcType="VARCHAR"/>
+        <result column="input_schema_version" property="inputSchemaVersion" jdbcType="VARCHAR"/>
+        <result column="constraints_json" property="constraints" jdbcType="VARCHAR"/>
+        <result column="node_signature" property="nodeSignature" jdbcType="VARCHAR"/>
+        <result column="status" property="status" javaType="com.getoffer.types.enums.WorkflowDefinitionStatusEnum" jdbcType="OTHER"/>
+        <result column="published_from_draft_id" property="publishedFromDraftId" jdbcType="BIGINT"/>
+        <result column="is_active" property="isActive" jdbcType="BOOLEAN"/>
+        <result column="created_by" property="createdBy" jdbcType="VARCHAR"/>
+        <result column="approved_by" property="approvedBy" jdbcType="VARCHAR"/>
+        <result column="approved_at" property="approvedAt" jdbcType="TIMESTAMP"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+        <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, definition_key, tenant_id, category, name, version, route_description,
+        graph_definition, input_schema, default_config, tool_policy, input_schema_version,
+        constraints_json, node_signature, status, published_from_draft_id, is_active,
+        created_by, approved_by, approved_at, created_at, updated_at
+    </sql>
+
+    <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.WorkflowDefinitionPO"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO workflow_definitions (
+            definition_key, tenant_id, category, name, version, route_description,
+            graph_definition, input_schema, default_config, tool_policy, input_schema_version,
+            constraints_json, node_signature, status, published_from_draft_id, is_active,
+            created_by, approved_by, approved_at, created_at, updated_at
+        ) VALUES (
+            #{definitionKey}, #{tenantId}, #{category}, #{name}, #{version}, #{routeDescription},
+            #{graphDefinition}::jsonb, #{inputSchema}::jsonb, #{defaultConfig}::jsonb, #{toolPolicy}::jsonb,
+            #{inputSchemaVersion}, #{constraints}::jsonb, #{nodeSignature},
+            #{status}::workflow_definition_status_enum, #{publishedFromDraftId}, #{isActive},
+            #{createdBy}, #{approvedBy}, #{approvedAt}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <update id="update" parameterType="com.getoffer.infrastructure.dao.po.WorkflowDefinitionPO">
+        UPDATE workflow_definitions SET
+            category = #{category},
+            name = #{name},
+            route_description = #{routeDescription},
+            graph_definition = #{graphDefinition}::jsonb,
+            input_schema = #{inputSchema}::jsonb,
+            default_config = #{defaultConfig}::jsonb,
+            tool_policy = #{toolPolicy}::jsonb,
+            input_schema_version = #{inputSchemaVersion},
+            constraints_json = #{constraints}::jsonb,
+            node_signature = #{nodeSignature},
+            status = #{status}::workflow_definition_status_enum,
+            published_from_draft_id = #{publishedFromDraftId},
+            is_active = #{isActive},
+            approved_by = #{approvedBy},
+            approved_at = #{approvedAt},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM workflow_definitions
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM workflow_definitions
+        ORDER BY category, name, version DESC
+    </select>
+
+    <select id="selectByStatus" parameterType="com.getoffer.types.enums.WorkflowDefinitionStatusEnum" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM workflow_definitions
+        WHERE status = #{status}::workflow_definition_status_enum
+        ORDER BY category, name, version DESC
+    </select>
+
+    <select id="selectLatestByTenantAndDefinitionKey" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM workflow_definitions
+        WHERE tenant_id = #{tenantId}
+          AND definition_key = #{definitionKey}
+        ORDER BY version DESC, created_at DESC
+        LIMIT 1
+    </select>
+
+</mapper>
+

@@ -5,11 +5,14 @@
     <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.AgentPlanPO">
         <id column="id" property="id" jdbcType="BIGINT"/>
         <result column="session_id" property="sessionId" jdbcType="BIGINT"/>
-        <result column="sop_template_id" property="sopTemplateId" jdbcType="BIGINT"/>
+        <result column="route_decision_id" property="routeDecisionId" jdbcType="BIGINT"/>
+        <result column="workflow_definition_id" property="workflowDefinitionId" jdbcType="BIGINT"/>
+        <result column="workflow_draft_id" property="workflowDraftId" jdbcType="BIGINT"/>
         <result column="plan_goal" property="planGoal" jdbcType="VARCHAR"/>
         <result column="execution_graph" property="executionGraph" jdbcType="VARCHAR"/>
+        <result column="definition_snapshot" property="definitionSnapshot" jdbcType="VARCHAR"/>
         <result column="global_context" property="globalContext" jdbcType="VARCHAR"/>
-        <result column="status" property="status" jdbcType="OTHER" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="status" property="status" javaType="com.getoffer.types.enums.PlanStatusEnum" jdbcType="OTHER"/>
         <result column="priority" property="priority" jdbcType="INTEGER"/>
         <result column="error_summary" property="errorSummary" jdbcType="VARCHAR"/>
         <result column="version" property="version" jdbcType="INTEGER"/>
@@ -18,17 +21,20 @@
     </resultMap>
 
     <sql id="Base_Column_List">
-        id, session_id, sop_template_id, plan_goal, execution_graph, global_context,
+        id, session_id, route_decision_id, workflow_definition_id, workflow_draft_id,
+        plan_goal, execution_graph, definition_snapshot, global_context,
         status, priority, error_summary, version, created_at, updated_at
     </sql>
 
     <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.AgentPlanPO"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO agent_plans (
-            session_id, sop_template_id, plan_goal, execution_graph, global_context,
+            session_id, route_decision_id, workflow_definition_id, workflow_draft_id,
+            plan_goal, execution_graph, definition_snapshot, global_context,
             status, priority, error_summary, version, created_at, updated_at
         ) VALUES (
-            #{sessionId}, #{sopTemplateId}, #{planGoal}, #{executionGraph}::jsonb,
+            #{sessionId}, #{routeDecisionId}, #{workflowDefinitionId}, #{workflowDraftId},
+            #{planGoal}, #{executionGraph}::jsonb, #{definitionSnapshot}::jsonb,
             #{globalContext}::jsonb, #{status}::plan_status_enum, #{priority},
             #{errorSummary}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
         )
@@ -37,9 +43,12 @@
     <update id="updateWithVersion" parameterType="com.getoffer.infrastructure.dao.po.AgentPlanPO">
         UPDATE agent_plans SET
             session_id = #{sessionId},
-            sop_template_id = #{sopTemplateId},
+            route_decision_id = #{routeDecisionId},
+            workflow_definition_id = #{workflowDefinitionId},
+            workflow_draft_id = #{workflowDraftId},
             plan_goal = #{planGoal},
             execution_graph = #{executionGraph}::jsonb,
+            definition_snapshot = #{definitionSnapshot}::jsonb,
             global_context = #{globalContext}::jsonb,
             status = #{status}::plan_status_enum,
             priority = #{priority},
@@ -96,10 +105,10 @@
         ORDER BY created_at DESC
     </select>
 
-    <select id="selectBySopTemplateId" parameterType="java.lang.Long" resultMap="BaseResultMap">
+    <select id="selectByWorkflowDefinitionId" parameterType="java.lang.Long" resultMap="BaseResultMap">
         SELECT <include refid="Base_Column_List"/>
         FROM agent_plans
-        WHERE sop_template_id = #{sopTemplateId}
+        WHERE workflow_definition_id = #{workflowDefinitionId}
         ORDER BY created_at DESC
     </select>
 

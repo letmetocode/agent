@@ -49,3 +49,13 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+# Runtime artifacts
+/data/log/*.log
+/data/log/log-*.log
+/agent-app/data/
+
+# Frontend artifacts
+/frontend/node_modules/
+/frontend/dist/
+/frontend/*.tsbuildinfo

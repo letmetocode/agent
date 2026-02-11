@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.getoffer.infrastructure.dao.SessionTurnDao">
+
+    <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.SessionTurnPO">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="session_id" property="sessionId" jdbcType="BIGINT"/>
+        <result column="plan_id" property="planId" jdbcType="BIGINT"/>
+        <result column="user_message" property="userMessage" jdbcType="VARCHAR"/>
+        <result column="status" property="status" javaType="com.getoffer.types.enums.TurnStatusEnum" jdbcType="OTHER"/>
+        <result column="final_response_message_id" property="finalResponseMessageId" jdbcType="BIGINT"/>
+        <result column="assistant_summary" property="assistantSummary" jdbcType="VARCHAR"/>
+        <result column="metadata" property="metadata" jdbcType="VARCHAR"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+        <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
+        <result column="completed_at" property="completedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, session_id, plan_id, user_message, status, final_response_message_id, assistant_summary,
+        metadata, created_at, updated_at, completed_at
+    </sql>
+
+    <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.SessionTurnPO" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO session_turns (
+            session_id, plan_id, user_message, status, final_response_message_id, assistant_summary,
+            metadata, created_at, updated_at, completed_at
+        ) VALUES (
+            #{sessionId}, #{planId}, #{userMessage}, #{status}::turn_status_enum, #{finalResponseMessageId}, #{assistantSummary},
+            #{metadata}::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, #{completedAt}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.getoffer.infrastructure.dao.po.SessionTurnPO">
+        UPDATE session_turns SET
+            session_id = #{sessionId},
+            plan_id = #{planId},
+            user_message = #{userMessage},
+            status = #{status}::turn_status_enum,
+            final_response_message_id = #{finalResponseMessageId},
+            assistant_summary = #{assistantSummary},
+            metadata = #{metadata}::jsonb,
+            updated_at = CURRENT_TIMESTAMP,
+            completed_at = #{completedAt}
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM session_turns
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByPlanId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM session_turns
+        WHERE plan_id = #{planId}
+        LIMIT 1
+    </select>
+
+    <select id="selectBySessionId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM session_turns
+        WHERE session_id = #{sessionId}
+        ORDER BY id DESC
+    </select>
+
+    <select id="selectLatestBySessionIdAndStatus" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM session_turns
+        WHERE session_id = #{sessionId}
+          AND status = #{status}::turn_status_enum
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+</mapper>

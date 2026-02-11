@@ -1,22 +1,26 @@
-# 功能文档：Agent 工厂与工具链
+# 功能文档：AgentProfile 工厂与工具链
 
 ## 1. 功能目标
 
-- 按 `agentKey` 或 `agentId` 构建可执行 `ChatClient`。
+- 按 `agentKey` 或 `agentId` 解析 `AgentProfile`，构建可执行 `TaskClient`（底层 `ChatClient`）。
 - 解析工具链并注入 Spring AI ToolCalling。
 - 按配置组装 Advisor 链，包括 memory rag logger。
+
+术语说明：
+- `AgentProfile`：`agent_registry` 中的一条配置记录。
+- `TaskClient`：某个 Task 执行期间使用的客户端实例，不等同于 Plan。
 
 ## 2. 业务流程图
 
 ```mermaid
 flowchart TD
     A[TaskExecutor] --> B[IAgentFactory.createAgent]
-    B --> C[load AgentRegistry]
+    B --> C[load AgentProfile from agent_registry]
     C --> D[resolve tools]
     D --> E[resolve ChatModel and options]
     E --> F[build advisors]
     F --> G[attach tool callbacks]
-    G --> H[build ChatClient]
+    G --> H[build TaskClient ChatClient]
 ```
 
 ## 3. 时序图
@@ -36,7 +40,7 @@ sequenceDiagram
     AF->>TC: findByIds
     AF->>MM: getToolCallback(serverConfig toolName)
     MM-->>AF: ToolCallback
-    AF-->>EX: ChatClient
+    AF-->>EX: TaskClient(ChatClient)
 ```
 
 ## 4. 关键实现定位
@@ -70,6 +74,16 @@ sequenceDiagram
 - RAG：按 `advisor_config.rag` 绑定 `VectorStore` 与 `SearchRequest`。
 - Logger：按 `advisor_config.logger` 启用 `SimpleLoggerAdvisor`。
 
+## 6.1 Task 执行兜底 Agent 解析顺序
+
+当任务节点未显式提供 `agentId/agentKey` 时，`TaskExecutor` 的解析顺序为：
+
+1. 使用配置的 fallback key 列表顺序尝试：
+   - Worker：`executor.agent.fallback-worker-keys`（默认 `worker,assistant,java_coder,default`）
+   - Critic：`executor.agent.fallback-critic-keys`（默认 `critic,assistant,java_coder,default`）
+2. 若上述 key 均不可用，则回退到“首个激活 AgentProfile”（短 TTL 缓存）。
+3. 若仍无可用 AgentProfile，则抛出不可恢复异常并终止该任务执行。
+
 ## 7. MCP 适配策略
 
 - 支持传输：
@@ -82,7 +96,7 @@ sequenceDiagram
 
 ## 8. 开发要点
 
-- Agent 配置必须先校验激活状态，再构建 ChatClient。
+- AgentProfile 配置必须先校验激活状态，再构建 TaskClient。
 - 新增工具类型时先扩展 `ToolTypeEnum` 与工具解析分支。
 - 新增 Advisor 需明确顺序和开关语义。
 - 禁止在 `modelOptions` 中维护工具配置，避免与 Builder 语义冲突。

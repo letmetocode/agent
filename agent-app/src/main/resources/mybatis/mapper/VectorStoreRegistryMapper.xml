@@ -5,7 +5,7 @@
     <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.VectorStoreRegistryPO">
         <id column="id" property="id" jdbcType="BIGINT"/>
         <result column="store_name" property="name" jdbcType="VARCHAR"/>
-        <result column="store_type" property="storeType" jdbcType="VARCHAR" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="store_type" property="storeType" javaType="com.getoffer.types.enums.VectorStoreTypeEnum" jdbcType="VARCHAR"/>
         <result column="connection_config" property="connectionConfig" jdbcType="VARCHAR"/>
         <result column="collection_name" property="collectionName" jdbcType="VARCHAR"/>
         <result column="dimension" property="dimension" jdbcType="INTEGER"/>

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.getoffer.domain.agent.adapter.factory.IAgentFactory;
+import com.getoffer.domain.agent.adapter.repository.IAgentRegistryRepository;
+import com.getoffer.domain.agent.model.entity.AgentRegistryEntity;
 import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
@@ -20,6 +22,7 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
@@ -36,17 +39,23 @@ import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -61,12 +70,14 @@ public class TaskExecutor {
     private static final String METRIC_EXECUTION_TOTAL = "agent.task.execution.total";
     private static final String METRIC_EXECUTION_DURATION = "agent.task.execution.duration";
     private static final String METRIC_EXECUTION_FAILURE_TOTAL = "agent.task.execution.failure.total";
+    private static final int PLAN_CONTEXT_UPDATE_MAX_RETRY = 3;
 
     private final IAgentTaskRepository agentTaskRepository;
     private final IAgentPlanRepository agentPlanRepository;
     private final PlanTaskEventPublisher planTaskEventPublisher;
     private final ITaskExecutionRepository taskExecutionRepository;
     private final IAgentFactory agentFactory;
+    private final IAgentRegistryRepository agentRegistryRepository;
     private final ObjectMapper objectMapper;
     private final String claimOwner;
     private final int claimBatchSize;
@@ -76,7 +87,10 @@ public class TaskExecutor {
     private final boolean claimReadyFirst;
     private final double refiningMaxRatio;
     private final int refiningMinPerTick;
+    private final int executionTimeoutMs;
+    private final int executionTimeoutRetryMax;
     private final ThreadPoolExecutor taskExecutionWorker;
+    private final ExecutorService taskCallExecutor;
     private final Semaphore dispatchPermits;
     private final AtomicInteger inFlightTasks;
     private final ScheduledExecutorService heartbeatScheduler;
@@ -105,6 +119,11 @@ public class TaskExecutor {
     private final DistributionSummary executionRetrySummary;
     private final Counter expiredRunningDetectedCounter;
     private final Counter expiredRunningCheckErrorCounter;
+    private final List<String> workerFallbackAgentKeys;
+    private final List<String> criticFallbackAgentKeys;
+    private final long defaultAgentCacheTtlMs;
+    private volatile AgentRegistryEntity cachedDefaultAgent;
+    private volatile long cachedDefaultAgentAtMillis;
     private final boolean auditLogEnabled;
     private final boolean auditSuccessLogEnabled;
 
@@ -113,6 +132,7 @@ public class TaskExecutor {
                         PlanTaskEventPublisher planTaskEventPublisher,
                         ITaskExecutionRepository taskExecutionRepository,
                         IAgentFactory agentFactory,
+                        IAgentRegistryRepository agentRegistryRepository,
                         ObjectMapper objectMapper,
                         @Qualifier("taskExecutionWorker") ThreadPoolExecutor taskExecutionWorker,
                         ObjectProvider<MeterRegistry> meterRegistryProvider,
@@ -124,6 +144,11 @@ public class TaskExecutor {
                         @Value("${executor.claim.refining-min-per-tick:1}") int refiningMinPerTick,
                         @Value("${executor.claim.lease-seconds:120}") int claimLeaseSeconds,
                         @Value("${executor.claim.heartbeat-seconds:30}") int claimHeartbeatSeconds,
+                        @Value("${executor.execution.timeout-ms:120000}") int executionTimeoutMs,
+                        @Value("${executor.execution.timeout-retry-max:1}") int executionTimeoutRetryMax,
+                        @Value("${executor.agent.fallback-worker-keys:worker,assistant,java_coder,default}") String workerFallbackAgentKeys,
+                        @Value("${executor.agent.fallback-critic-keys:critic,assistant,java_coder,default}") String criticFallbackAgentKeys,
+                        @Value("${executor.agent.default-cache-ttl-ms:30000}") long defaultAgentCacheTtlMs,
                         @Value("${executor.observability.audit-log-enabled:true}") boolean auditLogEnabled,
                         @Value("${executor.observability.audit-success-log-enabled:false}") boolean auditSuccessLogEnabled) {
         this.agentTaskRepository = agentTaskRepository;
@@ -131,6 +156,7 @@ public class TaskExecutor {
         this.planTaskEventPublisher = planTaskEventPublisher;
         this.taskExecutionRepository = taskExecutionRepository;
         this.agentFactory = agentFactory;
+        this.agentRegistryRepository = agentRegistryRepository;
         this.objectMapper = objectMapper;
         this.taskExecutionWorker = taskExecutionWorker;
         this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
@@ -143,9 +169,17 @@ public class TaskExecutor {
         this.refiningMinPerTick = Math.max(refiningMinPerTick, 0);
         this.claimLeaseSeconds = claimLeaseSeconds > 0 ? claimLeaseSeconds : 120;
         this.claimHeartbeatSeconds = claimHeartbeatSeconds > 0 ? claimHeartbeatSeconds : 30;
+        this.executionTimeoutMs = executionTimeoutMs > 0 ? executionTimeoutMs : 120000;
+        this.executionTimeoutRetryMax = Math.max(executionTimeoutRetryMax, 0);
         int maxInflight = Math.max(taskExecutionWorker.getMaximumPoolSize(), 1);
         this.dispatchPermits = new Semaphore(maxInflight);
         this.inFlightTasks = new AtomicInteger(0);
+        AtomicInteger taskCallThreadCounter = new AtomicInteger(0);
+        this.taskCallExecutor = Executors.newFixedThreadPool(maxInflight, runnable -> {
+            Thread thread = new Thread(runnable, "task-llm-call-" + taskCallThreadCounter.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        });
         this.heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread thread = new Thread(r, "task-claim-heartbeat");
             thread.setDaemon(true);
@@ -184,6 +218,9 @@ public class TaskExecutor {
                 .register(meterRegistry);
         this.expiredRunningDetectedCounter = counter("agent.task.expired_running.detected.total");
         this.expiredRunningCheckErrorCounter = counter("agent.task.expired_running.check_error.total");
+        this.workerFallbackAgentKeys = parseFallbackAgentKeys(workerFallbackAgentKeys, "worker", "assistant");
+        this.criticFallbackAgentKeys = parseFallbackAgentKeys(criticFallbackAgentKeys, "critic", "assistant");
+        this.defaultAgentCacheTtlMs = defaultAgentCacheTtlMs > 0 ? defaultAgentCacheTtlMs : 30000L;
         this.auditLogEnabled = auditLogEnabled;
         this.auditSuccessLogEnabled = auditSuccessLogEnabled;
         Gauge.builder("agent.task.expired_running.current", expiredRunningGauge, AtomicLong::get)
@@ -447,8 +484,11 @@ public class TaskExecutor {
                 return;
             }
             if (!plan.isExecutable()) {
-                outcome = "skip_plan_not_executable";
-                log.debug("Skip task execution because plan is not executable. planId={}, status={}", plan.getId(), plan.getStatus());
+                outcome = releaseClaimForNonExecutablePlan(task, plan)
+                        ? "skip_plan_not_executable_released"
+                        : "skip_plan_not_executable_release_failed";
+                log.debug("Skip task execution because plan is not executable. planId={}, status={}, taskId={}",
+                        plan.getId(), plan.getStatus(), task.getId());
                 return;
             }
 
@@ -457,24 +497,53 @@ public class TaskExecutor {
             boolean refining = task.getCurrentRetry() != null && task.getCurrentRetry() > 0;
             heartbeatFuture = startHeartbeat(task);
 
-            long startTime = System.currentTimeMillis();
-            String prompt = criticTask ? buildCriticPrompt(task, plan)
-                    : (refining ? buildRefinePrompt(task, plan) : buildPrompt(task, plan));
-            execution = new TaskExecutionEntity();
-            execution.setTaskId(task.getId());
-            execution.setAttemptNumber(resolveAttemptNumber(task));
-            execution.setPromptSnapshot(prompt);
+            ChatResponse chatResponse;
+            String response;
+            int timeoutRetryCount = 0;
+            while (true) {
+                long startTime = System.currentTimeMillis();
+                String prompt = criticTask ? buildCriticPrompt(task, plan)
+                        : (refining ? buildRefinePrompt(task, plan) : buildPrompt(task, plan));
+                execution = new TaskExecutionEntity();
+                execution.setTaskId(task.getId());
+                execution.setAttemptNumber(resolveAttemptNumber(task));
+                execution.setPromptSnapshot(prompt);
 
-            String systemPromptSuffix = buildRetrySystemPrompt(task);
-            ChatClient client = resolveAgent(task, plan, systemPromptSuffix);
-            ChatClient.CallResponseSpec callResponse = client.prompt(prompt).call();
-            ChatResponse chatResponse = callResponse == null ? null : callResponse.chatResponse();
-            String response = extractContent(chatResponse);
-            execution.setModelName(extractModelName(chatResponse));
-            execution.setTokenUsage(extractTokenUsage(chatResponse));
+                String systemPromptSuffix = buildRetrySystemPrompt(task);
+                ChatClient taskClient = resolveTaskClient(task, plan, systemPromptSuffix);
+                try {
+                    chatResponse = callTaskClientWithTimeout(taskClient, prompt);
+                } catch (TaskCallTimeoutException timeoutException) {
+                    persistTimeoutExecution(execution, startTime, timeoutException);
+                    boolean retrying = canTimeoutRetry(task, timeoutRetryCount);
+                    recordTimeoutMetrics(task, retrying);
+                    if (retrying) {
+                        timeoutRetryCount++;
+                        applyTimeoutRetry(task, timeoutException.getMessage());
+                        refining = true;
+                        outcome = "timeout_retrying";
+                        errorType = "timeout";
+                        continue;
+                    }
+                    errorType = "timeout";
+                    outcome = "failed";
+                    task.fail(timeoutException.getMessage());
+                    if (safeUpdateClaimedTask(task)) {
+                        publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, buildTaskData(task));
+                        publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, buildTaskLog(task));
+                    }
+                    log.warn("Task execution timed out and exhausted retries. taskId={}, nodeId={}, timeoutMs={}, retryMax={}",
+                            task.getId(), task.getNodeId(), executionTimeoutMs, executionTimeoutRetryMax);
+                    return;
+                }
 
-            execution.setLlmResponseRaw(response);
-            execution.setExecutionTime(startTime);
+                response = extractContent(chatResponse);
+                execution.setModelName(extractModelName(chatResponse));
+                execution.setTokenUsage(extractTokenUsage(chatResponse));
+                execution.setLlmResponseRaw(response);
+                execution.setExecutionTime(startTime);
+                break;
+            }
             if (criticTask) {
                 CriticDecision decision = parseCriticDecision(response);
                 if (decision.pass) {
@@ -615,6 +684,31 @@ public class TaskExecutor {
         return new ValidationResult(true, feedback);
     }
 
+    private boolean releaseClaimForNonExecutablePlan(AgentTaskEntity task, AgentPlanEntity plan) {
+        if (task == null) {
+            return false;
+        }
+        try {
+            if (task.getCurrentRetry() != null && task.getCurrentRetry() > 0) {
+                task.rollbackToRefining();
+            } else {
+                task.rollbackToReady();
+            }
+            boolean updated = safeUpdateClaimedTask(task);
+            if (updated) {
+                emitTaskAudit("claimed_release_non_executable_plan", task,
+                        "plan_status=" + (plan == null || plan.getStatus() == null ? "null" : plan.getStatus().name()));
+                publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, buildTaskLog(task));
+            }
+            return updated;
+        } catch (Exception ex) {
+            log.warn("Failed to release claimed task for non-executable plan. taskId={}, planId={}, error={}",
+                    task.getId(), task.getPlanId(), ex.getMessage());
+            emitTaskAudit("claimed_release_non_executable_plan_failed", task, "error_type=" + classifyError(ex));
+            return false;
+        }
+    }
+
     private boolean containsKeyword(String text, List<String> keywords, String... defaults) {
         if (StringUtils.isBlank(text)) {
             return false;
@@ -635,23 +729,103 @@ public class TaskExecutor {
         return false;
     }
 
-    private ChatClient resolveAgent(AgentTaskEntity task, AgentPlanEntity plan) {
-        return resolveAgent(task, plan, null);
+    private ChatClient resolveTaskClient(AgentTaskEntity task, AgentPlanEntity plan) {
+        return resolveTaskClient(task, plan, null);
     }
 
-    private ChatClient resolveAgent(AgentTaskEntity task, AgentPlanEntity plan, String systemPromptSuffix) {
+    /**
+     * 为当前 Task 解析执行用 TaskClient（底层为 ChatClient）。
+     * 优先级：task config(agentId/agentKey) > fallback key 列表 > 首个激活 AgentProfile。
+     */
+    private ChatClient resolveTaskClient(AgentTaskEntity task, AgentPlanEntity plan, String systemPromptSuffix) {
         Map<String, Object> config = task.getConfigSnapshot();
-        Long agentId = getLong(config, "agentId", "agent_id");
-        String agentKey = getString(config, "agentKey", "agent_key");
+        Long configuredAgentId = getLong(config, "agentId", "agent_id");
+        String configuredAgentKey = getString(config, "agentKey", "agent_key");
         String conversationId = buildConversationId(plan, task);
-        if (agentId != null) {
-            return agentFactory.createAgent(agentId, conversationId, systemPromptSuffix);
+        if (configuredAgentId != null) {
+            return agentFactory.createAgent(configuredAgentId, conversationId, systemPromptSuffix);
         }
-        if (StringUtils.isNotBlank(agentKey)) {
+        if (StringUtils.isNotBlank(configuredAgentKey)) {
+            return agentFactory.createAgent(configuredAgentKey, conversationId, systemPromptSuffix);
+        }
+        List<String> fallbackKeys = task.getTaskType() == TaskTypeEnum.CRITIC
+                ? criticFallbackAgentKeys
+                : workerFallbackAgentKeys;
+        for (String fallbackKey : fallbackKeys) {
+            ChatClient fallbackTaskClient = tryCreateTaskClientByAgentKey(fallbackKey, conversationId, systemPromptSuffix);
+            if (fallbackTaskClient != null) {
+                if (!"worker".equalsIgnoreCase(fallbackKey) && !"critic".equalsIgnoreCase(fallbackKey)) {
+                    log.warn("Task fallback agent profile key applied. taskId={}, nodeId={}, taskType={}, agentKey={}",
+                            task.getId(), task.getNodeId(), task.getTaskType(), fallbackKey);
+                }
+                return fallbackTaskClient;
+            }
+        }
+
+        AgentRegistryEntity defaultAgentProfile = resolveDefaultActiveAgentProfile();
+        if (defaultAgentProfile != null) {
+            log.warn("Task fallback to first active agent profile. taskId={}, nodeId={}, taskType={}, agentKey={}",
+                    task.getId(), task.getNodeId(), task.getTaskType(), defaultAgentProfile.getKey());
+            return agentFactory.createAgent(defaultAgentProfile, conversationId, systemPromptSuffix);
+        }
+
+        throw new IllegalStateException("No available active agent profile for task fallback. triedKeys=" + fallbackKeys);
+    }
+
+    private ChatClient tryCreateTaskClientByAgentKey(String agentKey, String conversationId, String systemPromptSuffix) {
+        if (StringUtils.isBlank(agentKey)) {
+            return null;
+        }
+        try {
             return agentFactory.createAgent(agentKey, conversationId, systemPromptSuffix);
+        } catch (IllegalStateException ex) {
+            String message = StringUtils.defaultString(ex.getMessage());
+            if (message.startsWith("Agent not found:") || message.startsWith("Agent is inactive:")) {
+                return null;
+            }
+            throw ex;
         }
-        String fallbackKey = task.getTaskType() == TaskTypeEnum.CRITIC ? "critic" : "worker";
-        return agentFactory.createAgent(fallbackKey, conversationId, systemPromptSuffix);
+    }
+
+    private AgentRegistryEntity resolveDefaultActiveAgentProfile() {
+        long now = System.currentTimeMillis();
+        AgentRegistryEntity cached = cachedDefaultAgent;
+        if (cached != null && now - cachedDefaultAgentAtMillis <= defaultAgentCacheTtlMs) {
+            return cached;
+        }
+        List<AgentRegistryEntity> activeAgents = agentRegistryRepository.findByActive(true);
+        if (activeAgents == null || activeAgents.isEmpty()) {
+            cachedDefaultAgent = null;
+            cachedDefaultAgentAtMillis = now;
+            return null;
+        }
+        AgentRegistryEntity selected = activeAgents.stream()
+                .filter(agent -> agent != null && StringUtils.isNotBlank(agent.getKey()))
+                .min(Comparator.comparing(AgentRegistryEntity::getId, Comparator.nullsLast(Long::compareTo)))
+                .orElse(null);
+        cachedDefaultAgent = selected;
+        cachedDefaultAgentAtMillis = now;
+        return selected;
+    }
+
+    private List<String> parseFallbackAgentKeys(String configuredKeys, String... defaults) {
+        LinkedHashSet<String> keys = new LinkedHashSet<>();
+        if (StringUtils.isNotBlank(configuredKeys)) {
+            String[] parts = configuredKeys.split(",");
+            for (String part : parts) {
+                if (StringUtils.isNotBlank(part)) {
+                    keys.add(part.trim());
+                }
+            }
+        }
+        if (keys.isEmpty() && defaults != null) {
+            for (String item : defaults) {
+                if (StringUtils.isNotBlank(item)) {
+                    keys.add(item.trim());
+                }
+            }
+        }
+        return new ArrayList<>(keys);
     }
 
     private String buildConversationId(AgentPlanEntity plan, AgentTaskEntity task) {
@@ -894,30 +1068,45 @@ public class TaskExecutor {
     }
 
     private void syncBlackboard(AgentPlanEntity plan, AgentTaskEntity task, String output) {
-        Map<String, Object> context = plan.getGlobalContext();
-        if (context == null) {
-            context = new HashMap<>();
+        if (plan == null || plan.getId() == null || task == null) {
+            return;
         }
         Map<String, Object> config = task.getConfigSnapshot();
+        Map<String, Object> delta = new HashMap<>();
 
         boolean merge = getBoolean(config, "mergeOutput", "merge_output", "outputMerge");
         if (merge) {
             Map<String, Object> parsed = parseJsonMap(output);
             if (parsed != null && !parsed.isEmpty()) {
-                context.putAll(parsed);
-                plan.setGlobalContext(context);
-                safeUpdatePlan(plan);
-                return;
+                delta.putAll(parsed);
             }
         }
 
-        String outputKey = getString(config, "outputKey", "output_key", "resultKey", "result_key");
-        if (StringUtils.isBlank(outputKey)) {
-            outputKey = StringUtils.defaultIfBlank(task.getNodeId(), "output");
+        if (delta.isEmpty()) {
+            String outputKey = getString(config, "outputKey", "output_key", "resultKey", "result_key");
+            if (StringUtils.isBlank(outputKey)) {
+                outputKey = StringUtils.defaultIfBlank(task.getNodeId(), "output");
+            }
+            delta.put(outputKey, output);
         }
-        context.put(outputKey, output);
-        plan.setGlobalContext(context);
-        safeUpdatePlan(plan);
+
+        for (int attempt = 1; attempt <= PLAN_CONTEXT_UPDATE_MAX_RETRY; attempt++) {
+            AgentPlanEntity latestPlan = agentPlanRepository.findById(plan.getId());
+            if (latestPlan == null) {
+                log.warn("Failed to update plan context because plan not found. planId={}", plan.getId());
+                return;
+            }
+            Map<String, Object> mergedContext = latestPlan.getGlobalContext() == null
+                    ? new HashMap<>()
+                    : new HashMap<>(latestPlan.getGlobalContext());
+            mergedContext.putAll(delta);
+            latestPlan.setGlobalContext(mergedContext);
+            if (safeUpdatePlan(latestPlan, attempt, PLAN_CONTEXT_UPDATE_MAX_RETRY)) {
+                plan.setGlobalContext(mergedContext);
+                plan.setVersion(latestPlan.getVersion());
+                return;
+            }
+        }
     }
 
     private Map<String, Object> filterContext(Map<String, Object> context, List<String> keys) {
@@ -1085,6 +1274,84 @@ public class TaskExecutor {
         }
         int retry = task.getCurrentRetry() == null ? 0 : Math.max(task.getCurrentRetry(), 0);
         executionRetrySummary.record(retry);
+    }
+
+    private ChatResponse callTaskClientWithTimeout(ChatClient taskClient, String prompt) {
+        Future<ChatResponse> future = taskCallExecutor.submit(() -> {
+            ChatClient.CallResponseSpec callResponse = taskClient.prompt(prompt).call();
+            return callResponse == null ? null : callResponse.chatResponse();
+        });
+        try {
+            return future.get(executionTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException ex) {
+            future.cancel(true);
+            throw new TaskCallTimeoutException("Task execution timed out after " + executionTimeoutMs + " ms", ex);
+        } catch (InterruptedException ex) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Task execution interrupted", ex);
+        } catch (ExecutionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+            }
+            throw new IllegalStateException(cause == null ? "Task execution failed" : cause.getMessage(), cause);
+        }
+    }
+
+    private void persistTimeoutExecution(TaskExecutionEntity execution,
+                                         long startTime,
+                                         TaskCallTimeoutException timeoutException) {
+        if (execution == null) {
+            return;
+        }
+        execution.recordError(timeoutException.getMessage());
+        execution.markAsInvalid(timeoutException.getMessage());
+        execution.setErrorType("timeout");
+        execution.setExecutionTime(startTime);
+        safeSaveExecution(execution);
+    }
+
+    private boolean canTimeoutRetry(AgentTaskEntity task, int timeoutRetryCount) {
+        if (timeoutRetryCount >= executionTimeoutRetryMax) {
+            return false;
+        }
+        if (task == null) {
+            return false;
+        }
+        int currentRetry = task.getCurrentRetry() == null ? 0 : Math.max(task.getCurrentRetry(), 0);
+        Integer maxRetries = task.getMaxRetries();
+        if (maxRetries == null) {
+            return true;
+        }
+        return currentRetry < Math.max(maxRetries, 0);
+    }
+
+    private void applyTimeoutRetry(AgentTaskEntity task, String timeoutMessage) {
+        if (task == null) {
+            return;
+        }
+        int currentRetry = task.getCurrentRetry() == null ? 0 : Math.max(task.getCurrentRetry(), 0);
+        task.setCurrentRetry(currentRetry + 1);
+        Map<String, Object> inputContext = task.getInputContext() == null
+                ? new HashMap<>()
+                : new HashMap<>(task.getInputContext());
+        inputContext.put("feedback", timeoutMessage);
+        inputContext.put("validationFeedback", timeoutMessage);
+        task.setInputContext(inputContext);
+    }
+
+    private void recordTimeoutMetrics(AgentTaskEntity task, boolean retrying) {
+        String taskType = resolveTaskType(task);
+        meterRegistry.counter("agent.task.execution.timeout.total",
+                "task_type", taskType).increment();
+        if (retrying) {
+            meterRegistry.counter("agent.task.execution.timeout.retry.total",
+                    "task_type", taskType).increment();
+        } else {
+            meterRegistry.counter("agent.task.execution.timeout.final_fail.total",
+                    "task_type", taskType).increment();
+        }
     }
 
     private void recordExecutionMetrics(AgentTaskEntity task, String outcome, String errorType, long startedNanos) {
@@ -1343,6 +1610,12 @@ public class TaskExecutor {
         }
     }
 
+    @PreDestroy
+    public void shutdownExecutors() {
+        heartbeatScheduler.shutdownNow();
+        taskCallExecutor.shutdownNow();
+    }
+
     private String resolveInstanceId(String configuredInstanceId) {
         if (StringUtils.isNotBlank(configuredInstanceId)) {
             return configuredInstanceId.trim();
@@ -1383,11 +1656,33 @@ public class TaskExecutor {
         }
     }
 
-    private void safeUpdatePlan(AgentPlanEntity plan) {
+    private boolean safeUpdatePlan(AgentPlanEntity plan, int attempt, int maxAttempts) {
+        if (plan == null || plan.getId() == null) {
+            return false;
+        }
         try {
             agentPlanRepository.update(plan);
+            return true;
         } catch (Exception ex) {
+            boolean optimisticLock = ex.getMessage() != null && ex.getMessage().contains("Optimistic lock");
+            if (optimisticLock) {
+                if (attempt < maxAttempts) {
+                    log.debug("Retry updating plan context after optimistic lock. planId={}, attempt={}/{}",
+                            plan.getId(), attempt, maxAttempts);
+                } else {
+                    log.warn("Failed to update plan context after retries. planId={}, attempts={}, error={}",
+                            plan.getId(), maxAttempts, ex.getMessage());
+                }
+                return false;
+            }
             log.warn("Failed to update plan context. planId={}, error={}", plan.getId(), ex.getMessage());
+            return false;
+        }
+    }
+
+    private static final class TaskCallTimeoutException extends RuntimeException {
+        private TaskCallTimeoutException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 }

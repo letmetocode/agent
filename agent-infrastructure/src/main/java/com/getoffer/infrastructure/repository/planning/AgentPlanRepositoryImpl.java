@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
  * 负责执行计划的持久化操作，包括：
  * <ul>
  *   <li>执行计划的增删改查（带乐观锁）</li>
- *   <li>按会话ID、状态、SOP模板ID等条件查询</li>
+ *   <li>按会话ID、状态、Workflow Definition ID等条件查询</li>
  *   <li>Entity与PO之间的相互转换</li>
  *   <li>JSONB字段（executionGraph、globalContext）的序列化/反序列化</li>
  * </ul>
@@ -143,11 +143,11 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
     }
 
     /**
-     * 按 SOP 模板 ID 查询。
+     * 按 Workflow Definition ID 查询。
      */
     @Override
-    public List<AgentPlanEntity> findBySopTemplateId(Long sopTemplateId) {
-        return agentPlanDao.selectBySopTemplateId(sopTemplateId).stream()
+    public List<AgentPlanEntity> findByWorkflowDefinitionId(Long workflowDefinitionId) {
+        return agentPlanDao.selectByWorkflowDefinitionId(workflowDefinitionId).stream()
                 .map(this::toEntity)
                 .collect(Collectors.toList());
     }
@@ -172,12 +172,17 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
         AgentPlanEntity entity = new AgentPlanEntity();
         entity.setId(po.getId());
         entity.setSessionId(po.getSessionId());
-        entity.setSopTemplateId(po.getSopTemplateId());
+        entity.setRouteDecisionId(po.getRouteDecisionId());
+        entity.setWorkflowDefinitionId(po.getWorkflowDefinitionId());
+        entity.setWorkflowDraftId(po.getWorkflowDraftId());
         entity.setPlanGoal(po.getPlanGoal());
 
         // JSONB 字段转换
         if (po.getExecutionGraph() != null) {
             entity.setExecutionGraph(jsonCodec.readMap(po.getExecutionGraph()));
+        }
+        if (po.getDefinitionSnapshot() != null) {
+            entity.setDefinitionSnapshot(jsonCodec.readMap(po.getDefinitionSnapshot()));
         }
         if (po.getGlobalContext() != null) {
             entity.setGlobalContext(jsonCodec.readMap(po.getGlobalContext()));
@@ -202,7 +207,9 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
         AgentPlanPO po = AgentPlanPO.builder()
                 .id(entity.getId())
                 .sessionId(entity.getSessionId())
-                .sopTemplateId(entity.getSopTemplateId())
+                .routeDecisionId(entity.getRouteDecisionId())
+                .workflowDefinitionId(entity.getWorkflowDefinitionId())
+                .workflowDraftId(entity.getWorkflowDraftId())
                 .planGoal(entity.getPlanGoal())
                 .status(entity.getStatus())
                 .priority(entity.getPriority())
@@ -215,6 +222,9 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
         // Map 转换为 JSON 字符串
         if (entity.getExecutionGraph() != null) {
             po.setExecutionGraph(jsonCodec.writeValue(entity.getExecutionGraph()));
+        }
+        if (entity.getDefinitionSnapshot() != null) {
+            po.setDefinitionSnapshot(jsonCodec.writeValue(entity.getDefinitionSnapshot()));
         }
         if (entity.getGlobalContext() != null) {
             po.setGlobalContext(jsonCodec.writeValue(entity.getGlobalContext()));

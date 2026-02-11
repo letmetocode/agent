@@ -7,6 +7,7 @@ import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
+import com.getoffer.trigger.service.TurnResultService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -29,6 +30,7 @@ public class PlanStatusDaemon {
     private final IAgentPlanRepository agentPlanRepository;
     private final IAgentTaskRepository agentTaskRepository;
     private final PlanTaskEventPublisher planTaskEventPublisher;
+    private final TurnResultService turnResultService;
 
     private final int batchSize;
     private final int maxPlansPerRound;
@@ -36,11 +38,13 @@ public class PlanStatusDaemon {
     public PlanStatusDaemon(IAgentPlanRepository agentPlanRepository,
                             IAgentTaskRepository agentTaskRepository,
                             PlanTaskEventPublisher planTaskEventPublisher,
+                            TurnResultService turnResultService,
                             @Value("${plan-status.batch-size:200}") int batchSize,
                             @Value("${plan-status.max-plans-per-round:1000}") int maxPlansPerRound) {
         this.agentPlanRepository = agentPlanRepository;
         this.agentTaskRepository = agentTaskRepository;
         this.planTaskEventPublisher = planTaskEventPublisher;
+        this.turnResultService = turnResultService;
         this.batchSize = batchSize > 0 ? batchSize : 200;
         this.maxPlansPerRound = maxPlansPerRound > 0 ? maxPlansPerRound : 1000;
     }
@@ -160,7 +164,8 @@ public class PlanStatusDaemon {
             }
             agentPlanRepository.update(plan);
             if (targetStatus == PlanStatusEnum.COMPLETED || targetStatus == PlanStatusEnum.FAILED) {
-                publishPlanFinishedEvent(plan);
+                TurnResultService.TurnFinalizeResult turnResult = turnResultService.finalizeByPlan(plan.getId(), targetStatus);
+                publishPlanFinishedEvent(plan, turnResult);
             }
             log.debug("Plan status advanced by task aggregate. planId={}, from={}, to={}",
                     plan.getId(), beforeStatus, targetStatus);
@@ -180,7 +185,7 @@ public class PlanStatusDaemon {
         return message != null && message.contains("Optimistic lock");
     }
 
-    private void publishPlanFinishedEvent(AgentPlanEntity plan) {
+    private void publishPlanFinishedEvent(AgentPlanEntity plan, TurnResultService.TurnFinalizeResult turnResult) {
         if (plan == null || plan.getId() == null) {
             return;
         }
@@ -188,6 +193,12 @@ public class PlanStatusDaemon {
             Map<String, Object> data = new HashMap<>();
             data.put("planId", plan.getId());
             data.put("status", plan.getStatus() == null ? null : plan.getStatus().name());
+            if (turnResult != null) {
+                data.put("turnId", turnResult.getTurnId());
+                data.put("assistantMessageId", turnResult.getAssistantMessageId());
+                data.put("assistantSummary", turnResult.getAssistantSummary());
+                data.put("turnStatus", turnResult.getTurnStatus() == null ? null : turnResult.getTurnStatus().name());
+            }
             planTaskEventPublisher.publish(PlanTaskEventTypeEnum.PLAN_FINISHED, plan.getId(), null, data);
         } catch (Exception ex) {
             log.warn("Failed to publish plan finished event. planId={}, error={}", plan.getId(), ex.getMessage());

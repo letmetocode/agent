@@ -6,7 +6,7 @@
         <id column="id" property="id" jdbcType="BIGINT"/>
         <result column="plan_id" property="planId" jdbcType="BIGINT"/>
         <result column="task_id" property="taskId" jdbcType="BIGINT"/>
-        <result column="event_type" property="eventType" jdbcType="OTHER" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="event_type" property="eventType" javaType="com.getoffer.types.enums.PlanTaskEventTypeEnum" jdbcType="OTHER"/>
         <result column="event_data" property="eventData" jdbcType="VARCHAR"/>
         <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
     </resultMap>

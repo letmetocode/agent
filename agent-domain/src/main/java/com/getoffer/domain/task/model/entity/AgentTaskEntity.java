@@ -238,6 +238,14 @@ public class AgentTaskEntity {
     }
 
     /**
+     * 回滚为可执行就绪态。
+     */
+    public void rollbackToReady() {
+        this.status = TaskStatusEnum.READY;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    /**
      * 更新输出结果
      */
     public void updateOutput(String output) {

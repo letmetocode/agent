@@ -64,7 +64,7 @@ public interface AgentPlanDao {
     List<AgentPlanPO> selectAll();
 
     /**
-     * 根据 SOP 模板 ID 查询
+     * 根据 Workflow Definition ID 查询
      */
-    List<AgentPlanPO> selectBySopTemplateId(@Param("sopTemplateId") Long sopTemplateId);
+    List<AgentPlanPO> selectByWorkflowDefinitionId(@Param("workflowDefinitionId") Long workflowDefinitionId);
 }

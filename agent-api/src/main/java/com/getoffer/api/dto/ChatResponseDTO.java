@@ -10,7 +10,13 @@ public class ChatResponseDTO {
 
     private Long sessionId;
 
+    private Long turnId;
+
     private Long planId;
 
     private String planGoal;
+
+    private String turnStatus;
+
+    private String assistantMessage;
 }

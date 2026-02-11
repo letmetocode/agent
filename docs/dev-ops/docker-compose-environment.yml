@@ -1,42 +1,46 @@
 # 命令执行 docker-compose -f docker-compose-environment.yml up -d
-# 本地环境依赖（MySQL/Redis）启动配置
+# 本地环境依赖（PostgreSQL/Redis）启动配置
 version: '3.9'
 services:
-  mysql:
-    image: mysql:8.0.32
-    container_name: mysql
-    command: --default-authentication-plugin=mysql_native_password
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
     restart: always
     environment:
       TZ: Asia/Shanghai
-      MYSQL_ROOT_PASSWORD: 123456
+      POSTGRES_DB: agent_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 123456
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "13306:3306"
+      - "15432:5432"
     volumes:
-      - ./mysql/my.cnf:/etc/mysql/conf.d/mysql.cnf:ro
-      - ./mysql/sql:/docker-entrypoint-initdb.d
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgresql/sql:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: [ "CMD", "mysqladmin" ,"ping", "-h", "localhost" ]
-      interval: 5s
-      timeout: 10s
-      retries: 10
-      start_period: 15s
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d agent_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - my-network
 
-  # phpmyadmin https://hub.docker.com/_/phpmyadmin
-  phpmyadmin:
-    image: phpmyadmin:5.2.1
-    container_name: phpmyadmin
-    hostname: phpmyadmin
+  # pgAdmin https://hub.docker.com/r/dpage/pgadmin4
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    hostname: pgadmin
     ports:
-      - 8899:80
+      - 5050:80
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
     environment:
-      - PMA_HOST=mysql
-      - PMA_PORT=3306
-      - MYSQL_ROOT_PASSWORD=123456
+      - PGADMIN_DEFAULT_EMAIL=admin@getoffer.com
+      - PGADMIN_DEFAULT_PASSWORD=admin
+      - PGADMIN_CONFIG_SERVER_MODE=False
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
     networks:
       - my-network
@@ -85,3 +89,9 @@ services:
 networks:
   my-network:
     driver: bridge
+
+volumes:
+  postgres-data:
+    driver: local
+  pgadmin-data:
+    driver: local

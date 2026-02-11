@@ -20,13 +20,27 @@
 - `domain` 不依赖 `infrastructure` 具体实现。
 - `infrastructure` 实现 `domain` 端口，并通过 MyBatis 与外部服务落地。
 
+## 2.1 术语词典（统一约束）
+
+- `Plan`：一次用户输入触发的完整执行编排（总任务）。
+- `Task`：Plan 内的节点任务（Workflow 节点实例）。
+- `Workflow Definition`：生产流程定义（版本不可变）。
+- `Workflow Draft`：运行时草案与治理对象。
+- `Routing Decision`：路由命中/兜底决策审计记录。
+- `AgentProfile`：可复用执行配置（来源 `agent_registry`，包含模型、工具、advisor）。
+- `TaskClient`：Task 执行时创建的运行时客户端（底层类型是 `ChatClient`）。
+
+命名约束：
+- 不再使用“agent=总任务”的表述。
+- 总任务统一叫 `Plan`；节点执行客户端统一叫 `TaskClient`。
+
 ## 3. 核心业务主链路
 
 ### 3.1 会话与规划
 
 1. 客户端调用 `POST /api/sessions` 创建会话。
 2. 客户端调用 `POST /api/sessions/{id}/chat` 触发规划。
-3. `PlannerService` 匹配 SOP，创建 Plan，展开 DAG 生成 Task。
+3. `PlannerService` 先路由 Workflow，再创建 Plan，展开 DAG 生成 Task。
 4. Plan 从 `PLANNING` 进入 `READY`，等待执行。
 
 ### 3.2 任务调度与执行
@@ -46,8 +60,20 @@
 1. `TaskExecutor` 和 `PlanStatusDaemon` 在关键状态变更时发布 `PlanTaskEvent`。
 2. `PlanTaskEventPublisher` 执行双轨处理：
    - 持久化到 `plan_task_events`（用于断线回放与审计）
+   - PostgreSQL `NOTIFY/LISTEN` 广播跨实例事件信号
    - 进程内总线实时分发给 SSE 订阅者
 3. `PlanStreamController` 连接建立时先按 `lastEventId` 回放，再进入实时订阅。
+4. 连接存活期间通过固定周期增量 replay 兜底，避免跨实例通知丢失导致卡流。
+
+### 3.5 页面查询读模型
+
+1. `QueryController` 提供页面只读 API，覆盖会话、计划、任务、执行记录查询。
+2. 首屏优先使用 `GET /api/sessions/{id}/overview` 一次拉取：
+   - 会话详情
+   - 会话下计划列表（按 `updatedAt` 倒序）
+   - 最新计划任务统计
+   - 最新计划任务明细
+3. SSE 负责“增量变化”，查询 API 负责“首屏基线与历史回看”，两者职责分离。
 
 ## 4. 并发与一致性策略
 
@@ -86,6 +112,8 @@
   - claim/lease 相关参数
 - SSE 事件推送参数：
   - `sse.heartbeat-interval-ms`
+  - `sse.replay-interval-ms`
+  - `event.notify.channel`
 
 ## 7. 开发约束
 
@@ -100,7 +128,7 @@
 - 依赖调度：`03-task-scheduling.md`
 - claim 与执行：`04-task-claim-and-execution.md`
 - Plan 聚合推进：`05-plan-status-aggregation.md`
-- Agent 工厂与工具：`06-agent-factory-and-tools.md`
+- AgentProfile 工厂与工具：`06-agent-factory-and-tools.md`
 - 数据与 SQL：`07-data-model-and-sql.md`
 - 观测与运维：`08-observability-and-ops.md`
 - 开发与回归清单：`09-dev-guide-and-checklist.md`
@@ -110,3 +138,10 @@
 - Task 类型统一为 `TaskTypeEnum`（领域/仓储/Planner/Executor/DB 一致）。
 - 执行记录补齐模型与 token 用量采集，失败原因结构化。
 - SSE 从“每连接轮询”升级为“事件驱动 + 回放补偿”。
+- 新增页面查询 API 与 `overview` 聚合接口，补齐前端首屏渲染与历史查看能力。
+- 未命中生产 Definition 时引入 Root Draft 生成链路（最多 3 次重试），失败后自动降级单节点 Draft。
+- `routing_decisions + agent_plans + agent_tasks` 同事务原子提交，避免半记录。
+- `execution_graph` 作为唯一执行事实源；`definition_snapshot` 仅用于审计解释。
+- Root/Assistant 均通过 `agent_registry` 配置，不做代码硬编码；启动阶段执行 Root 可用性健康检查。
+- 回合最终输出改为仅汇总 `WORKER` 成果，避免 `CRITIC` JSON 泄露到用户可见回复。
+- Task 执行黑板写回改为“读取最新 Plan + 乐观锁有限重试”，降低并发更新告警噪声。

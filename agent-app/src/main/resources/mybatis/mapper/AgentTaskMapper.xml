@@ -7,8 +7,8 @@
         <result column="plan_id" property="planId" jdbcType="BIGINT"/>
         <result column="node_id" property="nodeId" jdbcType="VARCHAR"/>
         <result column="name" property="name" jdbcType="VARCHAR"/>
-        <result column="task_type" property="taskType" jdbcType="OTHER" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
-        <result column="status" property="status" jdbcType="OTHER" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="task_type" property="taskType" javaType="com.getoffer.types.enums.TaskTypeEnum" jdbcType="OTHER"/>
+        <result column="status" property="status" javaType="com.getoffer.types.enums.TaskStatusEnum" jdbcType="OTHER"/>
         <result column="dependency_node_ids" property="dependencyNodeIds" jdbcType="VARCHAR"/>
         <result column="input_context" property="inputContext" jdbcType="VARCHAR"/>
         <result column="config_snapshot" property="configSnapshot" jdbcType="VARCHAR"/>
@@ -123,12 +123,16 @@
 
     <select id="claimExecutableTasks" resultMap="BaseResultMap">
         WITH picked AS (
-            SELECT id,
-                   (status = 'RUNNING'::task_status_enum AND (lease_until IS NULL OR lease_until &lt; CURRENT_TIMESTAMP)) AS lease_reclaimed
-            FROM agent_tasks
-            WHERE status IN ('READY'::task_status_enum, 'REFINING'::task_status_enum)
-               OR (status = 'RUNNING'::task_status_enum AND (lease_until IS NULL OR lease_until &lt; CURRENT_TIMESTAMP))
-            ORDER BY plan_id, created_at ASC
+            SELECT t.id,
+                   (t.status = 'RUNNING'::task_status_enum AND (t.lease_until IS NULL OR t.lease_until &lt; CURRENT_TIMESTAMP)) AS lease_reclaimed
+            FROM agent_tasks t
+            INNER JOIN agent_plans p ON p.id = t.plan_id
+            WHERE p.status IN ('READY'::plan_status_enum, 'RUNNING'::plan_status_enum)
+              AND (
+                   t.status IN ('READY'::task_status_enum, 'REFINING'::task_status_enum)
+                   OR (t.status = 'RUNNING'::task_status_enum AND (t.lease_until IS NULL OR t.lease_until &lt; CURRENT_TIMESTAMP))
+              )
+            ORDER BY t.plan_id, t.created_at ASC
             LIMIT #{limit}
             FOR UPDATE SKIP LOCKED
         )
@@ -153,12 +157,16 @@
 
     <select id="claimReadyLikeTasks" resultMap="BaseResultMap">
         WITH picked AS (
-            SELECT id,
-                   (status = 'RUNNING'::task_status_enum AND (lease_until IS NULL OR lease_until &lt; CURRENT_TIMESTAMP)) AS lease_reclaimed
-            FROM agent_tasks
-            WHERE status = 'READY'::task_status_enum
-               OR (status = 'RUNNING'::task_status_enum AND (lease_until IS NULL OR lease_until &lt; CURRENT_TIMESTAMP))
-            ORDER BY CASE WHEN status = 'READY'::task_status_enum THEN 0 ELSE 1 END, plan_id, created_at ASC
+            SELECT t.id,
+                   (t.status = 'RUNNING'::task_status_enum AND (t.lease_until IS NULL OR t.lease_until &lt; CURRENT_TIMESTAMP)) AS lease_reclaimed
+            FROM agent_tasks t
+            INNER JOIN agent_plans p ON p.id = t.plan_id
+            WHERE p.status IN ('READY'::plan_status_enum, 'RUNNING'::plan_status_enum)
+              AND (
+                   t.status = 'READY'::task_status_enum
+                   OR (t.status = 'RUNNING'::task_status_enum AND (t.lease_until IS NULL OR t.lease_until &lt; CURRENT_TIMESTAMP))
+              )
+            ORDER BY CASE WHEN t.status = 'READY'::task_status_enum THEN 0 ELSE 1 END, t.plan_id, t.created_at ASC
             LIMIT #{limit}
             FOR UPDATE SKIP LOCKED
         )
@@ -183,11 +191,13 @@
 
     <select id="claimRefiningTasks" resultMap="BaseResultMap">
         WITH picked AS (
-            SELECT id,
+            SELECT t.id,
                    FALSE AS lease_reclaimed
-            FROM agent_tasks
-            WHERE status = 'REFINING'::task_status_enum
-            ORDER BY plan_id, created_at ASC
+            FROM agent_tasks t
+            INNER JOIN agent_plans p ON p.id = t.plan_id
+            WHERE p.status IN ('READY'::plan_status_enum, 'RUNNING'::plan_status_enum)
+              AND t.status = 'REFINING'::task_status_enum
+            ORDER BY t.plan_id, t.created_at ASC
             LIMIT #{limit}
             FOR UPDATE SKIP LOCKED
         )

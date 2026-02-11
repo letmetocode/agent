@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.getoffer.infrastructure.dao.RoutingDecisionDao">
+
+    <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.RoutingDecisionPO">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="session_id" property="sessionId" jdbcType="BIGINT"/>
+        <result column="turn_id" property="turnId" jdbcType="BIGINT"/>
+        <result column="decision_type" property="decisionType" javaType="com.getoffer.types.enums.RoutingDecisionTypeEnum" jdbcType="OTHER"/>
+        <result column="strategy" property="strategy" jdbcType="VARCHAR"/>
+        <result column="score" property="score" jdbcType="NUMERIC"/>
+        <result column="reason" property="reason" jdbcType="VARCHAR"/>
+        <result column="definition_id" property="definitionId" jdbcType="BIGINT"/>
+        <result column="definition_key" property="definitionKey" jdbcType="VARCHAR"/>
+        <result column="definition_version" property="definitionVersion" jdbcType="INTEGER"/>
+        <result column="draft_id" property="draftId" jdbcType="BIGINT"/>
+        <result column="draft_key" property="draftKey" jdbcType="VARCHAR"/>
+        <result column="metadata" property="metadata" jdbcType="VARCHAR"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, session_id, turn_id, decision_type, strategy, score, reason,
+        definition_id, definition_key, definition_version, draft_id, draft_key,
+        metadata, created_at
+    </sql>
+
+    <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.RoutingDecisionPO"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO routing_decisions (
+            session_id, turn_id, decision_type, strategy, score, reason,
+            definition_id, definition_key, definition_version, draft_id, draft_key,
+            metadata, created_at
+        ) VALUES (
+            #{sessionId}, #{turnId}, #{decisionType}::routing_decision_type_enum,
+            #{strategy}, #{score}, #{reason},
+            #{definitionId}, #{definitionKey}, #{definitionVersion}, #{draftId}, #{draftKey},
+            #{metadata}::jsonb, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM routing_decisions
+        WHERE id = #{id}
+    </select>
+
+</mapper>
+

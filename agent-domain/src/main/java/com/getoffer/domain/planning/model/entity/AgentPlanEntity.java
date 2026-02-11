@@ -26,9 +26,19 @@ public class AgentPlanEntity {
     private Long sessionId;
 
     /**
-     * SOP 模板 ID (可空)
+     * 路由决策 ID
      */
-    private Long sopTemplateId;
+    private Long routeDecisionId;
+
+    /**
+     * Workflow Definition ID (可空)
+     */
+    private Long workflowDefinitionId;
+
+    /**
+     * Workflow Draft ID (可空)
+     */
+    private Long workflowDraftId;
 
     /**
      * 计划目标
@@ -39,6 +49,11 @@ public class AgentPlanEntity {
      * 执行图 (解析后的 Map，运行时图谱副本)
      */
     private Map<String, Object> executionGraph;
+
+    /**
+     * 定义审计快照 (解析后的 Map，非执行事实)
+     */
+    private Map<String, Object> definitionSnapshot;
 
     /**
      * 全局上下文 (解析后的 Map，黑板)
@@ -85,8 +100,14 @@ public class AgentPlanEntity {
         if (planGoal == null || planGoal.trim().isEmpty()) {
             throw new IllegalStateException("Plan goal cannot be empty");
         }
+        if (routeDecisionId == null) {
+            throw new IllegalStateException("Route decision id cannot be null");
+        }
         if (executionGraph == null || executionGraph.isEmpty()) {
             throw new IllegalStateException("Execution graph cannot be empty");
+        }
+        if (definitionSnapshot == null || definitionSnapshot.isEmpty()) {
+            throw new IllegalStateException("Definition snapshot cannot be empty");
         }
         if (status == null) {
             throw new IllegalStateException("Status cannot be null");

@@ -4,7 +4,7 @@
 本仓库协作与讨论统一使用中文，便于团队沟通与文档一致性。
 
 ## 开发阶段原则
-项目当前处于开发阶段，优先保证功能完备与系统健康。
+项目当前处于开发阶段，优先保证功能完备与系统健康。  
 所有修改与新增应以长期可维护的最优方案为先，避免临时性补丁与潜在隐患。
 
 ## 项目结构与模块组织
@@ -16,6 +16,14 @@
 - `agent-trigger/`：入口适配层（job/http/listener）。
 - `agent-types/`：通用枚举/常量/异常。
 其他常用路径：`docs/dev-ops/`（运维资料）、`data/log/`（本地日志）。
+
+## 当前执行基线（2026-02）
+- Workflow 命中策略：优先匹配 `PRODUCTION + ACTIVE` Workflow Definition；未命中时由 `root` 生成候选 Workflow Draft。
+- Root 规划失败兜底：Root 草案最多重试 3 次，失败后降级为单节点候选 Draft（`AUTO_MISS_FALLBACK`）。
+- Root 不硬编码：Root 配置来自 `agent_registry`，服务启动时执行可用性校验（缺失或未激活直接失败）。
+- 候选节点执行兜底：候选草案节点缺少 `agentId/agentKey` 时，默认注入 `planner.root.fallback.agent-key`（当前默认 `assistant`）。
+- 回合最终输出：`TurnResultService` 仅汇总 `WORKER` 已完成输出，不将 `CRITIC` JSON 直接暴露给用户。
+- Plan 黑板写回：执行器更新 `global_context` 时读取最新 Plan，并在乐观锁冲突下进行有限重试。
 
 ## 构建、测试与开发命令
 - `mvn clean package`：构建全模块（`agent-app` 测试默认跳过）。
@@ -34,6 +42,27 @@
 - 使用 JUnit 4 + Spring Boot Test。
 - 测试位于 `agent-app/src/test/java`，命名需匹配 `**/*Test.java`。
 - 测试默认跳过，需显式 `-DskipTests=false` 才会执行。
+- 涉及本轮核心链路建议至少回归：
+  - `PlannerServiceRootDraftTest`
+  - `TaskExecutorPlanBoundaryTest`
+  - `TurnResultServiceTest`
+
+## 文档维护要求
+- 代码行为变更后，必须同步更新 `README.md` 与对应 `docs/design/*.md`。
+- 涉及数据库结构或初始化数据变更时，必须同步更新：
+  - `docs/dev-ops/postgresql/sql/01_init_database.sql`
+  - `docs/design/07-data-model-and-sql.md`
+- 涉及配置语义变更时，必须同步更新：
+  - `agent-app/src/main/resources/application-*.yml` 注释
+  - `README.md` 的配置说明
+
+## 数据库落地范围（术语约定）
+数据库落地范围指“必须持久化并可跨进程恢复”的数据边界，当前包括：
+- 会话与回合：`agent_sessions/session_turns/session_messages`
+- 路由与规划执行：`workflow_definitions/workflow_drafts/routing_decisions/agent_plans/agent_tasks/task_executions`
+- 事件流：`plan_task_events`
+- Agent 配置：`agent_registry/agent_tool_catalog/agent_tools/vector_store_registry`
+不属于数据库落地范围的内容（如运行时 `TaskClient`、线程池状态）仅做内存态管理。
 
 ## 提交与 PR 规范
 - 提交信息建议采用类型前缀，当前历史常见示例：`feature：init`、`feature：Agent 工厂与核心配置`。

@@ -1,0 +1,62 @@
+package com.getoffer.domain.planning.model.entity;
+
+import com.getoffer.types.enums.WorkflowDraftStatusEnum;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+import java.util.Map;
+
+/**
+ * Workflow Draft 领域实体。
+ */
+@Data
+public class WorkflowDraftEntity {
+
+    private Long id;
+    private String draftKey;
+    private String tenantId;
+    private String category;
+    private String name;
+    private String routeDescription;
+    private Map<String, Object> graphDefinition;
+    private Map<String, Object> inputSchema;
+    private Map<String, Object> defaultConfig;
+    private Map<String, Object> toolPolicy;
+    private String inputSchemaVersion;
+    private Map<String, Object> constraints;
+    private String nodeSignature;
+    private String dedupHash;
+    private String sourceType;
+    private Long sourceDefinitionId;
+    private WorkflowDraftStatusEnum status;
+    private String createdBy;
+    private String approvedBy;
+    private LocalDateTime approvedAt;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+
+    public void validate() {
+        if (draftKey == null || draftKey.trim().isEmpty()) {
+            throw new IllegalStateException("Draft key cannot be empty");
+        }
+        if (tenantId == null || tenantId.trim().isEmpty()) {
+            throw new IllegalStateException("Tenant id cannot be empty");
+        }
+        if (category == null || category.trim().isEmpty()) {
+            throw new IllegalStateException("Category cannot be empty");
+        }
+        if (name == null || name.trim().isEmpty()) {
+            throw new IllegalStateException("Name cannot be empty");
+        }
+        if (routeDescription == null || routeDescription.trim().isEmpty()) {
+            throw new IllegalStateException("Route description cannot be empty");
+        }
+        if (graphDefinition == null || graphDefinition.isEmpty()) {
+            throw new IllegalStateException("Graph definition cannot be empty");
+        }
+        if (status == null) {
+            throw new IllegalStateException("Status cannot be null");
+        }
+    }
+}
+

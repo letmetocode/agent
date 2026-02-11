@@ -59,9 +59,9 @@ public interface IAgentPlanRepository {
     List<AgentPlanEntity> findAll();
 
     /**
-     * 根据 SOP 模板 ID 查询
+     * 根据 Workflow Definition ID 查询
      */
-    List<AgentPlanEntity> findBySopTemplateId(Long sopTemplateId);
+    List<AgentPlanEntity> findByWorkflowDefinitionId(Long workflowDefinitionId);
 
     /**
      * 查询可执行的计划

@@ -9,6 +9,7 @@ import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
 import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.trigger.job.PlanStatusDaemon;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
+import com.getoffer.trigger.service.TurnResultService;
 import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.types.enums.TaskStatusEnum;
 import com.getoffer.types.enums.TaskTypeEnum;
@@ -31,7 +32,7 @@ public class PlanStatusDaemonTest {
         InMemoryAgentPlanRepository planRepository = new InMemoryAgentPlanRepository();
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
         InMemoryPlanTaskEventRepository eventRepository = new InMemoryPlanTaskEventRepository();
-        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), 100, 1000);
+        PlanStatusDaemon daemon = newDaemon(planRepository, taskRepository, eventRepository);
 
         AgentPlanEntity plan = newPlan(1L, PlanStatusEnum.READY);
         planRepository.save(plan);
@@ -48,7 +49,7 @@ public class PlanStatusDaemonTest {
         InMemoryAgentPlanRepository planRepository = new InMemoryAgentPlanRepository();
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
         InMemoryPlanTaskEventRepository eventRepository = new InMemoryPlanTaskEventRepository();
-        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), 100, 1000);
+        PlanStatusDaemon daemon = newDaemon(planRepository, taskRepository, eventRepository);
 
         AgentPlanEntity plan = newPlan(2L, PlanStatusEnum.RUNNING);
         planRepository.save(plan);
@@ -65,7 +66,7 @@ public class PlanStatusDaemonTest {
         InMemoryAgentPlanRepository planRepository = new InMemoryAgentPlanRepository();
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
         InMemoryPlanTaskEventRepository eventRepository = new InMemoryPlanTaskEventRepository();
-        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), 100, 1000);
+        PlanStatusDaemon daemon = newDaemon(planRepository, taskRepository, eventRepository);
 
         AgentPlanEntity plan = newPlan(3L, PlanStatusEnum.READY);
         planRepository.save(plan);
@@ -82,7 +83,7 @@ public class PlanStatusDaemonTest {
         InMemoryAgentPlanRepository planRepository = new InMemoryAgentPlanRepository();
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
         InMemoryPlanTaskEventRepository eventRepository = new InMemoryPlanTaskEventRepository();
-        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), 100, 1000);
+        PlanStatusDaemon daemon = newDaemon(planRepository, taskRepository, eventRepository);
 
         AgentPlanEntity plan = newPlan(4L, PlanStatusEnum.RUNNING);
         planRepository.save(plan);
@@ -99,7 +100,7 @@ public class PlanStatusDaemonTest {
         InMemoryAgentPlanRepository planRepository = new InMemoryAgentPlanRepository();
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
         InMemoryPlanTaskEventRepository eventRepository = new InMemoryPlanTaskEventRepository();
-        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), 100, 1000);
+        PlanStatusDaemon daemon = newDaemon(planRepository, taskRepository, eventRepository);
 
         AgentPlanEntity plan = newPlan(5L, PlanStatusEnum.READY);
         planRepository.save(plan);
@@ -116,7 +117,7 @@ public class PlanStatusDaemonTest {
         InMemoryAgentPlanRepository planRepository = new InMemoryAgentPlanRepository();
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
         InMemoryPlanTaskEventRepository eventRepository = new InMemoryPlanTaskEventRepository();
-        PlanStatusDaemon daemon = new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), 100, 1000);
+        PlanStatusDaemon daemon = newDaemon(planRepository, taskRepository, eventRepository);
 
         AgentPlanEntity plan = newPlan(6L, PlanStatusEnum.READY);
         planRepository.save(plan);
@@ -132,13 +133,26 @@ public class PlanStatusDaemonTest {
         AgentPlanEntity plan = new AgentPlanEntity();
         plan.setId(id);
         plan.setSessionId(1000L + id);
+        plan.setRouteDecisionId(1L);
         plan.setPlanGoal("plan-" + id);
         plan.setExecutionGraph(Collections.singletonMap("nodes", Collections.emptyList()));
+        plan.setDefinitionSnapshot(Collections.singletonMap("routeType", "HIT_PRODUCTION"));
         plan.setGlobalContext(new HashMap<>());
         plan.setStatus(status);
         plan.setPriority(0);
         plan.setVersion(0);
         return plan;
+    }
+
+    private PlanStatusDaemon newDaemon(InMemoryAgentPlanRepository planRepository,
+                                       InMemoryAgentTaskRepository taskRepository,
+                                       InMemoryPlanTaskEventRepository eventRepository) {
+        TurnResultService turnResultService = new TurnResultService(
+                new InMemorySessionTurnRepository(),
+                new InMemorySessionMessageRepository(),
+                taskRepository
+        );
+        return new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), turnResultService, 100, 1000);
     }
 
     private AgentTaskEntity newTask(Long id, Long planId, TaskStatusEnum status) {
@@ -221,9 +235,9 @@ public class PlanStatusDaemonTest {
         }
 
         @Override
-        public List<AgentPlanEntity> findBySopTemplateId(Long sopTemplateId) {
+        public List<AgentPlanEntity> findByWorkflowDefinitionId(Long workflowDefinitionId) {
             return store.values().stream()
-                    .filter(plan -> Objects.equals(sopTemplateId, plan.getSopTemplateId()))
+                    .filter(plan -> Objects.equals(workflowDefinitionId, plan.getWorkflowDefinitionId()))
                     .collect(Collectors.toList());
         }
 
@@ -397,6 +411,60 @@ public class PlanStatusDaemonTest {
                         .build());
             }
             return result;
+        }
+    }
+
+    private static final class InMemorySessionTurnRepository implements com.getoffer.domain.session.adapter.repository.ISessionTurnRepository {
+        @Override
+        public com.getoffer.domain.session.model.entity.SessionTurnEntity save(com.getoffer.domain.session.model.entity.SessionTurnEntity entity) {
+            return entity;
+        }
+
+        @Override
+        public com.getoffer.domain.session.model.entity.SessionTurnEntity update(com.getoffer.domain.session.model.entity.SessionTurnEntity entity) {
+            return entity;
+        }
+
+        @Override
+        public com.getoffer.domain.session.model.entity.SessionTurnEntity findById(Long id) {
+            return null;
+        }
+
+        @Override
+        public com.getoffer.domain.session.model.entity.SessionTurnEntity findByPlanId(Long planId) {
+            return null;
+        }
+
+        @Override
+        public List<com.getoffer.domain.session.model.entity.SessionTurnEntity> findBySessionId(Long sessionId) {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public com.getoffer.domain.session.model.entity.SessionTurnEntity findLatestBySessionIdAndStatus(Long sessionId, com.getoffer.types.enums.TurnStatusEnum status) {
+            return null;
+        }
+    }
+
+    private static final class InMemorySessionMessageRepository implements com.getoffer.domain.session.adapter.repository.ISessionMessageRepository {
+        @Override
+        public com.getoffer.domain.session.model.entity.SessionMessageEntity save(com.getoffer.domain.session.model.entity.SessionMessageEntity entity) {
+            return entity;
+        }
+
+        @Override
+        public com.getoffer.domain.session.model.entity.SessionMessageEntity findById(Long id) {
+            return null;
+        }
+
+        @Override
+        public List<com.getoffer.domain.session.model.entity.SessionMessageEntity> findByTurnId(Long turnId) {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public List<com.getoffer.domain.session.model.entity.SessionMessageEntity> findBySessionId(Long sessionId) {
+            return Collections.emptyList();
         }
     }
 

@@ -34,7 +34,11 @@
         <!-- PO 类别名 -->
         <typeAlias type="com.getoffer.infrastructure.dao.po.AgentRegistryPO" alias="AgentRegistryPO"/>
         <typeAlias type="com.getoffer.infrastructure.dao.po.AgentSessionPO" alias="AgentSessionPO"/>
-        <typeAlias type="com.getoffer.infrastructure.dao.po.SopTemplatePO" alias="SopTemplatePO"/>
+        <typeAlias type="com.getoffer.infrastructure.dao.po.SessionTurnPO" alias="SessionTurnPO"/>
+        <typeAlias type="com.getoffer.infrastructure.dao.po.SessionMessagePO" alias="SessionMessagePO"/>
+        <typeAlias type="com.getoffer.infrastructure.dao.po.WorkflowDefinitionPO" alias="WorkflowDefinitionPO"/>
+        <typeAlias type="com.getoffer.infrastructure.dao.po.WorkflowDraftPO" alias="WorkflowDraftPO"/>
+        <typeAlias type="com.getoffer.infrastructure.dao.po.RoutingDecisionPO" alias="RoutingDecisionPO"/>
         <typeAlias type="com.getoffer.infrastructure.dao.po.AgentPlanPO" alias="AgentPlanPO"/>
         <typeAlias type="com.getoffer.infrastructure.dao.po.AgentTaskPO" alias="AgentTaskPO"/>
         <typeAlias type="com.getoffer.infrastructure.dao.po.PlanTaskEventPO" alias="PlanTaskEventPO"/>
@@ -44,19 +48,27 @@
         <typeAlias type="com.getoffer.infrastructure.dao.po.VectorStoreRegistryPO" alias="VectorStoreRegistryPO"/>
 
         <!-- 枚举类型别名 -->
-        <typeAlias type="com.getoffer.types.enums.SopStructureEnum" alias="SopStructureEnum"/>
         <typeAlias type="com.getoffer.types.enums.PlanStatusEnum" alias="PlanStatusEnum"/>
         <typeAlias type="com.getoffer.types.enums.TaskStatusEnum" alias="TaskStatusEnum"/>
         <typeAlias type="com.getoffer.types.enums.TaskTypeEnum" alias="TaskTypeEnum"/>
+        <typeAlias type="com.getoffer.types.enums.TurnStatusEnum" alias="TurnStatusEnum"/>
+        <typeAlias type="com.getoffer.types.enums.MessageRoleEnum" alias="MessageRoleEnum"/>
         <typeAlias type="com.getoffer.types.enums.PlanTaskEventTypeEnum" alias="PlanTaskEventTypeEnum"/>
         <typeAlias type="com.getoffer.types.enums.ToolTypeEnum" alias="ToolTypeEnum"/>
         <typeAlias type="com.getoffer.types.enums.VectorStoreTypeEnum" alias="VectorStoreTypeEnum"/>
+        <typeAlias type="com.getoffer.types.enums.WorkflowDefinitionStatusEnum" alias="WorkflowDefinitionStatusEnum"/>
+        <typeAlias type="com.getoffer.types.enums.WorkflowDraftStatusEnum" alias="WorkflowDraftStatusEnum"/>
+        <typeAlias type="com.getoffer.types.enums.RoutingDecisionTypeEnum" alias="RoutingDecisionTypeEnum"/>
     </typeAliases>
 
     <!-- 类型处理器 -->
     <typeHandlers>
         <!-- PostgreSQL JSONB 类型处理器 -->
         <!-- Spring Boot 会自动注册 String 类型处理器，这里不需要额外配置 -->
+
+        <!-- 兼容 PostgreSQL TIMESTAMPTZ 到 LocalDateTime 的映射 -->
+        <typeHandler javaType="java.time.LocalDateTime"
+                     handler="com.getoffer.infrastructure.typehandler.CompatibleLocalDateTimeTypeHandler"/>
 
         <!-- 枚举类型处理器 -->
         <!-- MyBatis 默认使用 EnumTypeHandler (按名称存储) -->
