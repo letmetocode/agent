@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+msg_file="$1"
+message="$(head -n 1 "$msg_file" | tr -d '\r')"
+
+# 放行 merge / revert / fixup / squash
+if [[ "$message" =~ ^Merge\  ]] || [[ "$message" =~ ^Revert\  ]] || [[ "$message" =~ ^fixup! ]] || [[ "$message" =~ ^squash! ]]; then
+  exit 0
+fi
+
+pattern='^(feature|fix|refactor|test|docs|chore)(:|：).+'
+if [[ ! "$message" =~ $pattern ]]; then
+  echo "[commit-msg] 提交信息不符合规范。"
+  echo "示例：feature：补齐会话路由链路" 
+  echo "允许前缀：feature/fix/refactor/test/docs/chore"
+  exit 1
+fi

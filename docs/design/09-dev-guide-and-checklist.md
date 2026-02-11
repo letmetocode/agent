@@ -103,7 +103,9 @@ sequenceDiagram
 
 ## 8. 提交与评审建议
 
-- 提交信息直接体现功能域，例如 `feature: claim guard hardening`。
+- 提交粒度：每次提交一个“可独立回滚”的原子变更，避免无关文件混入。
+- 提交信息：统一使用 `feature/fix/refactor/test/docs/chore` 前缀，例如 `feature：补齐会话路由链路`。
+- 本地 Hook：建议执行 `bash scripts/setup-git-hooks.sh`，启用提交信息与产物文件校验。
 - PR 描述必须包含：
   - 功能目标
   - 状态迁移变化

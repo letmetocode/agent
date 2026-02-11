@@ -133,6 +133,7 @@ npm run dev
 
 - 开发设计文档索引：`docs/design/README.md`
 - 运维与 SQL 文档：`docs/dev-ops/`
+- Git 管理规范：`docs/dev-ops/git-management.md`
 - 前端说明：`frontend/README.md`
 
 ## Workflow 治理接口
@@ -151,6 +152,7 @@ npm run dev
 - 构建：`mvn clean package`
 - 启动：`mvn -pl agent-app -am spring-boot:run`
 - 全量单测：`mvn -pl agent-app -am -DskipTests=false test`
+- 初始化 Git hooks：`bash scripts/setup-git-hooks.sh`
 - 指定回归：
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlannerServiceRootDraftTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TaskExecutorPlanBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false test`

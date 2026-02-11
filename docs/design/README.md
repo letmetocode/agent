@@ -37,3 +37,7 @@
 - 图中节点使用简洁标识，避免复杂标点导致 Mermaid 解析失败。
 - 开发阶段优先记录长期可维护方案，不保留临时补丁路径。
 - 涉及数据库字段或事件流变更时，需同步更新最终版 SQL：`docs/dev-ops/postgresql/sql/01_init_database.sql`。
+## 补充规范
+
+- Git 管理与提交流程：`../dev-ops/git-management.md`
+
