@@ -28,6 +28,7 @@ public class TaskDetailDTO {
     private LocalDateTime claimAt;
     private LocalDateTime leaseUntil;
     private Integer executionAttempt;
+    private Long latestExecutionTimeMs;
     private Integer version;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

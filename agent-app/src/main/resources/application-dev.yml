@@ -72,6 +72,11 @@ logging:
     org.springframework.ai: debug
   config: classpath:logback-spring.xml
 
+
+app:
+  share:
+    # 任务分享链接生成时使用的外部访问地址（可通过环境变量覆盖）
+    base-url: ${APP_SHARE_BASE_URL:http://127.0.0.1:8091}
 observability:
   http-log:
     # 开发环境默认开启全量入口日志，便于联调

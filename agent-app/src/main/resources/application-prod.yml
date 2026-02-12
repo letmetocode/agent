@@ -53,6 +53,11 @@ logging:
     root: info
     com.getoffer: info
   config: classpath:logback-spring.xml
+
+app:
+  share:
+    # 任务分享链接生成时使用的外部访问地址（建议配置为前端生产域名）
+    base-url: ${APP_SHARE_BASE_URL:http://127.0.0.1:8091}
 observability:
   http-log:
     # 生产默认开启入口日志，支持通过 sample-rate 进行降载

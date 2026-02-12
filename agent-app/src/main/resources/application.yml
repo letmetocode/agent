@@ -80,6 +80,11 @@ event:
 cors:
   allowed-origin-patterns: http://localhost:5173,http://127.0.0.1:5173
 
+app:
+  share:
+    # 任务分享链接生成时使用的外部访问地址（前端域名）
+    base-url: http://127.0.0.1:8091
+
 observability:
   http-log:
     # 统一 HTTP 入口日志开关
