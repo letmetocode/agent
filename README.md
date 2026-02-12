@@ -16,6 +16,7 @@
 - Plan 闭环：`READY -> RUNNING -> COMPLETED/FAILED` 自动推进。
 - 结果汇总：最终用户回复仅汇总 `WORKER` 输出，不直接展示 `CRITIC` JSON。
 - 事件流：SSE 实时推送 + `lastEventId` 回放补偿。
+- 终态幂等：`TurnResultService` 先抢占终态再写最终消息，重复 finalize 不重复落库。
 
 ## 模块结构
 
@@ -207,6 +208,8 @@ npm run dev
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlannerServiceRootDraftTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TaskExecutorPlanBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TurnResultServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`
+  - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlanStatusDaemonTest -Dsurefire.failIfNoSpecifiedTests=false test`
+  - `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=SessionChatPlanSseIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - 分享闭环（需 Docker）：`mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=TaskShareLinkControllerIntegrationTest,ShareAccessControllerIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - 分享闭环（仅编译校验，默认跳过 Docker 集成测试）：`mvn -pl agent-app -am -DskipTests=false -Dtest=TaskShareLinkControllerIntegrationTest,ShareAccessControllerIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
 

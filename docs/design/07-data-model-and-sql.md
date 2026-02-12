@@ -139,6 +139,7 @@ sequenceDiagram
 - `role`（`USER/ASSISTANT/SYSTEM/TOOL`）
 - `turn_id`
 - `content`
+- 约束：`turn_id + role=ASSISTANT` 唯一（同一回合仅保留 1 条最终 Assistant 回复）
 
 `workflow_definitions`：
 - `definition_key`
@@ -182,9 +183,13 @@ sequenceDiagram
 - `agent-app/src/main/resources/mybatis/mapper/SessionTurnMapper.xml`
   - `insert`
   - `update`
+  - `updateToTerminalIfNotTerminal`
+  - `bindFinalResponseMessageIfAbsent`
   - `selectByPlanId`
 - `agent-app/src/main/resources/mybatis/mapper/SessionMessageMapper.xml`
   - `insert`
+  - `selectFinalAssistantByTurnId`
+  - `selectLatestAssistantByTurnId`
   - `selectBySessionId`
 - `agent-app/src/main/resources/mybatis/mapper/WorkflowDefinitionMapper.xml`
   - `selectByStatus`
@@ -204,6 +209,7 @@ sequenceDiagram
 - SSE 事件回放索引：`plan_task_events(plan_id, id)`
 - Turn 查询索引：`session_turns(session_id, id DESC)`
 - 对话消息索引：`session_messages(session_id, id)`
+- 最终回复去重索引：`session_messages(turn_id, role)`（`role='ASSISTANT'` 条件唯一索引）
 - Definition 路由索引：`tenant_id status category name version DESC`
 - Draft 去重索引：`tenant_id dedup_hash status`
 - 路由审计索引：`session_id turn_id id DESC`

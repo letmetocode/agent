@@ -117,6 +117,7 @@ sequenceDiagram
 - 回合状态建议遵循：`PLANNING -> EXECUTING -> COMPLETED/FAILED`，失败路径也要回填 Assistant 消息，避免前端出现“无答复”空洞。
 - Task 执行调用超时需进入失败收敛：默认超时重试 1 次，连续超时时应推动 `Task -> Plan -> Turn` 全链路失败终态。
 - Plan 完成或失败后，通过 `TurnResultService` 生成最终 Assistant 文本并回填 `session_turns`。
+- 回合终态收敛采用“先标记终态（条件更新）再写最终消息”的幂等流程，重复 finalize 返回 `ALREADY_FINALIZED`，不重复写消息。
 - 完成态汇总仅采集 `TaskType=WORKER` 且 `status=COMPLETED` 的输出；`CRITIC` 输出仅用于校验与回滚，不直接透传给用户。
 - 规划失败要保留错误信息，方便调用方定位。
 - DTO 变更属于外部契约变更，需同步更新调用方和文档。
@@ -133,3 +134,5 @@ sequenceDiagram
 8. 当会话无计划时，`overview` 返回空 plans、空 task 列表与零值统计，不抛异常。
 9. 含 `CRITIC` 节点的 Plan 完成后，最终 Assistant 消息不包含 `{"pass":...}` 这类校验 JSON。
 10. 模拟 Task 调用连续超时时，Turn 应由守护流程收敛到 `FAILED`，并生成失败提示消息。
+11. 重复触发 `finalizeByPlan` 时，`session_messages` 中同一 turn 仅存在 1 条最终 Assistant 消息。
+12. 当 `Last-Event-ID` 与 query `lastEventId` 同时存在时，SSE 以 `Last-Event-ID` 为准进行回放。

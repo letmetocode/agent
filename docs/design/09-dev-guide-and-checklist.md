@@ -57,6 +57,7 @@ sequenceDiagram
 - 是否新增指标和日志用于排障。
 - Agent 工具配置是否只在 `ChatClient.Builder` 单点写入（避免 Options/Builder 双写）。
 - SSE 变更是否遵循事件驱动，不引入每连接轮询线程。
+- SSE 游标冲突时是否明确 `Last-Event-ID` 优先级，并覆盖回放测试。
 - 页面只读能力是否保持契约完整（`session/plans/tasks/executions/overview`）。
 - Root/Assistant 语义是否清晰：
   - Root 用于未命中 Workflow Definition 的候选草案规划
@@ -94,6 +95,7 @@ sequenceDiagram
 - 旧执行者回写拒绝
 - 乐观锁冲突恢复
 - SSE 重连后基于 `lastEventId` 的回放正确性
+- 重复 finalize 下 turn 终态与最终 assistant 消息幂等
 - Plan 黑板并发写回冲突下的有限重试与最终一致性
 
 观测：
@@ -122,6 +124,7 @@ sequenceDiagram
 - Root 草案与兜底：`mvn -pl agent-app -am -DskipTests=false -Dtest=PlannerServiceRootDraftTest -Dsurefire.failIfNoSpecifiedTests=false test`
 - 执行边界：`mvn -pl agent-app -am -DskipTests=false -Dtest=TaskExecutorPlanBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false test`
 - 回合汇总：`mvn -pl agent-app -am -DskipTests=false -Dtest=TurnResultServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`
+- 状态推进：`mvn -pl agent-app -am -DskipTests=false -Dtest=PlanStatusDaemonTest -Dsurefire.failIfNoSpecifiedTests=false test`
 - PostgreSQL 并发语义集成测试（需 Docker）：
   `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=TaskClaimRepositoryIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
 - Chat -> Plan -> SSE 闭环集成测试（需 Docker）：

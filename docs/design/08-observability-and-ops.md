@@ -88,10 +88,16 @@ SSE：
 - 关注连接数、推送失败率、回放批次耗时（建议后续补指标）
 - 关注跨实例通知消费延迟与 replay sweep 命中率
 
+Plan 终态收敛：
+- `agent.plan.finalize.attempt.total`
+- `agent.plan.finalize.dedup.total`
+- `agent.plan.finished.publish.total`
+
 多实例 SSE 实时机制：
 - 实时层：`PlanTaskEventPublisher` 在事件入库后执行 `pg_notify(channel payload)`，所有实例通过 `LISTEN` 接收信号。
 - 分发层：接收通知实例按 `planId/eventId` 回查事件并走本地 SSE 分发。
 - 补偿层：`PlanStreamController` 定时执行 replay sweep，按 `lastEventId` 小批量补拉，覆盖通知丢失或连接抖动。
+- 游标优先级：当 Header 与 Query 同时提供时，以 `Last-Event-ID` 为准。
 
 ## 5. 审计日志
 
@@ -117,7 +123,8 @@ SSE：
 - 关键业务审计事件：
   - `CHAT_ACCEPTED`（会话受理并创建 plan）
   - `ROUTING_DECIDED`（路由决策已落库）
-  - `TURN_FINALIZED`（回合终态已落库）
+- `TURN_FINALIZED`（回合终态已落库）
+  - outcome: `FINALIZED|ALREADY_FINALIZED|SKIPPED_NOT_TERMINAL`
 
 配置项（`application*.yml`）：
 - `observability.http-log.enabled`
