@@ -297,9 +297,62 @@ export interface TaskExportDTO {
 }
 
 export interface TaskShareLinkDTO {
+  shareId: number;
+  taskId: number;
+  shareCode: string;
+  scope?: string;
+  status?: string;
   shareUrl: string;
   token: string;
   expiresAt: string;
+  revoked?: boolean;
+  revokedAt?: string;
+  revokedReason?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface TaskShareLinkItemDTO {
+  shareId: number;
+  taskId: number;
+  shareCode: string;
+  scope?: string;
+  status?: string;
+  shareUrl?: string;
+  expiresAt?: string;
+  revoked?: boolean;
+  revokedAt?: string;
+  revokedReason?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface TaskShareRevokeResultDTO {
+  taskId: number;
+  shareId?: number;
+  revoked?: boolean;
+  revokedCount?: number;
+  revokedAt?: string;
+}
+
+export interface SharedTaskReferenceDTO {
+  title: string;
+  type?: string;
+  source?: string;
+  score?: number;
+}
+
+export interface SharedTaskReadDTO {
+  taskId: number;
+  taskName?: string;
+  status?: string;
+  outputResult?: string;
+  references?: SharedTaskReferenceDTO[];
+  scope?: string;
+  shareId?: number;
+  shareCode?: string;
+  expiresAt?: string;
+  sharedAt?: string;
 }
 
 export interface KnowledgeBaseDetailDTO {

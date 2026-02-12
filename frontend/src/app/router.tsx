@@ -4,6 +4,7 @@ import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppShell } from '@/shared/layout/AppShell';
 
 const LoginPage = lazy(() => import('@/pages/LoginPage').then((module) => ({ default: module.LoginPage })));
+const ShareTaskPage = lazy(() => import('@/pages/ShareTaskPage').then((module) => ({ default: module.ShareTaskPage })));
 const WorkspacePage = lazy(() => import('@/pages/WorkspacePage').then((module) => ({ default: module.WorkspacePage })));
 const SessionListPage = lazy(() => import('@/pages/SessionListPage').then((module) => ({ default: module.SessionListPage })));
 const ConversationPage = lazy(() => import('@/pages/ConversationPage').then((module) => ({ default: module.ConversationPage })));
@@ -36,6 +37,7 @@ const withSuspense = (node: ReactNode) => (
 export const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/workspace" replace /> },
   { path: '/login', element: withSuspense(<LoginPage />) },
+  { path: '/share/tasks/:taskId', element: withSuspense(<ShareTaskPage />) },
 
   {
     path: '/',

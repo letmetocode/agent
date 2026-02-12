@@ -19,10 +19,13 @@ import type {
   SessionMessageDTO,
   SessionOverviewDTO,
   SessionTurnDTO,
+  SharedTaskReadDTO,
   TaskDetailDTO,
   TaskExecutionDetailDTO,
   TaskExportDTO,
   TaskShareLinkDTO,
+  TaskShareLinkItemDTO,
+  TaskShareRevokeResultDTO,
   VectorStoreDTO,
   WorkflowDraftDetailDTO,
   WorkflowDraftSummaryDTO,
@@ -95,6 +98,30 @@ export const agentApi = {
 
   createTaskShareLink: async (taskId: number, expiresHours?: number) =>
     unwrap(await http.post<ApiResponse<TaskShareLinkDTO>>(`/api/tasks/${taskId}/share-links`, undefined, { params: { expiresHours } })),
+
+  getTaskShareLinks: async (taskId: number) =>
+    unwrap(await http.get<ApiResponse<TaskShareLinkItemDTO[]>>(`/api/tasks/${taskId}/share-links`)),
+
+  revokeTaskShareLink: async (taskId: number, shareId: number, reason?: string) =>
+    unwrap(
+      await http.post<ApiResponse<TaskShareRevokeResultDTO>>(
+        `/api/tasks/${taskId}/share-links/${shareId}/revoke`,
+        undefined,
+        { params: reason ? { reason } : undefined }
+      )
+    ),
+
+  revokeAllTaskShareLinks: async (taskId: number, reason?: string) =>
+    unwrap(
+      await http.post<ApiResponse<TaskShareRevokeResultDTO>>(
+        `/api/tasks/${taskId}/share-links/revoke-all`,
+        undefined,
+        { params: reason ? { reason } : undefined }
+      )
+    ),
+
+  readSharedTask: async (taskId: number, params: { code: string; token: string }) =>
+    unwrap(await http.get<ApiResponse<SharedTaskReadDTO>>(`/api/share/tasks/${taskId}`, { params })),
 
   getTasks: async (params?: {
     status?: string;

@@ -177,7 +177,8 @@
   - `POST /api/tasks/{id}/resume`
   - `POST /api/tasks/{id}/cancel`
   - `POST /api/tasks/{id}/retry-from-failed`
-- 任务产物：`GET /api/tasks/{id}/export`、`POST /api/tasks/{id}/share-links`
+- 任务产物：`GET /api/tasks/{id}/export`、`POST /api/tasks/{id}/share-links`、`GET /api/tasks/{id}/share-links`、`POST /api/tasks/{id}/share-links/{shareId}/revoke`、`POST /api/tasks/{id}/share-links/revoke-all`
+- 匿名分享读取：`GET /api/share/tasks/{id}`
 - 日志：`GET /api/logs/paged`（含 `traceId`）
 - 监控：`GET /api/dashboard/overview`（含 `latencyStats`、`slowTaskCount`、`slaBreachCount`）
 - 资产：
@@ -191,4 +192,4 @@
 
 - 看板视图升级为真实分组拖拽与批量操作。
 - 监控总览补充时间范围切换（1h/24h/7d）。
-- 分享链接增加服务端校验与吊销能力（当前为轻量签名 URL）。
+- 分享管理补充访问审计看板（按创建、访问失败、撤销维度统计）。

@@ -4,6 +4,8 @@ const STATUS_COLOR_MAP: Record<string, string> = {
   COMPLETED: 'success',
   SUCCESS: 'success',
   ACTIVE: 'success',
+  EXPIRED: 'default',
+  REVOKED: 'error',
   RUNNING: 'processing',
   VALIDATING: 'processing',
   REFINING: 'processing',

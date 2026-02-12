@@ -6,11 +6,25 @@ import {
   ShareAltOutlined,
   StopOutlined
 } from '@ant-design/icons';
-import { Button, Card, Col, Descriptions, Divider, List, Row, Space, Steps, Timeline, Typography, message } from 'antd';
+import {
+  Button,
+  Card,
+  Col,
+  Descriptions,
+  Divider,
+  List,
+  Popconfirm,
+  Row,
+  Space,
+  Steps,
+  Timeline,
+  Typography,
+  message
+} from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { agentApi } from '@/shared/api/agentApi';
-import type { PlanTaskEventDTO, TaskDetailDTO, TaskExecutionDetailDTO } from '@/shared/types/api';
+import type { PlanTaskEventDTO, TaskDetailDTO, TaskExecutionDetailDTO, TaskShareLinkItemDTO } from '@/shared/types/api';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { StateView } from '@/shared/ui/StateView';
 import { StatusTag } from '@/shared/ui/StatusTag';
@@ -125,6 +139,20 @@ const toStepIndex = (status?: string) => {
   return 1;
 };
 
+const isShareLinkActive = (item: TaskShareLinkItemDTO) => {
+  const status = (item.status || '').toUpperCase();
+  if (status) {
+    return status === 'ACTIVE';
+  }
+  if (item.revoked) {
+    return false;
+  }
+  if (item.expiresAt) {
+    return new Date(item.expiresAt).getTime() > Date.now();
+  }
+  return true;
+};
+
 const downloadTextFile = (fileName: string, content: string, mimeType: string) => {
   const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
   const url = URL.createObjectURL(blob);
@@ -146,7 +174,27 @@ export const TaskDetailPage = () => {
   const [planStatus, setPlanStatus] = useState<string>();
   const [executions, setExecutions] = useState<TaskExecutionDetailDTO[]>([]);
   const [planEvents, setPlanEvents] = useState<PlanTaskEventDTO[]>([]);
+  const [shareLinks, setShareLinks] = useState<TaskShareLinkItemDTO[]>([]);
+  const [shareLinksLoading, setShareLinksLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string>();
+
+  const loadShareLinks = useCallback(async (taskIdValue: number, silent = false) => {
+    if (!Number.isFinite(taskIdValue) || taskIdValue <= 0) {
+      return;
+    }
+    setShareLinksLoading(true);
+    try {
+      const rows = await agentApi.getTaskShareLinks(taskIdValue);
+      setShareLinks(rows || []);
+    } catch (err) {
+      setShareLinks([]);
+      if (!silent) {
+        message.warning(`加载分享链接失败: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } finally {
+      setShareLinksLoading(false);
+    }
+  }, []);
 
   const loadTaskDetail = useCallback(async () => {
     if (!Number.isFinite(normalizedTaskId) || normalizedTaskId <= 0) {
@@ -177,6 +225,7 @@ export const TaskDetailPage = () => {
       setExecutions(executionsRows || []);
       setPlanEvents(eventRows || []);
       setPlanStatus(currentPlanStatus);
+      await loadShareLinks(normalizedTaskId, true);
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       setError(text);
@@ -184,7 +233,7 @@ export const TaskDetailPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [normalizedTaskId]);
+  }, [loadShareLinks, normalizedTaskId]);
 
   useEffect(() => {
     void loadTaskDetail();
@@ -294,8 +343,41 @@ export const TaskDetailPage = () => {
         }
       }
       message.success(`分享链接已生成${copied ? '并复制到剪贴板' : ''}: ${data.shareUrl}`);
+      await loadShareLinks(task.taskId, true);
     } catch (err) {
       message.error(`生成分享链接失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setActionLoading(undefined);
+    }
+  };
+
+  const handleRevokeShareLink = async (shareId: number) => {
+    if (!task) {
+      return;
+    }
+    setActionLoading(`revoke-${shareId}`);
+    try {
+      await agentApi.revokeTaskShareLink(task.taskId, shareId);
+      message.success('分享链接已撤销');
+      await loadShareLinks(task.taskId, true);
+    } catch (err) {
+      message.error(`撤销失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setActionLoading(undefined);
+    }
+  };
+
+  const handleRevokeAllShareLinks = async () => {
+    if (!task) {
+      return;
+    }
+    setActionLoading('revoke-all');
+    try {
+      const result = await agentApi.revokeAllTaskShareLinks(task.taskId);
+      message.success(`已批量失效 ${result.revokedCount || 0} 条分享链接`);
+      await loadShareLinks(task.taskId, true);
+    } catch (err) {
+      message.error(`批量失效失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setActionLoading(undefined);
     }
@@ -462,7 +544,68 @@ export const TaskDetailPage = () => {
               <Button icon={<ShareAltOutlined />} loading={actionLoading === 'share'} onClick={() => void handleShare()}>
                 生成分享链接
               </Button>
+              <Popconfirm
+                title="确认全部失效？"
+                description="将撤销该任务下全部仍有效的分享链接。"
+                onConfirm={() => void handleRevokeAllShareLinks()}
+                okText="确认"
+                cancelText="取消"
+                disabled={!shareLinks.some(isShareLinkActive)}
+              >
+                <Button danger loading={actionLoading === 'revoke-all'} disabled={!shareLinks.some(isShareLinkActive)}>
+                  全部失效
+                </Button>
+              </Popconfirm>
             </Space>
+
+            <Divider />
+
+            <List
+              header="分享链接管理"
+              loading={shareLinksLoading}
+              dataSource={shareLinks}
+              locale={{ emptyText: '暂无分享链接，点击“生成分享链接”创建。' }}
+              renderItem={(item) => (
+                <List.Item
+                  actions={[
+                    <Popconfirm
+                      key={`confirm-${item.shareId}`}
+                      title="确认撤销该链接？"
+                      description="撤销后该链接将无法继续访问。"
+                      onConfirm={() => void handleRevokeShareLink(item.shareId)}
+                      okText="确认"
+                      cancelText="取消"
+                      disabled={!isShareLinkActive(item)}
+                    >
+                      <Button
+                        type="link"
+                        danger
+                        disabled={!isShareLinkActive(item)}
+                        loading={actionLoading === `revoke-${item.shareId}`}
+                      >
+                        撤销
+                      </Button>
+                    </Popconfirm>
+                  ]}
+                >
+                  <List.Item.Meta
+                    title={
+                      <Space>
+                        <Text strong>{`链接 #${item.shareId || '-'} · code=${item.shareCode || '-'}`}</Text>
+                        <StatusTag status={item.status || (isShareLinkActive(item) ? 'ACTIVE' : 'EXPIRED')} />
+                      </Space>
+                    }
+                    description={
+                      <Space direction="vertical" size={2}>
+                        <Text type="secondary">过期时间：{item.expiresAt ? new Date(item.expiresAt).toLocaleString() : '-'}</Text>
+                        <Text type="secondary">创建时间：{item.createdAt ? new Date(item.createdAt).toLocaleString() : '-'}</Text>
+                        {item.revokedReason ? <Text type="secondary">撤销原因：{item.revokedReason}</Text> : null}
+                      </Space>
+                    }
+                  />
+                </List.Item>
+              )}
+            />
           </Card>
         </Col>
       </Row>

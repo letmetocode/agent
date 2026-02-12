@@ -46,6 +46,7 @@ VITE_CHAT_TIMEOUT_MS=90000
 - `/settings/system`：系统配置
 - `/settings/access`：成员与权限
 - `/workflows/drafts`：Workflow Draft 治理
+- `/share/tasks/:taskId`：匿名分享结果页（携带 code + token）
 
 ## 当前可用能力
 
@@ -53,7 +54,7 @@ VITE_CHAT_TIMEOUT_MS=90000
 - 页面级统一状态组件（空/加载/错误/不可用）
 - 会话页执行上下文聚合（回合、事件流、Plan/Task 进度）
 - 任务详情中途控制（暂停/继续/取消/失败重试）
-- 任务结果导出（Markdown/JSON）与分享链接生成
+- 任务结果导出（Markdown/JSON）与分享链接生成、管理、批量失效
 - 日志分页检索（level/taskId/traceId/keyword）
 - 知识库文档详情与检索测试
 - 监控总览 P95/P99/慢任务/SLA 指标展示
@@ -80,6 +81,10 @@ VITE_CHAT_TIMEOUT_MS=90000
   - `POST /api/tasks/{id}/retry-from-failed`
   - `GET /api/tasks/{id}/export`
   - `POST /api/tasks/{id}/share-links`
+  - `GET /api/tasks/{id}/share-links`
+  - `POST /api/tasks/{id}/share-links/{shareId}/revoke`
+  - `POST /api/tasks/{id}/share-links/revoke-all`
+  - `GET /api/share/tasks/{id}`
 - 观测与日志：
   - `GET /api/dashboard/overview`
   - `GET /api/logs/paged`

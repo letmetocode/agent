@@ -46,6 +46,7 @@
 - `/observability/overview`、`/observability/logs`
 - `/settings/profile`、`/settings/system`、`/settings/access`
 - `/workflows/drafts`
+- `/share/tasks/:taskId`（匿名分享结果页）
 
 更多说明见：`frontend/README.md` 与 `docs/design/10-frontend-console-ia-and-layout.md`。
 
@@ -54,7 +55,8 @@
 - 会话：`GET /api/sessions/list`、`GET /api/sessions/{id}/overview|turns|messages`、`POST /api/sessions/{id}/chat`
 - 任务分页与详情：`GET /api/tasks/paged`、`GET /api/tasks/{id}`、`GET /api/tasks/{id}/executions`
 - 任务控制：`POST /api/tasks/{id}/pause|resume|cancel|retry-from-failed`
-- 任务产物：`GET /api/tasks/{id}/export`、`POST /api/tasks/{id}/share-links`
+- 任务产物：`GET /api/tasks/{id}/export`、`POST /api/tasks/{id}/share-links`、`GET /api/tasks/{id}/share-links`、`POST /api/tasks/{id}/share-links/{shareId}/revoke`、`POST /api/tasks/{id}/share-links/revoke-all`
+- 匿名分享读取：`GET /api/share/tasks/{id}`
 - 观测：`GET /api/dashboard/overview`（含 P95/P99、慢任务与 SLA 指标）
 - 日志：`GET /api/logs/paged`（支持 `traceId`）
 - 资产：`GET /api/agents/tools`、`GET /api/agents/vector-stores`、`GET /api/knowledge-bases/{id}`、`GET /api/knowledge-bases/{id}/documents`、`POST /api/knowledge-bases/{id}/retrieval-tests`
@@ -138,6 +140,8 @@ npm run dev
 配置位置：`agent-app/src/main/resources/application*.yml`
 
 - `app.share.base-url`（任务分享链接生成的前端访问域名，默认 `http://127.0.0.1:8091`）
+- `app.share.token-salt`（分享令牌哈希盐，生产环境务必覆盖）
+- `app.share.max-ttl-hours`（分享链接最大有效期，默认 168 小时）
 
 ### 执行兜底 Agent
 
