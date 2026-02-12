@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { storage } from '@/shared/utils/storage';
 
-interface SessionBookmark {
+export interface SessionBookmark {
   sessionId: number;
   title?: string;
   createdAt: string;

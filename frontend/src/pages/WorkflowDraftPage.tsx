@@ -1,24 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Card,
-  Descriptions,
-  Drawer,
-  Empty,
-  Input,
-  Modal,
-  Select,
-  Space,
-  Table,
-  Tag,
-  Typography,
-  message
-} from 'antd';
+import { Alert, Button, Card, Descriptions, Drawer, Empty, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import { useWorkflowGovernanceStore } from '@/features/workflow/workflowGovernanceStore';
 import type { WorkflowDraftSummaryDTO } from '@/shared/types/api';
+import { PageHeader } from '@/shared/ui/PageHeader';
 
 const { Text } = Typography;
 
@@ -134,19 +120,19 @@ export const WorkflowDraftPage = () => {
   );
 
   return (
-    <div className="page-shell">
-      <Card
-        className="glass-card"
+    <Space direction="vertical" style={{ width: '100%' }} size="large">
+      <PageHeader
         title="Workflow Draft 治理"
-        extra={
-          <Space>
-            <Button onClick={() => void loadCandidates(statusFilter)}>刷新</Button>
-            <Button onClick={() => navigate('/sessions')}>返回会话</Button>
-          </Space>
-        }
-      >
+        description="管理候补草案并发布为生产 Definition，避免路由未命中的执行降级。"
+        primaryActionText="返回对话与执行"
+        onPrimaryAction={() => navigate('/sessions')}
+        extra={<Button onClick={() => void loadCandidates(statusFilter)}>刷新</Button>}
+      />
+
+      <Card className="app-card">
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
           {error ? <Alert type="error" showIcon message={error} /> : null}
+
           <Space wrap>
             <Text type="secondary">状态筛选</Text>
             <Select
@@ -264,6 +250,6 @@ export const WorkflowDraftPage = () => {
           <Input value={operator} maxLength={64} onChange={(e) => setOperator(e.target.value)} placeholder="操作人（默认 SYSTEM）" />
         </Space>
       </Modal>
-    </div>
+    </Space>
   );
 };

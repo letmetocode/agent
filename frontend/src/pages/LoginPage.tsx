@@ -19,10 +19,10 @@ export const LoginPage = () => {
             onClick={() => {
               if (!value.trim()) return;
               setUserId(value.trim());
-              navigate('/sessions');
+              navigate('/workspace');
             }}
           >
-            进入会话列表
+            进入工作台
           </Button>
         </Space>
       </Card>

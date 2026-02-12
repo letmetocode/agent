@@ -1,5 +1,4 @@
 # Agent
-
 面向任务编排与执行的 Agent 工程，采用 DDD 分层多模块结构，技术基线为 Spring Boot 3.4.3 + Spring AI 1.1.2 + MyBatis + PostgreSQL。
 
 ## 开发阶段原则
@@ -26,6 +25,40 @@
 - `agent-infrastructure`：DAO/Mapper、仓储实现、Planner/AI/MCP 适配
 - `agent-api`：对外 DTO 与统一响应
 - `agent-types`：通用枚举、异常、常量
+
+## 前端控制台信息架构（2026-02）
+
+前端控制台已按 Agent 主路径重构为 6 个一级导航：
+
+- `工作台`：目标导向入口、最近执行与系统健康
+- `对话与执行`：会话启动与执行过程
+- `任务中心`：任务筛选、追踪与失败重试
+- `资产中心`：工具与插件 + 知识库
+- `观测与日志`：监控总览与日志检索
+- `设置`：个人、系统、权限管理
+
+关键路由：
+
+- `/workspace`
+- `/sessions`、`/sessions/:sessionId`
+- `/tasks`、`/tasks/:taskId`
+- `/assets/tools`、`/assets/knowledge`、`/assets/knowledge/:kbId`
+- `/observability/overview`、`/observability/logs`
+- `/settings/profile`、`/settings/system`、`/settings/access`
+- `/workflows/drafts`
+
+更多说明见：`frontend/README.md` 与 `docs/design/10-frontend-console-ia-and-layout.md`。
+
+前端控制台核心接口（已接入）：
+
+- 会话：`GET /api/sessions/list`、`GET /api/sessions/{id}/overview|turns|messages`、`POST /api/sessions/{id}/chat`
+- 任务分页与详情：`GET /api/tasks/paged`、`GET /api/tasks/{id}`、`GET /api/tasks/{id}/executions`
+- 任务控制：`POST /api/tasks/{id}/pause|resume|cancel|retry-from-failed`
+- 任务产物：`GET /api/tasks/{id}/export`、`POST /api/tasks/{id}/share-links`
+- 观测：`GET /api/dashboard/overview`（含 P95/P99、慢任务与 SLA 指标）
+- 日志：`GET /api/logs/paged`（支持 `traceId`）
+- 资产：`GET /api/agents/tools`、`GET /api/agents/vector-stores`、`GET /api/knowledge-bases/{id}`、`GET /api/knowledge-bases/{id}/documents`、`POST /api/knowledge-bases/{id}/retrieval-tests`
+- 事件：`GET /api/plans/{id}/events`
 
 ## 快速开始
 
@@ -98,6 +131,13 @@ npm run dev
 - `planner.root.retry.backoff-ms`
 - `planner.root.fallback.single-node.enabled`
 - `planner.root.fallback.agent-key`（Draft 节点缺省 agentKey，当前默认 `assistant`）
+
+
+### 任务分享链接
+
+配置位置：`agent-app/src/main/resources/application*.yml`
+
+- `app.share.base-url`（任务分享链接生成的前端访问域名，默认 `http://127.0.0.1:8091`）
 
 ### 执行兜底 Agent
 

@@ -2,7 +2,6 @@ import {
   Alert,
   Button,
   Card,
-  Col,
   Collapse,
   Descriptions,
   Divider,
@@ -13,10 +12,11 @@ import {
   List,
   Modal,
   message,
+  Col,
   Row,
   Space,
   Spin,
-  Statistic,
+  Tabs,
   Table,
   Tag,
   Timeline,
@@ -30,6 +30,9 @@ import { agentApi } from '@/shared/api/agentApi';
 import { CHAT_HTTP_TIMEOUT_MS } from '@/shared/api/http';
 import { usePlanStore } from '@/features/plan/planStore';
 import { openPlanSse } from '@/features/sse/sseClient';
+import { PageHeader } from '@/shared/ui/PageHeader';
+import { StateView } from '@/shared/ui/StateView';
+import { StatusTag } from '@/shared/ui/StatusTag';
 import type {
   PlanTaskStatsDTO,
   PlanStreamEvent,
@@ -40,6 +43,7 @@ import type {
 } from '@/shared/types/api';
 
 const { TextArea } = Input;
+const { Text } = Typography;
 
 interface CandidateWorkflowDraftFormValues {
   draftKey: string;
@@ -99,26 +103,6 @@ const toChatErrorMessage = (err: unknown): string => {
     }
   }
   return `发送失败: ${String(err)}`;
-};
-
-const statusColor = (status?: string) => {
-  switch (status) {
-    case 'COMPLETED':
-      return 'success';
-    case 'FAILED':
-      return 'error';
-    case 'RUNNING':
-    case 'VALIDATING':
-    case 'REFINING':
-      return 'processing';
-    case 'READY':
-      return 'blue';
-    case 'PAUSED':
-    case 'CANCELLED':
-      return 'warning';
-    default:
-      return 'default';
-  }
 };
 
 const byTimeDesc = (a?: string, b?: string) => {
@@ -580,7 +564,7 @@ export const ConversationPage = () => {
         'SKIPPED'
       ].map((s) => ({ text: s, value: s })),
       onFilter: (value, record) => record.status === value,
-      render: (status: string) => <Tag color={statusColor(status)}>{status}</Tag>
+      render: (status: string) => <StatusTag status={status} />
     },
     {
       title: 'Attempt',
@@ -618,181 +602,249 @@ export const ConversationPage = () => {
   ];
 
   if (!sid || Number.isNaN(sid)) {
-    return <Empty description="无效 sessionId" />;
+    return <StateView type="empty" title="无效会话 ID" description="请返回对话列表重新选择会话。" />;
   }
 
   return (
-    <div className="workspace-shell">
+    <Space direction="vertical" style={{ width: '100%' }} size="large">
+      <PageHeader
+        title={`会话执行 #${sid}`}
+        description="输入目标后持续执行，支持中途控制、引用追溯与任务下钻。"
+        primaryActionText="返回会话列表"
+        onPrimaryAction={() => navigate('/sessions')}
+        extra={
+          <Space>
+            <Button onClick={() => navigate('/tasks')}>任务中心</Button>
+            <Button onClick={() => navigate('/workflows/drafts')}>Workflow 治理</Button>
+          </Space>
+        }
+      />
+
       <Spin spinning={loading}>
-        <Row gutter={12} wrap={false}>
-          <Col className="pane pane-left" flex="280px">
-            <Card size="small" title={`Session #${sid}`} extra={<Button type="link" onClick={() => navigate('/sessions')}>返回</Button>}>
-              <Typography.Text type="secondary">{overview?.session?.title || '未命名会话'}</Typography.Text>
-              <Divider />
-              <List
-                size="small"
-                header="回合/Plan"
-                dataSource={overview?.plans || []}
-                renderItem={(p) => (
-                  <List.Item
-                    onClick={() => void switchPlan(p.planId)}
-                    style={{ cursor: 'pointer', background: selectedPlanId === p.planId ? '#edf6f6' : 'transparent', borderRadius: 8 }}
-                  >
-                    <List.Item.Meta
-                      title={<Space><Tag color={statusColor(p.status)}>{p.status}</Tag><span>#{p.planId}</span></Space>}
-                      description={<Typography.Text ellipsis={{ tooltip: p.planGoal }}>{p.planGoal}</Typography.Text>}
-                    />
-                  </List.Item>
-                )}
-              />
-            </Card>
-          </Col>
-
-          <Col className="pane pane-center" flex="auto">
-            <Card size="small" title="消息流（按回合）">
-              <List
-                dataSource={groupedMessages}
-                locale={{ emptyText: '暂无消息' }}
-                renderItem={(group) => (
-                  <List.Item>
-                    <div style={{ width: '100%' }}>
-                      <Space style={{ marginBottom: 8 }}>
-                        <Tag color={statusColor(group.turn?.status)}>{group.turn?.status || 'UNKNOWN'}</Tag>
-                        <Typography.Text strong>Turn #{group.turnId}</Typography.Text>
-                        <Typography.Text type="secondary">Plan #{group.turn?.planId || '-'}</Typography.Text>
-                      </Space>
-                      <List
-                        size="small"
-                        dataSource={group.messages}
-                        renderItem={(m) => (
-                          <List.Item>
-                            <List.Item.Meta
-                              title={<Space><Tag>{m.role}</Tag><Typography.Text type="secondary">{m.createdAt ? new Date(m.createdAt).toLocaleString() : '-'}</Typography.Text></Space>}
-                              description={<Typography.Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>{m.content}</Typography.Paragraph>}
-                            />
-                          </List.Item>
-                        )}
+        <div className="chat-layout">
+          <Card className="app-card chat-panel chat-left-panel" size="small" title={`Session #${sid}`}>
+            <Typography.Text type="secondary">{overview?.session?.title || '未命名会话'}</Typography.Text>
+            <Divider />
+            <div className="chat-scrollable">
+              {(overview?.plans || []).length === 0 ? (
+                <StateView
+                  type="empty"
+                  title="暂无 Plan"
+                  description="发送一条消息后，系统会为你创建新的执行计划。"
+                />
+              ) : (
+                <List
+                  size="small"
+                  dataSource={overview?.plans || []}
+                  renderItem={(p) => (
+                    <List.Item
+                      onClick={() => void switchPlan(p.planId)}
+                      style={{
+                        cursor: 'pointer',
+                        background: selectedPlanId === p.planId ? 'rgba(15, 118, 110, 0.08)' : 'transparent',
+                        borderRadius: 8
+                      }}
+                    >
+                      <List.Item.Meta
+                        title={
+                          <Space>
+                            <StatusTag status={p.status} />
+                            <span>#{p.planId}</span>
+                          </Space>
+                        }
+                        description={<Typography.Text ellipsis={{ tooltip: p.planGoal }}>{p.planGoal}</Typography.Text>}
                       />
-                    </div>
-                  </List.Item>
-                )}
-              />
+                    </List.Item>
+                  )}
+                />
+              )}
+            </div>
+          </Card>
 
-              <Divider />
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <TextArea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} placeholder="输入你的问题，触发一轮新的计划执行" />
-                <Button type="primary" loading={sending} onClick={sendChat}>发送并执行</Button>
-              </Space>
-
-              <Divider />
-              <Collapse
-                size="small"
-                items={[
-                  {
-                    key: 'events',
-                    label: `过程事件（${processEvents.length}）`,
-                    children: (
-                      <Timeline
-                        items={processEvents.map((e) => ({
-                          color: e.type === 'TaskCompleted' && e.summary.includes('FAILED') ? 'red' : 'blue',
-                          children: (
-                            <Space direction="vertical" style={{ width: '100%' }}>
-                              <Typography.Text strong>{e.summary}</Typography.Text>
-                              <Typography.Text type="secondary">{e.time}</Typography.Text>
-                              {e.detail ? (
-                                <Typography.Paragraph style={{ marginBottom: 0 }} ellipsis={{ rows: 2, expandable: true }}>
-                                  {e.detail}
-                                </Typography.Paragraph>
-                              ) : null}
-                            </Space>
-                          )
-                        }))}
-                      />
-                    )
-                  }
-                ]}
-              />
-            </Card>
-          </Col>
-
-          <Col className="pane pane-right" flex="420px">
-            <Card size="small" title="执行面板">
-              <Space style={{ width: '100%' }} wrap>
-                <Statistic title="总任务" value={currentStats?.total || 0} />
-                <Statistic title="运行中" value={currentStats?.runningLike || 0} />
-                <Statistic title="失败" value={currentStats?.failed || 0} />
-              </Space>
-
-              <Divider />
-              <Descriptions column={1} size="small" title="当前 Plan">
-                <Descriptions.Item label="PlanId">{planDetail?.planId || '-'}</Descriptions.Item>
-                <Descriptions.Item label="状态"><Tag color={statusColor(planDetail?.status)}>{planDetail?.status || '-'}</Tag></Descriptions.Item>
-                <Descriptions.Item label="目标">{planDetail?.planGoal || '-'}</Descriptions.Item>
-              </Descriptions>
-
-              {fallbackCandidateHint ? (
-                <>
-                  <Divider />
-                  <Alert
-                    type="warning"
-                    showIcon
-                    message="未命中正式 Workflow Definition，当前使用候补 Draft"
-                    description={
-                      <Space direction="vertical" style={{ width: '100%' }}>
-                        <Typography.Text type="secondary">
-                          当前 Plan 由候补 Workflow Draft 执行，你可以查看并编辑 Draft，保存后可直接升级为正式 Definition。
-                        </Typography.Text>
-                      <Space>
-                        <Button onClick={() => void ensureCandidateDetailLoaded()} loading={candidateLoading}>
-                          查看/编辑候补 Draft
-                        </Button>
-                          <Button type="link" onClick={() => navigate('/workflows/drafts')}>
-                            进入 Workflow Draft 治理页
-                          </Button>
+          <Card className="app-card chat-panel" size="small" title="对话与流式输出">
+            <div className="chat-scrollable">
+              {groupedMessages.length === 0 ? (
+                <StateView
+                  type="empty"
+                  title="开始你的第一次提问"
+                  description="建议输入具体目标，例如：分析失败任务并给出修复清单。"
+                />
+              ) : (
+                <List
+                  dataSource={groupedMessages}
+                  renderItem={(group) => (
+                    <List.Item>
+                      <div style={{ width: '100%' }}>
+                        <Space style={{ marginBottom: 8 }}>
+                          <StatusTag status={group.turn?.status} fallback="UNKNOWN" />
+                          <Typography.Text strong>Turn #{group.turnId}</Typography.Text>
+                          <Typography.Text type="secondary">Plan #{group.turn?.planId || '-'}</Typography.Text>
                         </Space>
-                        <Typography.Text type="secondary">
-                          候补 Draft ID：{fallbackCandidateId || '-'}
-                        </Typography.Text>
-                        {candidateHintLoading ? <Typography.Text type="secondary">正在校验候补 Workflow Draft...</Typography.Text> : null}
-                      </Space>
-                    }
-                  />
-                </>
-              ) : null}
+                        <List
+                          size="small"
+                          dataSource={group.messages}
+                          renderItem={(m) => (
+                            <List.Item>
+                              <List.Item.Meta
+                                title={
+                                  <Space>
+                                    <Tag>{m.role}</Tag>
+                                    <Typography.Text type="secondary">
+                                      {m.createdAt ? new Date(m.createdAt).toLocaleString() : '-'}
+                                    </Typography.Text>
+                                  </Space>
+                                }
+                                description={
+                                  <Typography.Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
+                                    {m.content}
+                                  </Typography.Paragraph>
+                                }
+                              />
+                            </List.Item>
+                          )}
+                        />
+                      </div>
+                    </List.Item>
+                  )}
+                />
+              )}
+            </div>
 
-              {planDetail?.errorSummary || failureTasks.length > 0 ? (
-                <>
-                  <Divider />
-                  <Alert
-                    type="error"
-                    showIcon
-                    message="错误面板"
-                    description={
-                      <Space direction="vertical" style={{ width: '100%' }}>
-                        {planDetail?.errorSummary ? <Typography.Text>{planDetail.errorSummary}</Typography.Text> : null}
-                        {failureTasks.slice(0, 3).map((t) => (
-                          <Typography.Text key={t.taskId} type="secondary">
-                            #{t.taskId} {t.name || t.nodeId}：{t.outputResult || '无错误详情'}
-                          </Typography.Text>
-                        ))}
-                      </Space>
-                    }
-                  />
-                </>
-              ) : null}
+            <div className="chat-composer">
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <TextArea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} placeholder="输入你的问题，触发新一轮计划执行" />
+                <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                  <Space>
+                    <Button type="primary" loading={sending} onClick={sendChat}>
+                      发送并执行
+                    </Button>
+                    <Button onClick={() => setProcessEvents([])} disabled={processEvents.length === 0}>
+                      清空过程事件
+                    </Button>
+                  </Space>
+                  <Text type="secondary">{sending ? '系统执行中，可在右侧查看实时进度' : '支持中途暂停与取消（能力接入后）'}</Text>
+                </Space>
+              </Space>
+            </div>
+          </Card>
 
-              <Divider />
-              <Table<TaskDetailDTO>
-                size="small"
-                rowKey="taskId"
-                columns={taskColumns}
-                dataSource={planTasks}
-                pagination={{ pageSize: 8, showSizeChanger: false }}
-                scroll={{ x: 760 }}
-              />
-            </Card>
-          </Col>
-        </Row>
+          <Card className="app-card chat-panel chat-right-panel" size="small" title="执行上下文">
+            <Tabs
+              defaultActiveKey="progress"
+              items={[
+                {
+                  key: 'progress',
+                  label: `进度 (${processEvents.length})`,
+                  children: (
+                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                      <Descriptions column={1} size="small" title="当前 Plan">
+                        <Descriptions.Item label="PlanId">{planDetail?.planId || '-'}</Descriptions.Item>
+                        <Descriptions.Item label="状态">
+                          <StatusTag status={planDetail?.status} />
+                        </Descriptions.Item>
+                        <Descriptions.Item label="目标">{planDetail?.planGoal || '-'}</Descriptions.Item>
+                        <Descriptions.Item label="任务统计">
+                          总 {currentStats.total} / 运行中 {currentStats.runningLike} / 失败 {currentStats.failed}
+                        </Descriptions.Item>
+                      </Descriptions>
+
+                      <Collapse
+                        size="small"
+                        items={[
+                          {
+                            key: 'events',
+                            label: `过程事件（${processEvents.length}）`,
+                            children: (
+                              <Timeline
+                                items={processEvents.map((e) => ({
+                                  color: e.type === 'TaskCompleted' && e.summary.includes('FAILED') ? 'red' : 'blue',
+                                  children: (
+                                    <Space direction="vertical" style={{ width: '100%' }}>
+                                      <Typography.Text strong>{e.summary}</Typography.Text>
+                                      <Typography.Text type="secondary">{e.time}</Typography.Text>
+                                      {e.detail ? (
+                                        <Typography.Paragraph style={{ marginBottom: 0 }} ellipsis={{ rows: 2, expandable: true }}>
+                                          {e.detail}
+                                        </Typography.Paragraph>
+                                      ) : null}
+                                    </Space>
+                                  )
+                                }))}
+                              />
+                            )
+                          }
+                        ]}
+                      />
+                    </Space>
+                  )
+                },
+                {
+                  key: 'references',
+                  label: '引用与异常',
+                  children: (
+                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                      {fallbackCandidateHint ? (
+                        <Alert
+                          type="warning"
+                          showIcon
+                          message="当前使用候补 Workflow Draft"
+                          description={
+                            <Space direction="vertical" style={{ width: '100%' }}>
+                              <Text type="secondary">候补 Draft ID：{fallbackCandidateId || '-'}，可编辑后发布为正式 Definition。</Text>
+                              <Space>
+                                <Button onClick={() => void ensureCandidateDetailLoaded()} loading={candidateLoading}>
+                                  查看/编辑 Draft
+                                </Button>
+                                <Button type="link" onClick={() => navigate('/workflows/drafts')}>
+                                  进入治理页
+                                </Button>
+                              </Space>
+                              {candidateHintLoading ? <Text type="secondary">正在校验候补 Workflow Draft...</Text> : null}
+                            </Space>
+                          }
+                        />
+                      ) : (
+                        <StateView type="empty" title="暂无候补草案提示" description="当前回合命中了正式 Workflow Definition。" />
+                      )}
+
+                      {planDetail?.errorSummary || failureTasks.length > 0 ? (
+                        <Alert
+                          type="error"
+                          showIcon
+                          message="错误面板"
+                          description={
+                            <Space direction="vertical" style={{ width: '100%' }}>
+                              {planDetail?.errorSummary ? <Typography.Text>{planDetail.errorSummary}</Typography.Text> : null}
+                              {failureTasks.slice(0, 3).map((t) => (
+                                <Typography.Text key={t.taskId} type="secondary">
+                                  #{t.taskId} {t.name || t.nodeId}：{t.outputResult || '无错误详情'}
+                                </Typography.Text>
+                              ))}
+                            </Space>
+                          }
+                        />
+                      ) : null}
+                    </Space>
+                  )
+                },
+                {
+                  key: 'tasks',
+                  label: `任务 (${planTasks.length})`,
+                  children: (
+                    <Table<TaskDetailDTO>
+                      size="small"
+                      rowKey="taskId"
+                      columns={taskColumns}
+                      dataSource={planTasks}
+                      pagination={{ pageSize: 8, showSizeChanger: false }}
+                      scroll={{ x: 760 }}
+                    />
+                  )
+                }
+              ]}
+            />
+          </Card>
+        </div>
       </Spin>
 
       <Drawer
@@ -911,6 +963,6 @@ export const ConversationPage = () => {
           <Empty description="未加载候补 Workflow Draft" />
         )}
       </Drawer>
-    </div>
+    </Space>
   );
 };

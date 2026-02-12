@@ -4,6 +4,14 @@ export interface ApiResponse<T> {
   data: T;
 }
 
+export interface PageResult<T> {
+  items: T[];
+  page: number;
+  size: number;
+  total: number;
+  totalPages: number;
+}
+
 export interface SessionCreateRequest {
   userId: string;
   title?: string;
@@ -78,6 +86,7 @@ export interface TaskDetailDTO {
   claimAt?: string;
   leaseUntil?: string;
   executionAttempt?: number;
+  latestExecutionTimeMs?: number;
   version?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -207,4 +216,123 @@ export interface WorkflowPublishResultDTO {
   definitionId: number;
   definitionKey: string;
   definitionVersion: number;
+}
+
+export interface PlanTaskEventDTO {
+  id: number;
+  planId: number;
+  taskId?: number;
+  eventType?: string;
+  eventName?: string;
+  eventData?: Record<string, unknown>;
+  createdAt?: string;
+}
+
+export interface AgentToolDTO {
+  id: number;
+  name: string;
+  type?: string;
+  description?: string;
+  isActive?: boolean;
+  toolConfig?: Record<string, unknown>;
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface VectorStoreDTO {
+  id: number;
+  name: string;
+  storeType?: string;
+  collectionName?: string;
+  dimension?: number;
+  isActive?: boolean;
+  connectionConfig?: Record<string, unknown>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PlanLogDTO {
+  id: number;
+  planId: number;
+  taskId?: number;
+  eventType?: string;
+  eventName?: string;
+  level?: 'INFO' | 'WARN' | 'ERROR' | string;
+  traceId?: string;
+  eventData?: Record<string, unknown>;
+  createdAt?: string;
+}
+
+export interface DashboardOverviewDTO {
+  taskStats?: {
+    total: number;
+    pending: number;
+    ready: number;
+    runningLike: number;
+    completed: number;
+    failed: number;
+    skipped: number;
+  };
+  planStats?: Record<string, number>;
+  sessionStats?: Record<string, number>;
+  recentTasks?: TaskDetailDTO[];
+  recentFailedTasks?: TaskDetailDTO[];
+  recentPlans?: PlanSummaryDTO[];
+  latencyStats?: {
+    p50: number;
+    p95: number;
+    p99: number;
+  };
+  slowTaskCount?: number;
+  slaBreachCount?: number;
+}
+
+export interface TaskExportDTO {
+  fileName: string;
+  contentType: string;
+  content: string;
+  generatedAt?: string;
+}
+
+export interface TaskShareLinkDTO {
+  shareUrl: string;
+  token: string;
+  expiresAt: string;
+}
+
+export interface KnowledgeBaseDetailDTO {
+  id: number;
+  name: string;
+  storeType?: string;
+  collectionName?: string;
+  dimension?: number;
+  isActive?: boolean;
+  connectionConfig?: Record<string, unknown>;
+  documentCount?: number;
+  chunkCount?: number;
+  updatedAt?: string;
+}
+
+export interface KnowledgeDocumentDTO {
+  id: number;
+  name: string;
+  chunks?: number;
+  status?: string;
+  updatedAt?: string;
+}
+
+export interface RetrievalTestResultDTO {
+  title: string;
+  snippet: string;
+  score: number;
+  source?: string;
+}
+
+export interface RetrievalTestResponseDTO {
+  query: string;
+  total: number;
+  results: RetrievalTestResultDTO[];
+  testedAt?: string;
 }

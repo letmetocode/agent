@@ -15,6 +15,7 @@
 - `07-data-model-and-sql.md`：数据模型、关键 SQL 与并发约束
 - `08-observability-and-ops.md`：观测指标、审计与运维治理
 - `09-dev-guide-and-checklist.md`：开发流程、变更模板与回归清单
+- `10-frontend-console-ia-and-layout.md`：前端控制台 IA、页面布局与状态体系
 
 ## 阅读顺序建议
 
@@ -28,6 +29,7 @@
 8. `07-data-model-and-sql.md`
 9. `08-observability-and-ops.md`
 10. `09-dev-guide-and-checklist.md`
+11. `10-frontend-console-ia-and-layout.md`
 
 ## 维护约定
 
@@ -40,4 +42,3 @@
 ## 补充规范
 
 - Git 管理与提交流程：`../dev-ops/git-management.md`
-

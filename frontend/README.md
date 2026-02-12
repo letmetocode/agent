@@ -2,10 +2,15 @@
 
 ## 目标
 
-前端以“查询快照 + SSE 增量”模式实现对话工作台，覆盖：
-- 会话创建与进入
-- 回合触发（chat -> plan）
-- 三栏执行可视化（消息、任务、执行记录）
+前端围绕 **Agent 控制台主路径** 重构：
+
+- 新建 Agent / 新建任务
+- 输入目标并执行
+- 执行中途控制与观测
+- 查看结果与引用
+- 导出 / 分享 / 历史回溯
+
+风格基线：极简、现代、克制；优先可读性与效率（Desktop First）。
 
 ## 启动
 
@@ -16,6 +21,7 @@ npm run dev
 ```
 
 默认后端地址：`http://127.0.0.1:8091`。
+
 可通过环境变量覆盖：
 
 ```bash
@@ -24,33 +30,82 @@ VITE_HTTP_TIMEOUT_MS=15000
 VITE_CHAT_TIMEOUT_MS=90000
 ```
 
-说明：
-- `VITE_HTTP_TIMEOUT_MS`：普通接口超时，默认 `15000ms`。
-- `VITE_CHAT_TIMEOUT_MS`：`POST /api/sessions/{id}/chat` 专用超时，默认 `90000ms`（用于覆盖 Root 规划重试导致的长耗时场景）。
+## 信息架构（一级导航）
 
-## 页面
+- `/workspace`：工作台（快捷启动、系统健康、最近会话与产出）
+- `/sessions`：对话与执行入口（统一启动器）
+- `/sessions/:sessionId`：会话执行页（2.5 栏布局）
+- `/tasks`：任务中心（筛选、分页、列表/看板）
+- `/tasks/:taskId`：任务详情（时间轴、中途控制、结果与引用）
+- `/assets/tools`：工具与插件
+- `/assets/knowledge`：知识库列表
+- `/assets/knowledge/:kbId`：知识库详情与检索测试
+- `/observability/overview`：监控总览
+- `/observability/logs`：日志检索
+- `/settings/profile`：个人设置
+- `/settings/system`：系统配置
+- `/settings/access`：成员与权限
+- `/workflows/drafts`：Workflow Draft 治理
 
-- `/login`：开发态 userId 设置
-- `/sessions`：会话创建与最近会话入口
-- `/sessions/:sessionId`：对话工作台（三栏）
+## 当前可用能力
 
-## 演示级能力
+- 全局控制台壳布局（侧边导航 + 顶栏搜索 + 面包屑）
+- 页面级统一状态组件（空/加载/错误/不可用）
+- 会话页执行上下文聚合（回合、事件流、Plan/Task 进度）
+- 任务详情中途控制（暂停/继续/取消/失败重试）
+- 任务结果导出（Markdown/JSON）与分享链接生成
+- 日志分页检索（level/taskId/traceId/keyword）
+- 知识库文档详情与检索测试
+- 监控总览 P95/P99/慢任务/SLA 指标展示
 
-- 中栏消息按 Turn 分组，支持回合历史回放
-- 过程事件结构化展示（TaskStarted/TaskLog/TaskCompleted/PlanFinished）
-- 右栏任务表支持状态筛选、attempt/更新时间排序
-- 错误面板聚合展示 Plan errorSummary 与失败任务摘要
-- Task 执行记录抽屉（attempt、模型、耗时、错误类型、响应内容）
+## 已接入后端接口（2026-02）
 
-## 数据流
+- 会话与执行：
+  - `GET /api/sessions/list`
+  - `GET /api/sessions/{id}/overview`
+  - `GET /api/sessions/{id}/turns`
+  - `GET /api/sessions/{id}/messages`
+  - `POST /api/sessions/{id}/chat`
+  - `GET /api/plans/{id}`
+  - `GET /api/plans/{id}/tasks`
+  - `GET /api/plans/{id}/events`
+  - `GET /api/plans/{id}/stream?lastEventId=...`
+- 任务中心：
+  - `GET /api/tasks/paged`
+  - `GET /api/tasks/{id}`
+  - `GET /api/tasks/{id}/executions`
+  - `POST /api/tasks/{id}/pause`
+  - `POST /api/tasks/{id}/resume`
+  - `POST /api/tasks/{id}/cancel`
+  - `POST /api/tasks/{id}/retry-from-failed`
+  - `GET /api/tasks/{id}/export`
+  - `POST /api/tasks/{id}/share-links`
+- 观测与日志：
+  - `GET /api/dashboard/overview`
+  - `GET /api/logs/paged`
+- 资产中心：
+  - `GET /api/agents/tools`
+  - `GET /api/agents/vector-stores`
+  - `GET /api/knowledge-bases/{id}`
+  - `GET /api/knowledge-bases/{id}/documents`
+  - `POST /api/knowledge-bases/{id}/retrieval-tests`
+- Workflow 治理：
+  - `GET /api/workflows/drafts`
+  - `GET /api/workflows/drafts/{id}`
+  - `PUT /api/workflows/drafts/{id}`
+  - `POST /api/workflows/drafts/{id}/publish`
 
-1. 首屏：`GET /api/sessions/{id}/overview`
-2. 回合列表：`GET /api/sessions/{id}/turns`
-3. 消息流：`GET /api/sessions/{id}/messages`
-4. 发送消息：`POST /api/sessions/{id}/chat`
-5. 实时流：`GET /api/plans/{id}/stream?lastEventId=...`
+## 数据流（核心页面）
 
-## 说明
+1. 首屏：`GET /api/dashboard/overview`
+2. 会话：`GET /api/sessions/{id}/overview|turns|messages`
+3. 任务：`GET /api/tasks/paged` + `GET /api/tasks/{id}` + `GET /api/tasks/{id}/executions`
+4. 日志：`GET /api/logs/paged`
+5. 资产：`GET /api/agents/vector-stores` + `/api/knowledge-bases/*`
+6. 实时：`GET /api/plans/{id}/stream?lastEventId=...`
 
-- 当前后端未提供“按 userId 列出所有 session”的查询接口。
-- `/sessions` 页面使用本地书签（创建后写入 localStorage）管理最近会话入口。
+## 工程说明
+
+- 路由已启用 `lazy + Suspense` 页面级拆包。
+- UI 组件基于 `Ant Design`，样式遵循统一间距/字号体系。
+- 任务、会话、日志页面优先采用服务端分页，降低前端全量加载压力。

@@ -1,15 +1,18 @@
 import { CHAT_HTTP_TIMEOUT_MS, http } from './http';
 import type {
+  AgentToolDTO,
   ApiResponse,
   ChatRequest,
   ChatResponse,
+  DashboardOverviewDTO,
+  KnowledgeBaseDetailDTO,
+  KnowledgeDocumentDTO,
+  PageResult,
+  PlanLogDTO,
+  PlanTaskEventDTO,
   PlanDetailDTO,
   PlanSummaryDTO,
-  WorkflowDraftDetailDTO,
-  WorkflowDraftSummaryDTO,
-  WorkflowDraftUpdateRequestDTO,
-  WorkflowPublishRequestDTO,
-  WorkflowPublishResultDTO,
+  RetrievalTestResponseDTO,
   SessionCreateRequest,
   SessionCreateResponse,
   SessionDetailDTO,
@@ -17,7 +20,15 @@ import type {
   SessionOverviewDTO,
   SessionTurnDTO,
   TaskDetailDTO,
-  TaskExecutionDetailDTO
+  TaskExecutionDetailDTO,
+  TaskExportDTO,
+  TaskShareLinkDTO,
+  VectorStoreDTO,
+  WorkflowDraftDetailDTO,
+  WorkflowDraftSummaryDTO,
+  WorkflowDraftUpdateRequestDTO,
+  WorkflowPublishRequestDTO,
+  WorkflowPublishResultDTO
 } from '@/shared/types/api';
 
 const unwrap = <T>(res: { data: ApiResponse<T> }): T => res.data.data;
@@ -31,6 +42,14 @@ const unwrapWithCodeCheck = <T>(res: { data: ApiResponse<T> }): T => {
 export const agentApi = {
   createSession: async (payload: SessionCreateRequest) =>
     unwrap(await http.post<ApiResponse<SessionCreateResponse>>('/api/sessions', payload)),
+
+  getSessionsList: async (params: {
+    userId: string;
+    activeOnly?: boolean;
+    keyword?: string;
+    page?: number;
+    size?: number;
+  }) => unwrap(await http.get<ApiResponse<PageResult<SessionDetailDTO>>>('/api/sessions/list', { params })),
 
   sendChat: async (sessionId: number, payload: ChatRequest) =>
     unwrap(
@@ -57,6 +76,50 @@ export const agentApi = {
   getTaskExecutions: async (taskId: number) =>
     unwrap(await http.get<ApiResponse<TaskExecutionDetailDTO[]>>(`/api/tasks/${taskId}/executions`)),
 
+  getTask: async (taskId: number) => unwrap(await http.get<ApiResponse<TaskDetailDTO>>(`/api/tasks/${taskId}`)),
+
+  pauseTask: async (taskId: number) =>
+    unwrap(await http.post<ApiResponse<TaskDetailDTO>>(`/api/tasks/${taskId}/pause`)),
+
+  resumeTask: async (taskId: number) =>
+    unwrap(await http.post<ApiResponse<TaskDetailDTO>>(`/api/tasks/${taskId}/resume`)),
+
+  cancelTask: async (taskId: number) =>
+    unwrap(await http.post<ApiResponse<TaskDetailDTO>>(`/api/tasks/${taskId}/cancel`)),
+
+  retryTaskFromFailed: async (taskId: number) =>
+    unwrap(await http.post<ApiResponse<TaskDetailDTO>>(`/api/tasks/${taskId}/retry-from-failed`)),
+
+  exportTask: async (taskId: number, format: 'markdown' | 'json') =>
+    unwrap(await http.get<ApiResponse<TaskExportDTO>>(`/api/tasks/${taskId}/export`, { params: { format } })),
+
+  createTaskShareLink: async (taskId: number, expiresHours?: number) =>
+    unwrap(await http.post<ApiResponse<TaskShareLinkDTO>>(`/api/tasks/${taskId}/share-links`, undefined, { params: { expiresHours } })),
+
+  getTasks: async (params?: {
+    status?: string;
+    keyword?: string;
+    planId?: number;
+    sessionId?: number;
+    limit?: number;
+  }) => unwrap(await http.get<ApiResponse<TaskDetailDTO[]>>('/api/tasks', { params })),
+
+  getTasksPaged: async (params?: {
+    status?: string;
+    keyword?: string;
+    planId?: number;
+    sessionId?: number;
+    page?: number;
+    size?: number;
+  }) => unwrap(await http.get<ApiResponse<PageResult<TaskDetailDTO>>>('/api/tasks/paged', { params })),
+
+  getPlanEvents: async (planId: number, params?: { afterEventId?: number; limit?: number }) =>
+    unwrap(
+      await http.get<ApiResponse<PlanTaskEventDTO[]>>(`/api/plans/${planId}/events`, {
+        params
+      })
+    ),
+
   getSessionTurns: async (sessionId: number) =>
     unwrap(await http.get<ApiResponse<SessionTurnDTO[]>>(`/api/sessions/${sessionId}/turns`)),
 
@@ -77,5 +140,39 @@ export const agentApi = {
     unwrapWithCodeCheck(await http.put<ApiResponse<WorkflowDraftDetailDTO>>(`/api/workflows/drafts/${id}`, payload)),
 
   publishWorkflowDraft: async (id: number, payload?: WorkflowPublishRequestDTO) =>
-    unwrapWithCodeCheck(await http.post<ApiResponse<WorkflowPublishResultDTO>>(`/api/workflows/drafts/${id}/publish`, payload || {}))
+    unwrapWithCodeCheck(await http.post<ApiResponse<WorkflowPublishResultDTO>>(`/api/workflows/drafts/${id}/publish`, payload || {})),
+
+  getAgentTools: async () => unwrap(await http.get<ApiResponse<AgentToolDTO[]>>('/api/agents/tools')),
+
+  getVectorStores: async () => unwrap(await http.get<ApiResponse<VectorStoreDTO[]>>('/api/agents/vector-stores')),
+
+  getKnowledgeBaseDetail: async (kbId: number) =>
+    unwrap(await http.get<ApiResponse<KnowledgeBaseDetailDTO>>(`/api/knowledge-bases/${kbId}`)),
+
+  getKnowledgeBaseDocuments: async (kbId: number) =>
+    unwrap(await http.get<ApiResponse<KnowledgeDocumentDTO[]>>(`/api/knowledge-bases/${kbId}/documents`)),
+
+  testKnowledgeRetrieval: async (kbId: number, query: string) =>
+    unwrap(await http.post<ApiResponse<RetrievalTestResponseDTO>>(`/api/knowledge-bases/${kbId}/retrieval-tests`, { query })),
+
+  getLogs: async (params?: {
+    planId?: number;
+    taskId?: number;
+    level?: string;
+    keyword?: string;
+    limit?: number;
+  }) => unwrap(await http.get<ApiResponse<PlanLogDTO[]>>('/api/logs', { params })),
+
+  getLogsPaged: async (params?: {
+    planId?: number;
+    taskId?: number;
+    level?: string;
+    traceId?: string;
+    keyword?: string;
+    page?: number;
+    size?: number;
+  }) => unwrap(await http.get<ApiResponse<PageResult<PlanLogDTO>>>('/api/logs/paged', { params })),
+
+  getDashboardOverview: async (params?: { taskLimit?: number; planLimit?: number }) =>
+    unwrap(await http.get<ApiResponse<DashboardOverviewDTO>>('/api/dashboard/overview', { params }))
 };
