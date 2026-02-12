@@ -8,6 +8,8 @@ import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
 import com.getoffer.trigger.service.TurnResultService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Metrics;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -34,6 +36,9 @@ public class PlanStatusDaemon {
 
     private final int batchSize;
     private final int maxPlansPerRound;
+    private final Counter finalizeAttemptCounter;
+    private final Counter finalizeDedupCounter;
+    private final Counter finishedPublishCounter;
 
     public PlanStatusDaemon(IAgentPlanRepository agentPlanRepository,
                             IAgentTaskRepository agentTaskRepository,
@@ -47,6 +52,9 @@ public class PlanStatusDaemon {
         this.turnResultService = turnResultService;
         this.batchSize = batchSize > 0 ? batchSize : 200;
         this.maxPlansPerRound = maxPlansPerRound > 0 ? maxPlansPerRound : 1000;
+        this.finalizeAttemptCounter = Counter.builder("agent.plan.finalize.attempt.total").register(Metrics.globalRegistry);
+        this.finalizeDedupCounter = Counter.builder("agent.plan.finalize.dedup.total").register(Metrics.globalRegistry);
+        this.finishedPublishCounter = Counter.builder("agent.plan.finished.publish.total").register(Metrics.globalRegistry);
     }
 
     @Scheduled(fixedDelayString = "${plan-status.poll-interval-ms:1000}", scheduler = "daemonScheduler")
@@ -164,8 +172,16 @@ public class PlanStatusDaemon {
             }
             agentPlanRepository.update(plan);
             if (targetStatus == PlanStatusEnum.COMPLETED || targetStatus == PlanStatusEnum.FAILED) {
+                finalizeAttemptCounter.increment();
                 TurnResultService.TurnFinalizeResult turnResult = turnResultService.finalizeByPlan(plan.getId(), targetStatus);
+                if (turnResult != null && turnResult.getOutcome() == TurnResultService.FinalizeOutcome.SKIPPED_NOT_TERMINAL) {
+                    log.info("Plan finalized skipped because turn is not terminal candidate. planId={}, status={}", plan.getId(), targetStatus);
+                }
+                if (turnResult != null && turnResult.getOutcome() == TurnResultService.FinalizeOutcome.ALREADY_FINALIZED) {
+                    finalizeDedupCounter.increment();
+                }
                 publishPlanFinishedEvent(plan, turnResult);
+                finishedPublishCounter.increment();
             }
             log.debug("Plan status advanced by task aggregate. planId={}, from={}, to={}",
                     plan.getId(), beforeStatus, targetStatus);

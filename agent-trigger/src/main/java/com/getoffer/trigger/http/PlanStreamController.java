@@ -196,15 +196,22 @@ public class PlanStreamController {
     }
 
     private long resolveCursor(Long lastEventIdParam, String lastEventIdHeader) {
-        if (lastEventIdParam != null && lastEventIdParam > 0) {
-            return lastEventIdParam;
+        long headerCursor = parseCursor(lastEventIdHeader);
+        if (headerCursor > 0L) {
+            return headerCursor;
         }
-        if (lastEventIdHeader == null) {
+        if (lastEventIdParam == null) {
+            return 0L;
+        }
+        return Math.max(lastEventIdParam, 0L);
+    }
+
+    private long parseCursor(String cursorText) {
+        if (cursorText == null || cursorText.isBlank()) {
             return 0L;
         }
         try {
-            long cursor = Long.parseLong(lastEventIdHeader.trim());
-            return Math.max(cursor, 0L);
+            return Math.max(Long.parseLong(cursorText.trim()), 0L);
         } catch (NumberFormatException ignored) {
             return 0L;
         }
