@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 @SpringBootTest(
         classes = Application.class,
@@ -111,6 +112,19 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
         List<SessionMessageEntity> messages = sessionMessageRepository.findByTurnId(chat.turnId);
         boolean hasAssistant = messages.stream().anyMatch(msg -> msg.getRole() == MessageRoleEnum.ASSISTANT);
         Assertions.assertTrue(hasAssistant, "回合结束后应写入 assistant 消息");
+
+        EventCursorSnapshot replaySnapshot = collectReplaySnapshot(chat.planId);
+        Assertions.assertTrue(replaySnapshot.hasPlanFinished, "查询 API 回放应包含 PlanFinished 事件");
+        Assertions.assertTrue(replaySnapshot.maxEventId > 0L, "应存在可回放事件游标");
+
+        AtomicLong resumedCursor = new AtomicLong(-1L);
+        CompletableFuture<Boolean> replayFuture = CompletableFuture.supplyAsync(
+                () -> waitPlanFinishedEventWithCursor(chat.planId, replaySnapshot.maxEventId - 1L, resumedCursor)
+        );
+        Boolean replayed = replayFuture.get(6, TimeUnit.SECONDS);
+        Assertions.assertTrue(Boolean.TRUE.equals(replayed), "带 Last-Event-ID 重连后应收到 PlanFinished 事件");
+        Assertions.assertTrue(resumedCursor.get() >= replaySnapshot.maxEventId,
+                "重连事件游标应连续推进");
     }
 
     private void seedWorkflowDefinition() {
@@ -178,12 +192,19 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
     }
 
     private boolean waitPlanFinishedEvent(Long planId) {
+        return waitPlanFinishedEventWithCursor(planId, null, new AtomicLong(-1L));
+    }
+
+    private boolean waitPlanFinishedEventWithCursor(Long planId, Long lastEventId, AtomicLong resumedCursor) {
         HttpURLConnection connection = null;
         try {
             URL url = new URL("http://127.0.0.1:" + port + "/api/plans/" + planId + "/stream");
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             connection.setRequestProperty("Accept", "text/event-stream");
+            if (lastEventId != null && lastEventId >= 0L) {
+                connection.setRequestProperty("Last-Event-ID", String.valueOf(lastEventId));
+            }
             connection.setConnectTimeout(5000);
             connection.setReadTimeout(6000);
             connection.connect();
@@ -191,8 +212,20 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
+                long currentEventId = -1L;
                 while ((line = reader.readLine()) != null) {
+                    if (line.startsWith("id:")) {
+                        try {
+                            currentEventId = Long.parseLong(line.substring(3).trim());
+                            resumedCursor.set(currentEventId);
+                        } catch (NumberFormatException ignored) {
+                            currentEventId = -1L;
+                        }
+                    }
                     if (line.startsWith("event:") && line.contains("PlanFinished")) {
+                        if (currentEventId > 0L) {
+                            resumedCursor.set(Math.max(resumedCursor.get(), currentEventId));
+                        }
                         return true;
                     }
                 }
@@ -209,8 +242,37 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
         return false;
     }
 
+    private EventCursorSnapshot collectReplaySnapshot(Long planId) throws Exception {
+        ResponseEntity<String> response = restTemplate.getForEntity(
+                "http://127.0.0.1:" + port + "/api/plans/" + planId + "/events?afterEventId=0&limit=500",
+                String.class
+        );
+        Assertions.assertNotNull(response.getBody());
+        JsonNode root = objectMapper.readTree(response.getBody());
+        JsonNode data = root.path("data");
+        long maxEventId = 0L;
+        boolean hasPlanFinished = false;
+        if (data.isArray()) {
+            for (JsonNode item : data) {
+                maxEventId = Math.max(maxEventId, item.path("eventId").asLong(0L));
+                if ("PLAN_FINISHED".equalsIgnoreCase(item.path("eventType").asText(""))) {
+                    hasPlanFinished = true;
+                }
+            }
+        }
+        EventCursorSnapshot snapshot = new EventCursorSnapshot();
+        snapshot.maxEventId = maxEventId;
+        snapshot.hasPlanFinished = hasPlanFinished;
+        return snapshot;
+    }
+
     private static final class ChatResult {
         private Long planId;
         private Long turnId;
+    }
+
+    private static final class EventCursorSnapshot {
+        private long maxEventId;
+        private boolean hasPlanFinished;
     }
 }

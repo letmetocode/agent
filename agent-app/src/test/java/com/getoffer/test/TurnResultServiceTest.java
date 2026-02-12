@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.LocalDateTime;
 
 public class TurnResultServiceTest {
 
@@ -40,6 +41,7 @@ public class TurnResultServiceTest {
 
         Assertions.assertEquals(TurnStatusEnum.COMPLETED, result.getTurnStatus());
         Assertions.assertNotNull(result.getAssistantMessageId());
+        Assertions.assertEquals(TurnResultService.FinalizeOutcome.FINALIZED, result.getOutcome());
         Assertions.assertEquals("这是最终文案输出", messageRepository.getLastSaved().getContent());
         Assertions.assertFalse(messageRepository.getLastSaved().getContent().contains("\"pass\""));
     }
@@ -75,8 +77,68 @@ public class TurnResultServiceTest {
         TurnResultService.TurnFinalizeResult result = service.finalizeByPlan(12L, PlanStatusEnum.FAILED);
 
         Assertions.assertEquals(TurnStatusEnum.FAILED, result.getTurnStatus());
+        Assertions.assertEquals(TurnResultService.FinalizeOutcome.FINALIZED, result.getOutcome());
         Assertions.assertTrue(messageRepository.getLastSaved().getContent().contains("Task execution timed out"));
         Assertions.assertFalse(messageRepository.getLastSaved().getContent().contains("\"pass\""));
+    }
+
+    @Test
+    public void shouldReturnAlreadyFinalizedWhenTurnTerminal() {
+        InMemorySessionTurnRepository turnRepository = new InMemorySessionTurnRepository();
+        SessionTurnEntity turn = buildTurn(103L, 1L, 13L, TurnStatusEnum.COMPLETED);
+        turn.setFinalResponseMessageId(88L);
+        turn.setAssistantSummary("done");
+        turnRepository.setTurn(turn);
+        InMemorySessionMessageRepository messageRepository = new InMemorySessionMessageRepository();
+        InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
+
+        TurnResultService service = new TurnResultService(turnRepository, messageRepository, taskRepository);
+        TurnResultService.TurnFinalizeResult result = service.finalizeByPlan(13L, PlanStatusEnum.COMPLETED);
+
+        Assertions.assertEquals(TurnResultService.FinalizeOutcome.ALREADY_FINALIZED, result.getOutcome());
+        Assertions.assertEquals(Long.valueOf(88L), result.getAssistantMessageId());
+        Assertions.assertTrue(messageRepository.findByTurnId(103L).isEmpty());
+    }
+
+    @Test
+    public void shouldBackfillFinalMessageWhenTerminalTurnMissingMessageId() {
+        InMemorySessionTurnRepository turnRepository = new InMemorySessionTurnRepository();
+        SessionTurnEntity turn = buildTurn(105L, 1L, 15L, TurnStatusEnum.COMPLETED);
+        turn.setAssistantSummary("summary");
+        turnRepository.setTurn(turn);
+
+        InMemorySessionMessageRepository messageRepository = new InMemorySessionMessageRepository();
+        InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
+        taskRepository.setTasks(15L, List.of(buildTask(1501L, 15L, TaskTypeEnum.WORKER, TaskStatusEnum.COMPLETED, "done")));
+
+        TurnResultService service = new TurnResultService(turnRepository, messageRepository, taskRepository);
+        TurnResultService.TurnFinalizeResult result = service.finalizeByPlan(15L, PlanStatusEnum.COMPLETED);
+
+        Assertions.assertEquals(TurnResultService.FinalizeOutcome.FINALIZED, result.getOutcome());
+        Assertions.assertNotNull(result.getAssistantMessageId());
+        Assertions.assertEquals(1, messageRepository.findByTurnId(105L).size());
+    }
+
+    @Test
+    public void shouldNotDuplicateFinalMessageWhenMarkTerminalConflict() {
+        InMemorySessionTurnRepository turnRepository = new InMemorySessionTurnRepository();
+        SessionTurnEntity turn = buildTurn(104L, 1L, 14L, TurnStatusEnum.EXECUTING);
+        turnRepository.setTurn(turn);
+        turnRepository.setMarkTerminalReturn(false);
+        turn.setStatus(TurnStatusEnum.COMPLETED);
+        turn.setFinalResponseMessageId(99L);
+        turn.setAssistantSummary("existing");
+
+        InMemorySessionMessageRepository messageRepository = new InMemorySessionMessageRepository();
+        InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
+        taskRepository.setTasks(14L, List.of(buildTask(1401L, 14L, TaskTypeEnum.WORKER, TaskStatusEnum.COMPLETED, "new")));
+
+        TurnResultService service = new TurnResultService(turnRepository, messageRepository, taskRepository);
+        TurnResultService.TurnFinalizeResult result = service.finalizeByPlan(14L, PlanStatusEnum.COMPLETED);
+
+        Assertions.assertEquals(TurnResultService.FinalizeOutcome.ALREADY_FINALIZED, result.getOutcome());
+        Assertions.assertEquals(Long.valueOf(99L), result.getAssistantMessageId());
+        Assertions.assertTrue(messageRepository.findByTurnId(104L).isEmpty());
     }
 
     private SessionTurnEntity buildTurn(Long turnId, Long sessionId, Long planId, TurnStatusEnum status) {
@@ -111,6 +173,7 @@ public class TurnResultServiceTest {
 
     private static final class InMemorySessionTurnRepository implements ISessionTurnRepository {
         private SessionTurnEntity turn;
+        private boolean markTerminalReturn = true;
 
         public void setTurn(SessionTurnEntity turn) {
             this.turn = turn;
@@ -139,6 +202,39 @@ public class TurnResultServiceTest {
                 return null;
             }
             return turn;
+        }
+
+        public void setMarkTerminalReturn(boolean markTerminalReturn) {
+            this.markTerminalReturn = markTerminalReturn;
+        }
+
+        @Override
+        public boolean markTerminalIfNotTerminal(Long turnId,
+                                                 TurnStatusEnum status,
+                                                 String assistantSummary,
+                                                 LocalDateTime completedAt) {
+            if (turn == null || !markTerminalReturn || turn.isTerminal()) {
+                return false;
+            }
+            if (!turn.getId().equals(turnId)) {
+                return false;
+            }
+            turn.setStatus(status);
+            turn.setAssistantSummary(assistantSummary);
+            turn.setCompletedAt(completedAt);
+            return true;
+        }
+
+        @Override
+        public boolean bindFinalResponseMessage(Long turnId, Long messageId) {
+            if (turn == null || turn.getId() == null || !turn.getId().equals(turnId)) {
+                return false;
+            }
+            if (turn.getFinalResponseMessageId() != null) {
+                return false;
+            }
+            turn.setFinalResponseMessageId(messageId);
+            return true;
         }
 
         @Override
@@ -173,6 +269,15 @@ public class TurnResultServiceTest {
             }
             saved.add(entity);
             return entity;
+        }
+
+        @Override
+        public SessionMessageEntity saveAssistantFinalMessageIfAbsent(SessionMessageEntity entity) {
+            List<SessionMessageEntity> turnMessages = findByTurnId(entity.getTurnId());
+            if (!turnMessages.isEmpty()) {
+                return turnMessages.get(turnMessages.size() - 1);
+            }
+            return save(entity);
         }
 
         @Override

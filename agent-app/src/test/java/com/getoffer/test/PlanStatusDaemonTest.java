@@ -10,9 +10,12 @@ import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.trigger.job.PlanStatusDaemon;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
 import com.getoffer.trigger.service.TurnResultService;
+import com.getoffer.domain.session.model.entity.SessionTurnEntity;
+import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.types.enums.TaskStatusEnum;
 import com.getoffer.types.enums.TaskTypeEnum;
+import com.getoffer.types.enums.TurnStatusEnum;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.time.LocalDateTime;
 import java.util.stream.Collectors;
 
 public class PlanStatusDaemonTest {
@@ -129,6 +133,52 @@ public class PlanStatusDaemonTest {
         Assertions.assertEquals(PlanStatusEnum.COMPLETED, planRepository.findById(6L).getStatus());
     }
 
+    @Test
+    public void shouldPublishPlanFinishedOnceWhenTurnAlreadyFinalized() {
+        InMemoryAgentPlanRepository planRepository = new InMemoryAgentPlanRepository();
+        InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
+        InMemoryPlanTaskEventRepository eventRepository = new InMemoryPlanTaskEventRepository();
+        InMemorySessionTurnRepository turnRepository = new InMemorySessionTurnRepository();
+        InMemorySessionMessageRepository messageRepository = new InMemorySessionMessageRepository();
+        PlanStatusDaemon daemon = newDaemon(planRepository, taskRepository, eventRepository, turnRepository, messageRepository);
+
+        AgentPlanEntity plan = newPlan(7L, PlanStatusEnum.RUNNING);
+        planRepository.save(plan);
+        taskRepository.save(newTask(701L, 7L, TaskStatusEnum.COMPLETED));
+        turnRepository.addTurn(7L, newTurn(70L, 1007L, 7L, TurnStatusEnum.COMPLETED, 7001L, "already-final"));
+
+        daemon.syncPlanStatuses();
+
+        Assertions.assertEquals(PlanStatusEnum.COMPLETED, planRepository.findById(7L).getStatus());
+        Assertions.assertEquals(1, eventRepository.countByType(PlanTaskEventTypeEnum.PLAN_FINISHED));
+        Assertions.assertEquals(0, messageRepository.totalMessages());
+    }
+
+    @Test
+    public void shouldFinalizeOnlyOnceWhenPlanReconciledRepeatedly() {
+        InMemoryAgentPlanRepository planRepository = new InMemoryAgentPlanRepository();
+        InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
+        InMemoryPlanTaskEventRepository eventRepository = new InMemoryPlanTaskEventRepository();
+        InMemorySessionTurnRepository turnRepository = new InMemorySessionTurnRepository();
+        InMemorySessionMessageRepository messageRepository = new InMemorySessionMessageRepository();
+        PlanStatusDaemon daemon = newDaemon(planRepository, taskRepository, eventRepository, turnRepository, messageRepository);
+
+        AgentPlanEntity plan = newPlan(8L, PlanStatusEnum.READY);
+        planRepository.save(plan);
+        taskRepository.save(newTask(801L, 8L, TaskStatusEnum.COMPLETED));
+        turnRepository.addTurn(8L, newTurn(80L, 1008L, 8L, TurnStatusEnum.EXECUTING, null, null));
+
+        daemon.syncPlanStatuses();
+        daemon.syncPlanStatuses();
+
+        SessionTurnEntity turn = turnRepository.findByPlanId(8L);
+        Assertions.assertNotNull(turn);
+        Assertions.assertEquals(TurnStatusEnum.COMPLETED, turn.getStatus());
+        Assertions.assertNotNull(turn.getFinalResponseMessageId());
+        Assertions.assertEquals(1, messageRepository.totalMessages());
+        Assertions.assertEquals(1, eventRepository.countByType(PlanTaskEventTypeEnum.PLAN_FINISHED));
+    }
+
     private AgentPlanEntity newPlan(Long id, PlanStatusEnum status) {
         AgentPlanEntity plan = new AgentPlanEntity();
         plan.setId(id);
@@ -147,12 +197,42 @@ public class PlanStatusDaemonTest {
     private PlanStatusDaemon newDaemon(InMemoryAgentPlanRepository planRepository,
                                        InMemoryAgentTaskRepository taskRepository,
                                        InMemoryPlanTaskEventRepository eventRepository) {
-        TurnResultService turnResultService = new TurnResultService(
+        return newDaemon(planRepository,
+                taskRepository,
+                eventRepository,
                 new InMemorySessionTurnRepository(),
-                new InMemorySessionMessageRepository(),
+                new InMemorySessionMessageRepository());
+    }
+
+    private PlanStatusDaemon newDaemon(InMemoryAgentPlanRepository planRepository,
+                                       InMemoryAgentTaskRepository taskRepository,
+                                       InMemoryPlanTaskEventRepository eventRepository,
+                                       InMemorySessionTurnRepository turnRepository,
+                                       InMemorySessionMessageRepository messageRepository) {
+        TurnResultService turnResultService = new TurnResultService(
+                turnRepository,
+                messageRepository,
                 taskRepository
         );
         return new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), turnResultService, 100, 1000);
+    }
+
+    private SessionTurnEntity newTurn(Long turnId,
+                                      Long sessionId,
+                                      Long planId,
+                                      TurnStatusEnum status,
+                                      Long finalMessageId,
+                                      String summary) {
+        SessionTurnEntity turn = new SessionTurnEntity();
+        turn.setId(turnId);
+        turn.setSessionId(sessionId);
+        turn.setPlanId(planId);
+        turn.setUserMessage("user-message");
+        turn.setStatus(status);
+        turn.setFinalResponseMessageId(finalMessageId);
+        turn.setAssistantSummary(summary);
+        turn.setCompletedAt(LocalDateTime.now());
+        return turn;
     }
 
     private AgentTaskEntity newTask(Long id, Long planId, TaskStatusEnum status) {
@@ -415,24 +495,63 @@ public class PlanStatusDaemonTest {
     }
 
     private static final class InMemorySessionTurnRepository implements com.getoffer.domain.session.adapter.repository.ISessionTurnRepository {
+        private final Map<Long, com.getoffer.domain.session.model.entity.SessionTurnEntity> byPlanId = new HashMap<>();
+        private final Map<Long, com.getoffer.domain.session.model.entity.SessionTurnEntity> byTurnId = new HashMap<>();
+
+        public void addTurn(Long planId, com.getoffer.domain.session.model.entity.SessionTurnEntity turn) {
+            byPlanId.put(planId, turn);
+            byTurnId.put(turn.getId(), turn);
+        }
+
         @Override
         public com.getoffer.domain.session.model.entity.SessionTurnEntity save(com.getoffer.domain.session.model.entity.SessionTurnEntity entity) {
+            if (entity != null && entity.getPlanId() != null) {
+                addTurn(entity.getPlanId(), entity);
+            }
             return entity;
         }
 
         @Override
         public com.getoffer.domain.session.model.entity.SessionTurnEntity update(com.getoffer.domain.session.model.entity.SessionTurnEntity entity) {
+            if (entity != null && entity.getPlanId() != null) {
+                addTurn(entity.getPlanId(), entity);
+            }
             return entity;
         }
 
         @Override
         public com.getoffer.domain.session.model.entity.SessionTurnEntity findById(Long id) {
-            return null;
+            return byTurnId.get(id);
         }
 
         @Override
         public com.getoffer.domain.session.model.entity.SessionTurnEntity findByPlanId(Long planId) {
-            return null;
+            return byPlanId.get(planId);
+        }
+
+        @Override
+        public boolean markTerminalIfNotTerminal(Long turnId,
+                                                 com.getoffer.types.enums.TurnStatusEnum status,
+                                                 String assistantSummary,
+                                                 LocalDateTime completedAt) {
+            com.getoffer.domain.session.model.entity.SessionTurnEntity turn = byTurnId.get(turnId);
+            if (turn == null || turn.isTerminal()) {
+                return false;
+            }
+            turn.setStatus(status);
+            turn.setAssistantSummary(assistantSummary);
+            turn.setCompletedAt(completedAt);
+            return true;
+        }
+
+        @Override
+        public boolean bindFinalResponseMessage(Long turnId, Long messageId) {
+            com.getoffer.domain.session.model.entity.SessionTurnEntity turn = byTurnId.get(turnId);
+            if (turn == null || turn.getFinalResponseMessageId() != null) {
+                return false;
+            }
+            turn.setFinalResponseMessageId(messageId);
+            return true;
         }
 
         @Override
@@ -447,37 +566,88 @@ public class PlanStatusDaemonTest {
     }
 
     private static final class InMemorySessionMessageRepository implements com.getoffer.domain.session.adapter.repository.ISessionMessageRepository {
+        private long seq = 1L;
+        private final Map<Long, List<com.getoffer.domain.session.model.entity.SessionMessageEntity>> byTurnId = new HashMap<>();
+
         @Override
         public com.getoffer.domain.session.model.entity.SessionMessageEntity save(com.getoffer.domain.session.model.entity.SessionMessageEntity entity) {
+            entity.setId(seq++);
+            byTurnId.computeIfAbsent(entity.getTurnId(), key -> new ArrayList<>()).add(entity);
             return entity;
         }
 
         @Override
+        public com.getoffer.domain.session.model.entity.SessionMessageEntity saveAssistantFinalMessageIfAbsent(com.getoffer.domain.session.model.entity.SessionMessageEntity entity) {
+            List<com.getoffer.domain.session.model.entity.SessionMessageEntity> messages = byTurnId.get(entity.getTurnId());
+            if (messages != null && !messages.isEmpty()) {
+                return messages.get(messages.size() - 1);
+            }
+            return save(entity);
+        }
+
+        @Override
         public com.getoffer.domain.session.model.entity.SessionMessageEntity findById(Long id) {
+            if (id == null) {
+                return null;
+            }
+            for (List<com.getoffer.domain.session.model.entity.SessionMessageEntity> messages : byTurnId.values()) {
+                for (com.getoffer.domain.session.model.entity.SessionMessageEntity message : messages) {
+                    if (id.equals(message.getId())) {
+                        return message;
+                    }
+                }
+            }
             return null;
         }
 
         @Override
         public List<com.getoffer.domain.session.model.entity.SessionMessageEntity> findByTurnId(Long turnId) {
-            return Collections.emptyList();
+            if (turnId == null) {
+                return Collections.emptyList();
+            }
+            return new ArrayList<>(byTurnId.getOrDefault(turnId, Collections.emptyList()));
         }
 
         @Override
         public List<com.getoffer.domain.session.model.entity.SessionMessageEntity> findBySessionId(Long sessionId) {
-            return Collections.emptyList();
+            if (sessionId == null) {
+                return Collections.emptyList();
+            }
+            return byTurnId.values().stream()
+                    .flatMap(List::stream)
+                    .filter(message -> Objects.equals(sessionId, message.getSessionId()))
+                    .collect(Collectors.toList());
+        }
+
+        public int totalMessages() {
+            return byTurnId.values().stream().mapToInt(List::size).sum();
         }
     }
 
     private static final class InMemoryPlanTaskEventRepository implements IPlanTaskEventRepository {
+        private final List<PlanTaskEventEntity> store = new ArrayList<>();
+        private long seq = 1L;
 
         @Override
         public PlanTaskEventEntity save(PlanTaskEventEntity entity) {
+            entity.setId(seq++);
+            store.add(entity);
             return entity;
         }
 
         @Override
         public List<PlanTaskEventEntity> findByPlanIdAfterEventId(Long planId, Long afterEventId, int limit) {
-            return Collections.emptyList();
+            long cursor = afterEventId == null ? 0L : afterEventId;
+            int safeLimit = limit <= 0 ? 200 : limit;
+            return store.stream()
+                    .filter(event -> Objects.equals(planId, event.getPlanId()))
+                    .filter(event -> event.getId() != null && event.getId() > cursor)
+                    .limit(safeLimit)
+                    .collect(Collectors.toList());
+        }
+
+        public long countByType(PlanTaskEventTypeEnum eventType) {
+            return store.stream().filter(event -> eventType == event.getEventType()).count();
         }
     }
 }
