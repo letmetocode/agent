@@ -64,7 +64,7 @@ export const KnowledgePage = () => {
   const firstKbId = useMemo(() => knowledgeBases[0]?.id, [knowledgeBases]);
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <div className="page-container">
       <PageHeader
         title="知识库"
         description="管理文档资产、索引状态与检索质量，保障 Agent 引用可追溯。"
@@ -78,17 +78,13 @@ export const KnowledgePage = () => {
         }}
       />
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={[16, 16]} className="page-section">
         <Col xs={24} xl={16}>
           <Card className="app-card" title="知识库列表">
             {loading ? <StateView type="loading" title="加载知识库中" /> : null}
             {!loading && error ? <StateView type="error" title="知识库加载失败" description={error} /> : null}
             {!loading && !error && knowledgeBases.length === 0 ? (
-              <StateView
-                type="empty"
-                title="暂无知识库配置"
-                description="后端未配置向量存储注册信息，请先在系统侧创建。"
-              />
+              <StateView type="empty" title="暂无知识库配置" description="后端未配置向量存储注册信息，请先在系统侧创建。" />
             ) : null}
 
             {!loading && !error && knowledgeBases.length > 0 ? (
@@ -152,6 +148,6 @@ export const KnowledgePage = () => {
           </Card>
         </Col>
       </Row>
-    </Space>
+    </div>
   );
 };

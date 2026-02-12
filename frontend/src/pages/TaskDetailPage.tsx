@@ -400,7 +400,7 @@ export const TaskDetailPage = () => {
   }
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <div className="page-container">
       <PageHeader
         title={`任务详情 #${taskId || '-'}`}
         description="完整追踪执行链路，支持中途控制、失败重试与结果导出。"
@@ -414,12 +414,12 @@ export const TaskDetailPage = () => {
         }
       />
 
-      <Card className="app-card">
+      <Card className="app-card page-section page-sticky-actions">
         <Space wrap>
           <Button icon={<PauseCircleOutlined />} disabled={!canPause} loading={actionLoading === 'pause'} onClick={() => void handleControlAction('pause')}>
             暂停
           </Button>
-          <Button icon={<PlayCircleOutlined />} disabled={!canResume} loading={actionLoading === 'resume'} onClick={() => void handleControlAction('resume')}>
+          <Button type="primary" icon={<PlayCircleOutlined />} disabled={!canResume} loading={actionLoading === 'resume'} onClick={() => void handleControlAction('resume')}>
             继续
           </Button>
           <Button danger icon={<StopOutlined />} disabled={!canCancel} loading={actionLoading === 'cancel'} onClick={() => void handleControlAction('cancel')}>
@@ -431,7 +431,7 @@ export const TaskDetailPage = () => {
         </Space>
       </Card>
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={[16, 16]} className="page-section">
         <Col xs={24} xl={16}>
           <Card className="app-card" title="执行时间轴" extra={<Text type="secondary">{taskEvents.length} 条任务事件</Text>}>
             {taskEvents.length === 0 ? (
@@ -541,7 +541,7 @@ export const TaskDetailPage = () => {
               <Button loading={actionLoading === 'export-json'} onClick={() => void handleExport('json')}>
                 导出 JSON
               </Button>
-              <Button icon={<ShareAltOutlined />} loading={actionLoading === 'share'} onClick={() => void handleShare()}>
+              <Button type="primary" ghost icon={<ShareAltOutlined />} loading={actionLoading === 'share'} onClick={() => void handleShare()}>
                 生成分享链接
               </Button>
               <Popconfirm
@@ -609,6 +609,6 @@ export const TaskDetailPage = () => {
           </Card>
         </Col>
       </Row>
-    </Space>
+    </div>
   );
 };

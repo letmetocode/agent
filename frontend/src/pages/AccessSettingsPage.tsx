@@ -43,10 +43,10 @@ export const AccessSettingsPage = () => {
   ];
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <div className="page-container">
       <PageHeader title="成员与权限" description="采用 RBAC 管理页面访问与操作权限，避免越权执行。" />
 
-      <Card className="app-card">
+      <Card className="app-card page-section">
         <Space style={{ width: '100%', justifyContent: 'space-between' }}>
           <Typography.Text type="secondary">权限变更将记录审计日志并同步到会话/任务操作控制。</Typography.Text>
           <Button type="primary">邀请成员</Button>
@@ -56,7 +56,6 @@ export const AccessSettingsPage = () => {
           <Table rowKey="key" columns={columns} dataSource={data} pagination={false} />
         </div>
       </Card>
-    </Space>
+    </div>
   );
 };
-

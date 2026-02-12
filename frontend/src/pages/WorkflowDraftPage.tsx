@@ -120,7 +120,7 @@ export const WorkflowDraftPage = () => {
   );
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <div className="page-container">
       <PageHeader
         title="Workflow Draft 治理"
         description="管理候补草案并发布为生产 Definition，避免路由未命中的执行降级。"
@@ -129,7 +129,7 @@ export const WorkflowDraftPage = () => {
         extra={<Button onClick={() => void loadCandidates(statusFilter)}>刷新</Button>}
       />
 
-      <Card className="app-card">
+      <Card className="app-card page-section">
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
           {error ? <Alert type="error" showIcon message={error} /> : null}
 
@@ -234,9 +234,7 @@ export const WorkflowDraftPage = () => {
           }
           try {
             const result = await publishCandidate(publishTarget.id, operator.trim() || 'SYSTEM');
-            message.success(
-              `发布成功：draft #${result.draftId} -> definition #${result.definitionId} (v${result.definitionVersion})`
-            );
+            message.success(`发布成功：draft #${result.draftId} -> definition #${result.definitionId} (v${result.definitionVersion})`);
             setPublishTarget(null);
           } catch (err) {
             message.error(`发布失败: ${toErrorMessage(err)}`);
@@ -247,9 +245,9 @@ export const WorkflowDraftPage = () => {
           <Text type="secondary">
             发布后将基于当前 Draft 创建生产 Definition，并将 Draft 状态置为 PUBLISHED。Draft Key: {publishTarget?.draftKey || '-'}
           </Text>
-          <Input value={operator} maxLength={64} onChange={(e) => setOperator(e.target.value)} placeholder="操作人（默认 SYSTEM）" />
+          <Input value={operator} maxLength={64} onChange={(event) => setOperator(event.target.value)} placeholder="操作人（默认 SYSTEM）" />
         </Space>
       </Modal>
-    </Space>
+    </div>
   );
 };

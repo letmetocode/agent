@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Form, InputNumber, Select, Space, Typography, message } from 'antd';
+import { Alert, Button, Card, Form, InputNumber, Select, Typography, message } from 'antd';
 import { PageHeader } from '@/shared/ui/PageHeader';
 
 const { Text } = Typography;
@@ -11,7 +11,7 @@ export const SystemSettingsPage = () => {
   }>();
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <div className="page-container">
       <PageHeader title="系统配置" description="配置默认执行策略与超时参数，影响全局任务执行。" />
 
       <Alert
@@ -21,7 +21,7 @@ export const SystemSettingsPage = () => {
         description="仅管理员可修改，变更后建议在低峰期灰度验证。"
       />
 
-      <Card className="app-card" title="执行基线参数">
+      <Card className="app-card page-section" title="执行基线参数">
         <Form
           form={form}
           layout="vertical"
@@ -55,7 +55,6 @@ export const SystemSettingsPage = () => {
           </div>
         </Form>
       </Card>
-    </Space>
+    </div>
   );
 };
-

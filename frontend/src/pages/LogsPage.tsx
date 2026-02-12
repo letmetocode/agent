@@ -1,4 +1,4 @@
-import { SearchOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { Button, Card, Drawer, Input, Select, Space, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { useCallback, useEffect, useState } from 'react';
@@ -125,10 +125,10 @@ export const LogsPage = () => {
   ];
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <div className="page-container">
       <PageHeader title="日志检索" description="按 level、traceId、taskId 快速定位问题，支持结构化排障。" />
 
-      <Card className="app-card">
+      <Card className="app-card page-section">
         <Space wrap>
           <Select
             value={levelFilter}
@@ -141,14 +141,14 @@ export const LogsPage = () => {
               { label: 'ERROR', value: 'ERROR' }
             ]}
           />
-          <Input style={{ width: 200 }} placeholder="按 traceId 过滤" value={traceFilter} onChange={(e) => setTraceFilter(e.target.value)} />
-          <Input style={{ width: 200 }} placeholder="按 taskId 过滤" value={taskFilter} onChange={(e) => setTaskFilter(e.target.value)} />
+          <Input style={{ width: 200 }} placeholder="按 traceId 过滤" value={traceFilter} onChange={(event) => setTraceFilter(event.target.value)} />
+          <Input style={{ width: 200 }} placeholder="按 taskId 过滤" value={taskFilter} onChange={(event) => setTaskFilter(event.target.value)} />
           <Input
             style={{ width: 300 }}
             placeholder="关键词搜索"
             prefix={<SearchOutlined />}
             value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
+            onChange={(event) => setKeyword(event.target.value)}
           />
           <Button
             type="primary"
@@ -167,13 +167,7 @@ export const LogsPage = () => {
         <div style={{ marginTop: 16 }}>
           {loading ? <StateView type="loading" title="加载日志中" /> : null}
           {!loading && error ? <StateView type="error" title="日志加载失败" description={error} actionText="重试" onAction={() => void loadLogs()} /> : null}
-          {!loading && !error && rows.length === 0 ? (
-            <StateView
-              type="empty"
-              title="暂无匹配日志"
-              description="请先执行任务，或调整筛选条件。"
-            />
-          ) : null}
+          {!loading && !error && rows.length === 0 ? <StateView type="empty" title="暂无匹配日志" description="请先执行任务，或调整筛选条件。" /> : null}
           {!loading && !error && rows.length > 0 ? (
             <Table
               rowKey="key"
@@ -212,6 +206,6 @@ export const LogsPage = () => {
           </Space>
         ) : null}
       </Drawer>
-    </Space>
+    </div>
   );
 };

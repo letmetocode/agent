@@ -4,11 +4,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { agentApi } from '@/shared/api/agentApi';
-import type {
-  KnowledgeBaseDetailDTO,
-  KnowledgeDocumentDTO,
-  RetrievalTestResultDTO
-} from '@/shared/types/api';
+import type { KnowledgeBaseDetailDTO, KnowledgeDocumentDTO, RetrievalTestResultDTO } from '@/shared/types/api';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { StateView } from '@/shared/ui/StateView';
 
@@ -117,7 +113,7 @@ export const KnowledgeDetailPage = () => {
   }
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <div className="page-container">
       <PageHeader
         title={`知识库详情 #${kbId || '-'}`}
         description={kbDesc}
@@ -125,7 +121,7 @@ export const KnowledgeDetailPage = () => {
         onPrimaryAction={() => void loadDetail()}
       />
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={[16, 16]} className="page-section">
         <Col xs={24} xl={14}>
           <Card className="app-card" title="文档与索引">
             <Table rowKey="id" columns={columns} dataSource={docs} pagination={false} locale={{ emptyText: '暂无文档记录' }} />
@@ -139,7 +135,7 @@ export const KnowledgeDetailPage = () => {
                 prefix={<SearchOutlined />}
                 placeholder="输入问题测试召回效果，例如：失败任务如何回滚？"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(event) => setQuery(event.target.value)}
                 onPressEnter={() => void onTestRetrieval()}
               />
               <Button type="primary" loading={testing} onClick={() => void onTestRetrieval()}>
@@ -167,6 +163,6 @@ export const KnowledgeDetailPage = () => {
           </Card>
         </Col>
       </Row>
-    </Space>
+    </div>
   );
 };

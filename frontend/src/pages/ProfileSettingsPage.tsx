@@ -9,10 +9,10 @@ export const ProfileSettingsPage = () => {
   const [form] = Form.useForm<{ userId: string; compactMode: boolean; autoFollowStream: boolean }>();
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <div className="page-container">
       <PageHeader title="个人设置" description="管理个人身份、偏好与执行体验设置。" />
 
-      <Card className="app-card" title="基础信息">
+      <Card className="app-card page-section" title="基础信息">
         <Form
           form={form}
           layout="vertical"
@@ -22,7 +22,7 @@ export const ProfileSettingsPage = () => {
             message.success('个人设置已保存');
           }}
         >
-          <Form.Item label="userId" name="userId" rules={[{ required: true, message: '请输入 userId' }]}> 
+          <Form.Item label="userId" name="userId" rules={[{ required: true, message: '请输入 userId' }]}>
             <Input />
           </Form.Item>
 
@@ -49,7 +49,6 @@ export const ProfileSettingsPage = () => {
           </Button>
         </Form>
       </Card>
-    </Space>
+    </div>
   );
 };
-

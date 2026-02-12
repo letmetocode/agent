@@ -606,7 +606,7 @@ export const ConversationPage = () => {
   }
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <div className="page-container">
       <PageHeader
         title={`会话执行 #${sid}`}
         description="输入目标后持续执行，支持中途控制、引用追溯与任务下钻。"
@@ -620,7 +620,7 @@ export const ConversationPage = () => {
         }
       />
 
-      <Spin spinning={loading}>
+      <Spin spinning={loading} className="page-section">
         <div className="chat-layout">
           <Card className="app-card chat-panel chat-left-panel" size="small" title={`Session #${sid}`}>
             <Typography.Text type="secondary">{overview?.session?.title || '未命名会话'}</Typography.Text>
@@ -638,12 +638,8 @@ export const ConversationPage = () => {
                   dataSource={overview?.plans || []}
                   renderItem={(p) => (
                     <List.Item
+                      className={`conversation-plan-item ${selectedPlanId === p.planId ? 'active' : ''}`}
                       onClick={() => void switchPlan(p.planId)}
-                      style={{
-                        cursor: 'pointer',
-                        background: selectedPlanId === p.planId ? 'rgba(15, 118, 110, 0.08)' : 'transparent',
-                        borderRadius: 8
-                      }}
                     >
                       <List.Item.Meta
                         title={
@@ -722,7 +718,9 @@ export const ConversationPage = () => {
                       清空过程事件
                     </Button>
                   </Space>
-                  <Text type="secondary">{sending ? '系统执行中，可在右侧查看实时进度' : '支持中途暂停与取消（能力接入后）'}</Text>
+                  <Text className="chat-composer-hint" type="secondary">
+                    {sending ? '系统执行中，可在右侧查看实时进度' : '输入目标尽量具体，可显著提升执行质量'}
+                  </Text>
                 </Space>
               </Space>
             </div>
@@ -730,7 +728,7 @@ export const ConversationPage = () => {
 
           <Card className="app-card chat-panel chat-right-panel" size="small" title="执行上下文">
             <Tabs
-              defaultActiveKey="progress"
+              defaultActiveKey="tasks"
               items={[
                 {
                   key: 'progress',
@@ -963,6 +961,6 @@ export const ConversationPage = () => {
           <Empty description="未加载候补 Workflow Draft" />
         )}
       </Drawer>
-    </Space>
+    </div>
   );
 };

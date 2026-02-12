@@ -1,23 +1,33 @@
 import { Tag } from 'antd';
 
 const STATUS_COLOR_MAP: Record<string, string> = {
-  COMPLETED: 'success',
   SUCCESS: 'success',
   ACTIVE: 'success',
-  EXPIRED: 'default',
-  REVOKED: 'error',
+  COMPLETED: 'success',
+  INDEXED: 'success',
+
   RUNNING: 'processing',
   VALIDATING: 'processing',
   REFINING: 'processing',
+  PLANNING: 'processing',
+
   READY: 'blue',
-  DRAFT: 'gold',
+  CREATED: 'blue',
+  PENDING: 'default',
+
+  PAUSED: 'warning',
   WARNING: 'warning',
+
   FAILED: 'error',
   ERROR: 'error',
+  REVOKED: 'error',
+
   CANCELLED: 'default',
-  PAUSED: 'warning',
+  SKIPPED: 'default',
+  DISABLED: 'default',
   ARCHIVED: 'default',
-  DISABLED: 'default'
+  EXPIRED: 'default',
+  UNKNOWN: 'default'
 };
 
 interface StatusTagProps {
@@ -29,7 +39,7 @@ export const StatusTag = ({ status, fallback = '-' }: StatusTagProps) => {
   if (!status) {
     return <Tag>{fallback}</Tag>;
   }
+
   const normalized = status.toUpperCase();
   return <Tag color={STATUS_COLOR_MAP[normalized] || 'default'}>{status}</Tag>;
 };
-

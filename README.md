@@ -62,6 +62,12 @@
 - 资产：`GET /api/agents/tools`、`GET /api/agents/vector-stores`、`GET /api/knowledge-bases/{id}`、`GET /api/knowledge-bases/{id}/documents`、`POST /api/knowledge-bases/{id}/retrieval-tests`
 - 事件：`GET /api/plans/{id}/events`
 
+前端 UI 重构当前进展（2026-02）：
+
+- 已覆盖全部一级导航页面统一壳层与视觉基线（极简、现代、克制）。
+- 页面统一采用 `page-container` + `page-section` 骨架与标准状态组件。
+- 会话执行页与任务详情页已完成“效率优先”微调（关键动作更聚焦、路径更短）。
+
 ## 快速开始
 
 ### 1) 初始化数据库

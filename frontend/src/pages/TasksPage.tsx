@@ -147,7 +147,7 @@ export const TasksPage = () => {
   ];
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <div className="page-container">
       <PageHeader
         title="任务中心"
         description="按状态、时间和负责人筛选任务，快速定位异常并执行重试。"
@@ -155,7 +155,7 @@ export const TasksPage = () => {
         onPrimaryAction={() => navigate('/sessions')}
       />
 
-      <Card className="app-card">
+      <Card className="app-card page-section">
         <Space wrap style={{ width: '100%', justifyContent: 'space-between' }}>
           <Space wrap>
             <Input
@@ -164,7 +164,7 @@ export const TasksPage = () => {
               prefix={<SearchOutlined />}
               style={{ width: 320 }}
               value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
+              onChange={(event) => setKeyword(event.target.value)}
             />
 
             <Select
@@ -185,11 +185,7 @@ export const TasksPage = () => {
             </Button>
           </Space>
 
-          <Segmented
-            value={viewMode}
-            onChange={(value) => setViewMode(value as '列表视图' | '看板视图')}
-            options={['列表视图', '看板视图']}
-          />
+          <Segmented value={viewMode} onChange={(value) => setViewMode(value as '列表视图' | '看板视图')} options={['列表视图', '看板视图']} />
         </Space>
 
         <div style={{ marginTop: 16 }}>
@@ -206,44 +202,46 @@ export const TasksPage = () => {
             />
           ) : null}
 
-          {!loading && !error && sourceTasks.length > 0 ?
-            (viewMode === '列表视图' ? (
-              <Table
-                rowKey="taskId"
-                columns={columns}
-                dataSource={sourceTasks}
-                pagination={{
-                  current: page,
-                  pageSize: size,
-                  total,
-                  showSizeChanger: true,
-                  onChange: (nextPage, nextSize) => {
-                    setPage(nextPage);
-                    setSize(nextSize || 10);
-                  }
-                }}
-                onChange={(pagination: TablePaginationConfig) => {
-                  setPage(pagination.current || 1);
-                  setSize(pagination.pageSize || 10);
-                }}
-              />
-            ) : (
-              <Space direction="vertical" style={{ width: '100%' }} size="middle">
-                <Typography.Text type="secondary">看板视图用于快速查看当前页状态分布。</Typography.Text>
-                <Card type="inner" title="RUNNING">
-                  {boardStats.running} 个任务
-                </Card>
-                <Card type="inner" title="COMPLETED">
-                  {boardStats.completed} 个任务
-                </Card>
-                <Card type="inner" title="FAILED">
-                  {boardStats.failed} 个任务
-                </Card>
-              </Space>
-            ))
+          {!loading && !error && sourceTasks.length > 0
+            ? viewMode === '列表视图'
+              ? (
+                <Table
+                  rowKey="taskId"
+                  columns={columns}
+                  dataSource={sourceTasks}
+                  pagination={{
+                    current: page,
+                    pageSize: size,
+                    total,
+                    showSizeChanger: true,
+                    onChange: (nextPage, nextSize) => {
+                      setPage(nextPage);
+                      setSize(nextSize || 10);
+                    }
+                  }}
+                  onChange={(pagination: TablePaginationConfig) => {
+                    setPage(pagination.current || 1);
+                    setSize(pagination.pageSize || 10);
+                  }}
+                />
+                )
+              : (
+                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                  <Typography.Text type="secondary">看板视图用于快速查看当前页状态分布。</Typography.Text>
+                  <Card type="inner" title="RUNNING">
+                    {boardStats.running} 个任务
+                  </Card>
+                  <Card type="inner" title="COMPLETED">
+                    {boardStats.completed} 个任务
+                  </Card>
+                  <Card type="inner" title="FAILED">
+                    {boardStats.failed} 个任务
+                  </Card>
+                </Space>
+                )
             : null}
         </div>
       </Card>
-    </Space>
+    </div>
   );
 };

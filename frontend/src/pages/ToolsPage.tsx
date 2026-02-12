@@ -106,7 +106,7 @@ export const ToolsPage = () => {
   ];
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <div className="page-container">
       <PageHeader
         title="工具与插件"
         description="统一管理 Agent 可调用能力：状态、授权与健康度。"
@@ -114,8 +114,8 @@ export const ToolsPage = () => {
         onPrimaryAction={() => navigate('/settings/system')}
       />
 
-      <Card className="app-card">
-        <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+      <Card className="app-card page-section">
+        <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
           <Space>
             <Button type="primary">添加工具</Button>
             <Button>批量授权</Button>
@@ -127,15 +127,11 @@ export const ToolsPage = () => {
           {loading ? <StateView type="loading" title="加载工具目录中" /> : null}
           {!loading && error ? <StateView type="error" title="工具目录加载失败" description={error} /> : null}
           {!loading && !error && data.length === 0 ? (
-            <StateView
-              type="empty"
-              title="暂无工具配置"
-              description="后端未配置可用工具，请先在系统侧完成工具注册。"
-            />
+            <StateView type="empty" title="暂无工具配置" description="后端未配置可用工具，请先在系统侧完成工具注册。" />
           ) : null}
           {!loading && !error && data.length > 0 ? <Table rowKey="key" columns={columns} dataSource={data} pagination={false} /> : null}
         </div>
       </Card>
-    </Space>
+    </div>
   );
 };

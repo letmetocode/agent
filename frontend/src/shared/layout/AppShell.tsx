@@ -1,8 +1,15 @@
-import { BellOutlined, SearchOutlined, UserOutlined } from '@ant-design/icons';
+import {
+  BellOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  PlusOutlined,
+  SearchOutlined,
+  UserOutlined
+} from '@ant-design/icons';
 import { Avatar, Badge, Breadcrumb, Button, Dropdown, Input, Layout, Menu, Space, Tag, Typography } from 'antd';
 import type { BreadcrumbProps } from 'antd';
 import type { MenuItemType } from 'antd/es/menu/interface';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '@/features/session/sessionStore';
 
@@ -20,6 +27,7 @@ const APP_NAV_ITEMS: AppNavItem[] = [
   { key: '/workspace', label: '工作台', path: '/workspace' },
   { key: '/sessions', label: '对话与执行', path: '/sessions' },
   { key: '/tasks', label: '任务中心', path: '/tasks' },
+  { key: '/workflows/drafts', label: 'Workflow 治理', path: '/workflows/drafts' },
   {
     key: '/assets',
     label: '资产中心',
@@ -51,14 +59,14 @@ const pathTitleMap: Record<string, string> = {
   '/workspace': '工作台',
   '/sessions': '对话与执行',
   '/tasks': '任务中心',
+  '/workflows/drafts': 'Workflow 治理',
   '/assets/tools': '工具与插件',
   '/assets/knowledge': '知识库',
   '/observability/overview': '监控总览',
   '/observability/logs': '日志检索',
   '/settings/profile': '个人设置',
   '/settings/system': '系统配置',
-  '/settings/access': '成员与权限',
-  '/workflows/drafts': 'Workflow 治理'
+  '/settings/access': '成员与权限'
 };
 
 const flattenNavItems = (items: AppNavItem[]): Array<MenuItemType> =>
@@ -101,6 +109,7 @@ export const AppShell = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { userId, setUserId } = useSessionStore();
+  const [collapsed, setCollapsed] = useState(false);
 
   const selectedKey = useMemo(() => matchPathKey(location.pathname), [location.pathname]);
   const breadcrumbItems = useMemo(() => buildBreadcrumbItems(location.pathname), [location.pathname]);
@@ -112,29 +121,39 @@ export const AppShell = () => {
 
   return (
     <Layout className="app-shell">
-      <Sider width={240} className="app-shell-sider" breakpoint="lg" collapsedWidth={64}>
+      <Sider width={240} className="app-shell-sider" collapsed={collapsed} collapsible trigger={null}>
         <div className="app-shell-brand">
           <Title level={5} style={{ margin: 0 }}>
-            Agent Console
+            {collapsed ? 'Agent' : 'Agent Console'}
           </Title>
-          <Text type="secondary">任务编排与执行</Text>
+          {!collapsed ? <Text type="secondary">任务编排与执行</Text> : null}
         </div>
 
         <Menu mode="inline" items={flattenNavItems(APP_NAV_ITEMS)} selectedKeys={[selectedKey]} defaultOpenKeys={openKeys} />
 
-        <div className="app-shell-footer-hint">
-          <Tag color="cyan">Dev</Tag>
-          <Text type="secondary">桌面优先 · 混合角色</Text>
-        </div>
+        {!collapsed ? (
+          <div className="app-shell-footer-hint">
+            <Tag color="cyan">Dev</Tag>
+            <Text type="secondary">极简 · 高效 · 可观测</Text>
+          </div>
+        ) : null}
       </Sider>
 
       <Layout>
         <Header className="app-shell-header">
           <div className="app-shell-header-left">
+            <Button
+              type="text"
+              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setCollapsed((prev) => !prev)}
+            />
             <Input prefix={<SearchOutlined />} placeholder="全局搜索（⌘K）" allowClear className="app-shell-search" />
           </div>
 
-          <Space size="middle">
+          <div className="app-shell-header-right">
+            <Button icon={<PlusOutlined />} type="primary" onClick={() => navigate('/sessions')}>
+              新建执行
+            </Button>
             <Badge count={2} size="small">
               <Button type="text" icon={<BellOutlined />} />
             </Badge>
@@ -159,7 +178,7 @@ export const AppShell = () => {
                 <Text>{userId || '未登录'}</Text>
               </Space>
             </Dropdown>
-          </Space>
+          </div>
         </Header>
 
         <Content className="app-shell-content">

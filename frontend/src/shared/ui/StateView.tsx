@@ -12,10 +12,22 @@ interface StateViewProps {
   extra?: ReactNode;
 }
 
+const renderActions = (actionText?: string, onAction?: () => void, extra?: ReactNode) => {
+  if (!actionText && !extra) {
+    return undefined;
+  }
+  return (
+    <Space>
+      {actionText && onAction ? <Button onClick={onAction}>{actionText}</Button> : null}
+      {extra}
+    </Space>
+  );
+};
+
 export const StateView = ({ type, title, description, actionText, onAction, extra }: StateViewProps) => {
   if (type === 'loading') {
     return (
-      <div className="state-view-wrap">
+      <div className="state-view-wrap state-view-loading">
         <Skeleton active paragraph={{ rows: 4 }} />
       </div>
     );
@@ -23,34 +35,29 @@ export const StateView = ({ type, title, description, actionText, onAction, extr
 
   if (type === 'error') {
     return (
-      <Result
-        status="error"
-        title={title}
-        subTitle={description}
-        extra={
-          <Space>
-            {actionText && onAction ? <Button onClick={onAction}>{actionText}</Button> : null}
-            {extra}
-          </Space>
-        }
-      />
+      <div className="state-view-result">
+        <Result status="error" title={title} subTitle={description} extra={renderActions(actionText, onAction, extra)} />
+      </div>
     );
   }
 
   if (type === 'permission' || type === 'unavailable') {
     return (
-      <Result
-        status={type === 'permission' ? '403' : 'warning'}
-        title={title}
-        subTitle={description}
-        extra={actionText && onAction ? <Button onClick={onAction}>{actionText}</Button> : extra}
-      />
+      <div className="state-view-result">
+        <Result
+          status={type === 'permission' ? '403' : 'warning'}
+          title={title}
+          subTitle={description}
+          extra={renderActions(actionText, onAction, extra)}
+        />
+      </div>
     );
   }
 
   return (
     <div className="state-view-wrap">
       <Empty
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
         description={
           <Space direction="vertical" size={2}>
             <Text strong>{title}</Text>
@@ -62,9 +69,14 @@ export const StateView = ({ type, title, description, actionText, onAction, extr
           </Space>
         }
       >
-        {actionText && onAction ? <Button type="primary" onClick={onAction}>{actionText}</Button> : extra}
+        {actionText && onAction ? (
+          <Button type="primary" onClick={onAction}>
+            {actionText}
+          </Button>
+        ) : (
+          extra
+        )}
       </Empty>
     </div>
   );
 };
-

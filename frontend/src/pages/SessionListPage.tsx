@@ -1,20 +1,5 @@
 import { CompassOutlined, PlusOutlined, ReloadOutlined, SendOutlined } from '@ant-design/icons';
-import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  Divider,
-  Form,
-  Input,
-  List,
-  Radio,
-  Row,
-  Space,
-  Steps,
-  Typography,
-  message
-} from 'antd';
+import { Alert, Button, Card, Col, Divider, Form, Input, List, Radio, Row, Space, Steps, Typography, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
 import { useSessionStore } from '@/features/session/sessionStore';
@@ -89,18 +74,19 @@ export const SessionListPage = () => {
     }
   };
 
-  const listSource = sessions.length > 0
-    ? sessions
-    : bookmarks.map((item) => ({
-      sessionId: item.sessionId,
-      userId: userId || '-',
-      title: item.title,
-      active: true,
-      createdAt: item.createdAt
-    }));
+  const listSource =
+    sessions.length > 0
+      ? sessions
+      : bookmarks.map((item) => ({
+          sessionId: item.sessionId,
+          userId: userId || '-',
+          title: item.title,
+          active: true,
+          createdAt: item.createdAt
+        }));
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <div className="page-container">
       <PageHeader
         title="对话与执行"
         description="统一入口：新建 Agent / 新建任务 → 输入目标 → 执行与中途控制。"
@@ -125,15 +111,10 @@ export const SessionListPage = () => {
         />
       ) : null}
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={[16, 16]} className="page-section">
         <Col xs={24} xl={16}>
           <Card className="app-card" title="新建执行">
-            <Form
-              form={form}
-              layout="vertical"
-              initialValues={{ mode: 'use-existing' }}
-              onFinish={(values) => void createSession(values)}
-            >
+            <Form form={form} layout="vertical" initialValues={{ mode: 'use-existing' }} onFinish={(values) => void createSession(values)}>
               <Form.Item label="目标" name="goal" rules={[{ required: true, message: '请输入本次执行目标' }]}>
                 <Input.TextArea rows={3} placeholder="例如：分析本周失败任务原因，并给出可执行修复清单" />
               </Form.Item>
@@ -167,11 +148,7 @@ export const SessionListPage = () => {
             <Divider />
 
             <Space.Compact style={{ width: '100%' }}>
-              <Input
-                value={manualSessionId}
-                onChange={(e) => setManualSessionId(e.target.value)}
-                placeholder="输入 sessionId 打开已有会话"
-              />
+              <Input value={manualSessionId} onChange={(event) => setManualSessionId(event.target.value)} placeholder="输入 sessionId 打开已有会话" />
               <Button
                 icon={<SendOutlined />}
                 onClick={() => {
@@ -214,7 +191,7 @@ export const SessionListPage = () => {
                   style={{ width: 220 }}
                   placeholder="按标题过滤"
                   value={listKeyword}
-                  onChange={(e) => setListKeyword(e.target.value)}
+                  onChange={(event) => setListKeyword(event.target.value)}
                   onPressEnter={() => void loadSessions(listKeyword)}
                 />
                 <Button icon={<ReloadOutlined />} onClick={() => void loadSessions(listKeyword)} />
@@ -255,6 +232,6 @@ export const SessionListPage = () => {
           </Card>
         </Col>
       </Row>
-    </Space>
+    </div>
   );
 };

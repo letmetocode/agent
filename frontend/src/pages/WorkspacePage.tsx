@@ -78,7 +78,7 @@ export const WorkspacePage = () => {
   }, [overview?.taskStats?.failed, overview?.taskStats?.total]);
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+    <div className="page-container">
       <PageHeader
         title="工作台"
         description="围绕一个目标快速创建执行，关注进行中任务并沉淀可复用结果。"
@@ -87,7 +87,7 @@ export const WorkspacePage = () => {
         extra={<Button onClick={() => navigate('/tasks')}>查看全部任务</Button>}
       />
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={[16, 16]} className="page-section">
         <Col xs={24} xl={16}>
           <Card className="app-card" title="快捷启动" extra={<Text type="secondary">主路径入口</Text>}>
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -147,10 +147,7 @@ export const WorkspacePage = () => {
                       </Button>
                     ]}
                   >
-                    <List.Item.Meta
-                      title={item.title || `Session #${item.sessionId}`}
-                      description={new Date(item.createdAt).toLocaleString()}
-                    />
+                    <List.Item.Meta title={item.title || `Session #${item.sessionId}`} description={new Date(item.createdAt).toLocaleString()} />
                   </List.Item>
                 )}
               />
@@ -215,6 +212,6 @@ export const WorkspacePage = () => {
           </Card>
         </Col>
       </Row>
-    </Space>
+    </div>
   );
 };

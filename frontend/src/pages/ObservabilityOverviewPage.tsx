@@ -77,10 +77,10 @@ export const ObservabilityOverviewPage = () => {
   }
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <div className="page-container">
       <PageHeader title="监控总览" description="聚焦吞吐、成功率与慢任务，快速发现异常并进入日志下钻。" />
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={[16, 16]} className="page-section">
         <Col xs={24} md={12} xl={6}>
           <Card className="app-card">
             <Statistic title="任务总量" value={total} />
@@ -152,12 +152,8 @@ export const ObservabilityOverviewPage = () => {
       <Alert
         type="info"
         showIcon
-        message={
-          total > 0
-            ? `建议操作：优先处理失败任务，再跟踪 P95/P99 与慢任务走势。`
-            : '暂无可观测任务数据，请先发起会话执行。'
-        }
+        message={total > 0 ? '建议操作：优先处理失败任务，再跟踪 P95/P99 与慢任务走势。' : '暂无可观测任务数据，请先发起会话执行。'}
       />
-    </Space>
+    </div>
   );
 };

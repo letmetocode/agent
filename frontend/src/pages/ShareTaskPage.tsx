@@ -59,7 +59,7 @@ export const ShareTaskPage = () => {
   if (loading) {
     return (
       <div className="page-center">
-        <Card className="glass-card" style={{ width: 'min(920px, 100%)' }}>
+        <Card className="glass-card" style={{ width: 'min(980px, 100%)' }}>
           <StateView type="loading" title="加载分享内容中" />
         </Card>
       </div>
@@ -69,7 +69,7 @@ export const ShareTaskPage = () => {
   if (error) {
     return (
       <div className="page-center">
-        <Card className="glass-card" style={{ width: 'min(920px, 100%)' }}>
+        <Card className="glass-card" style={{ width: 'min(980px, 100%)' }}>
           <StateView type="error" title="分享内容不可访问" description={error} />
         </Card>
       </div>
@@ -78,7 +78,7 @@ export const ShareTaskPage = () => {
 
   return (
     <div className="page-center">
-      <Card className="glass-card" style={{ width: 'min(920px, 100%)' }}>
+      <Card className="glass-card" style={{ width: 'min(980px, 100%)' }}>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           <Space direction="vertical" size={2}>
             <Title level={3} style={{ margin: 0 }}>
