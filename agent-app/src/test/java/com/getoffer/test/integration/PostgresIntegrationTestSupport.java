@@ -38,6 +38,6 @@ public abstract class PostgresIntegrationTestSupport {
 
     @BeforeEach
     void truncateTables() {
-        jdbcTemplate.execute("TRUNCATE TABLE plan_task_events, task_executions, session_messages, session_turns, agent_tasks, agent_plans, routing_decisions, workflow_drafts, workflow_definitions, agent_sessions RESTART IDENTITY CASCADE");
+        jdbcTemplate.execute("TRUNCATE TABLE plan_task_events, task_executions, task_share_links, session_messages, session_turns, agent_tasks, agent_plans, routing_decisions, workflow_drafts, workflow_definitions, agent_sessions RESTART IDENTITY CASCADE");
     }
 }
