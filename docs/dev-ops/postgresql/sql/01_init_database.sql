@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS session_messages (
 
 CREATE INDEX IF NOT EXISTS idx_session_messages_session ON session_messages(session_id, id);
 CREATE INDEX IF NOT EXISTS idx_session_messages_turn ON session_messages(turn_id, id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_session_messages_turn_assistant ON session_messages(turn_id, role) WHERE role = 'ASSISTANT';
 
 COMMENT ON TABLE session_turns IS '会话回合表：记录一次用户提问到最终回复的完整生命周期';
 COMMENT ON TABLE session_messages IS '会话消息表：记录用户/助手/工具消息，用于对话时间线展示';

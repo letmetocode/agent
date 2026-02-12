@@ -5,6 +5,7 @@ import com.getoffer.types.enums.TurnStatusEnum;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -16,6 +17,14 @@ public interface SessionTurnDao {
     int insert(SessionTurnPO po);
 
     int update(SessionTurnPO po);
+
+    int updateToTerminalIfNotTerminal(@Param("id") Long id,
+                                      @Param("status") TurnStatusEnum status,
+                                      @Param("assistantSummary") String assistantSummary,
+                                      @Param("completedAt") LocalDateTime completedAt);
+
+    int bindFinalResponseMessageIfAbsent(@Param("id") Long id,
+                                         @Param("messageId") Long messageId);
 
     SessionTurnPO selectById(@Param("id") Long id);
 

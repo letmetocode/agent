@@ -50,33 +50,100 @@ public class TurnResultService {
         if (turn == null) {
             return TurnFinalizeResult.empty();
         }
-        if (turn.isTerminal()) {
-            return TurnFinalizeResult.of(turn.getId(), turn.getFinalResponseMessageId(), turn.getAssistantSummary(), turn.getStatus());
-        }
 
         List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(planId);
         String assistantContent = buildAssistantContent(planStatus, tasks);
+        String assistantSummary = truncate(assistantContent, SUMMARY_MAX_LENGTH);
+        if (turn.isTerminal()) {
+            return finalizeForTerminalTurn(planId, turn, assistantContent, assistantSummary);
+        }
 
+        TurnStatusEnum targetTurnStatus = resolveTurnStatus(planStatus);
+
+        boolean terminalMarked = sessionTurnRepository.markTerminalIfNotTerminal(
+                turn.getId(),
+                targetTurnStatus,
+                assistantSummary,
+                LocalDateTime.now()
+        );
+        if (!terminalMarked) {
+            SessionTurnEntity latestTurn = sessionTurnRepository.findById(turn.getId());
+            if (latestTurn == null) {
+                return TurnFinalizeResult.empty();
+            }
+            if (!latestTurn.isTerminal()) {
+                return TurnFinalizeResult.empty();
+            }
+            if (latestTurn.getFinalResponseMessageId() == null) {
+                return saveAndBindFinalMessage(planId, latestTurn, assistantContent, assistantSummary, FinalizeOutcome.FINALIZED);
+            }
+            return TurnFinalizeResult.of(latestTurn.getId(),
+                    latestTurn.getFinalResponseMessageId(),
+                    latestTurn.getAssistantSummary(),
+                    latestTurn.getStatus(),
+                    FinalizeOutcome.ALREADY_FINALIZED);
+        }
+
+        return saveAndBindFinalMessage(planId, turn, assistantContent, assistantSummary, FinalizeOutcome.FINALIZED);
+    }
+
+    private TurnFinalizeResult finalizeForTerminalTurn(Long planId,
+                                                       SessionTurnEntity turn,
+                                                       String assistantContent,
+                                                       String assistantSummary) {
+        if (turn.getFinalResponseMessageId() != null) {
+            return TurnFinalizeResult.of(turn.getId(),
+                    turn.getFinalResponseMessageId(),
+                    turn.getAssistantSummary(),
+                    turn.getStatus(),
+                    FinalizeOutcome.ALREADY_FINALIZED);
+        }
+        return saveAndBindFinalMessage(planId, turn, assistantContent, assistantSummary, FinalizeOutcome.FINALIZED);
+    }
+
+    private TurnFinalizeResult saveAndBindFinalMessage(Long planId,
+                                                       SessionTurnEntity turn,
+                                                       String assistantContent,
+                                                       String assistantSummary,
+                                                       FinalizeOutcome outcome) {
+        if (turn == null || turn.getId() == null || turn.getSessionId() == null) {
+            return TurnFinalizeResult.empty();
+        }
         SessionMessageEntity assistantMessage = new SessionMessageEntity();
         assistantMessage.setSessionId(turn.getSessionId());
         assistantMessage.setTurnId(turn.getId());
         assistantMessage.setRole(MessageRoleEnum.ASSISTANT);
         assistantMessage.setContent(assistantContent);
-        SessionMessageEntity savedMessage = sessionMessageRepository.save(assistantMessage);
+        SessionMessageEntity savedMessage = sessionMessageRepository.saveAssistantFinalMessageIfAbsent(assistantMessage);
 
-        turn.setFinalResponseMessageId(savedMessage.getId());
-        turn.setAssistantSummary(truncate(assistantContent, SUMMARY_MAX_LENGTH));
-        turn.setStatus(planStatus == PlanStatusEnum.COMPLETED ? TurnStatusEnum.COMPLETED : TurnStatusEnum.FAILED);
-        turn.setCompletedAt(LocalDateTime.now());
-        sessionTurnRepository.update(turn);
+        boolean bound = sessionTurnRepository.bindFinalResponseMessage(turn.getId(), savedMessage.getId());
+        SessionTurnEntity latestTurn = sessionTurnRepository.findById(turn.getId());
+        if (latestTurn == null) {
+            return TurnFinalizeResult.empty();
+        }
+        Long finalMessageId = latestTurn.getFinalResponseMessageId();
+        if (finalMessageId == null && bound) {
+            finalMessageId = savedMessage.getId();
+        }
+        if (latestTurn.getAssistantSummary() == null && assistantSummary != null) {
+            latestTurn.setAssistantSummary(assistantSummary);
+        }
 
         log.info("TURN_FINALIZED planId={}, turnId={}, turnStatus={}, assistantMessageId={}",
                 planId,
-                turn.getId(),
-                turn.getStatus() == null ? null : turn.getStatus().name(),
-                savedMessage.getId());
+                latestTurn.getId(),
+                latestTurn.getStatus() == null ? null : latestTurn.getStatus().name(),
+                finalMessageId);
 
-        return TurnFinalizeResult.of(turn.getId(), savedMessage.getId(), turn.getAssistantSummary(), turn.getStatus());
+        return TurnFinalizeResult.of(latestTurn.getId(),
+                finalMessageId,
+                latestTurn.getAssistantSummary(),
+                latestTurn.getStatus(),
+                outcome == null ? FinalizeOutcome.FINALIZED : outcome);
+    }
+
+    private TurnStatusEnum resolveTurnStatus(PlanStatusEnum planStatus) {
+        return planStatus == PlanStatusEnum.COMPLETED ? TurnStatusEnum.COMPLETED : TurnStatusEnum.FAILED;
     }
 
     private String buildAssistantContent(PlanStatusEnum planStatus, List<AgentTaskEntity> tasks) {
@@ -126,21 +193,32 @@ public class TurnResultService {
         private Long assistantMessageId;
         private String assistantSummary;
         private TurnStatusEnum turnStatus;
+        private FinalizeOutcome outcome;
 
         public static TurnFinalizeResult empty() {
-            return new TurnFinalizeResult();
+            TurnFinalizeResult result = new TurnFinalizeResult();
+            result.setOutcome(FinalizeOutcome.SKIPPED_NOT_TERMINAL);
+            return result;
         }
 
         public static TurnFinalizeResult of(Long turnId,
                                             Long assistantMessageId,
                                             String assistantSummary,
-                                            TurnStatusEnum turnStatus) {
+                                            TurnStatusEnum turnStatus,
+                                            FinalizeOutcome outcome) {
             TurnFinalizeResult result = new TurnFinalizeResult();
             result.setTurnId(turnId);
             result.setAssistantMessageId(assistantMessageId);
             result.setAssistantSummary(assistantSummary);
             result.setTurnStatus(turnStatus);
+            result.setOutcome(outcome == null ? FinalizeOutcome.SKIPPED_NOT_TERMINAL : outcome);
             return result;
         }
+    }
+
+    public enum FinalizeOutcome {
+        FINALIZED,
+        ALREADY_FINALIZED,
+        SKIPPED_NOT_TERMINAL
     }
 }

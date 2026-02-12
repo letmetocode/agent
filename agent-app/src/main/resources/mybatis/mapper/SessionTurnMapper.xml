@@ -45,6 +45,24 @@
         WHERE id = #{id}
     </update>
 
+    <update id="updateToTerminalIfNotTerminal">
+        UPDATE session_turns SET
+            status = #{status}::turn_status_enum,
+            assistant_summary = #{assistantSummary},
+            updated_at = CURRENT_TIMESTAMP,
+            completed_at = #{completedAt}
+        WHERE id = #{id}
+          AND status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')
+    </update>
+
+    <update id="bindFinalResponseMessageIfAbsent">
+        UPDATE session_turns
+        SET final_response_message_id = #{messageId},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND final_response_message_id IS NULL
+    </update>
+
     <select id="selectById" resultMap="BaseResultMap">
         SELECT <include refid="Base_Column_List"/>
         FROM session_turns

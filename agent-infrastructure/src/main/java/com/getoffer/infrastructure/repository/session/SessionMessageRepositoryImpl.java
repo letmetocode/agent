@@ -5,6 +5,7 @@ import com.getoffer.domain.session.model.entity.SessionMessageEntity;
 import com.getoffer.infrastructure.dao.SessionMessageDao;
 import com.getoffer.infrastructure.dao.po.SessionMessagePO;
 import com.getoffer.infrastructure.util.JsonCodec;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collections;
@@ -15,6 +16,7 @@ import java.util.stream.Collectors;
  * 会话消息仓储实现。
  */
 @Repository
+@Slf4j
 public class SessionMessageRepositoryImpl implements ISessionMessageRepository {
 
     private final SessionMessageDao sessionMessageDao;
@@ -31,6 +33,28 @@ public class SessionMessageRepositoryImpl implements ISessionMessageRepository {
         SessionMessagePO po = toPO(entity);
         sessionMessageDao.insert(po);
         return toEntity(po);
+    }
+
+    @Override
+    public SessionMessageEntity saveAssistantFinalMessageIfAbsent(SessionMessageEntity entity) {
+        entity.validate();
+        SessionMessagePO existed = sessionMessageDao.selectFinalAssistantByTurnId(entity.getTurnId());
+        if (existed != null) {
+            return toEntity(existed);
+        }
+        SessionMessagePO po = toPO(entity);
+        try {
+            sessionMessageDao.insert(po);
+            return toEntity(po);
+        } catch (RuntimeException ex) {
+            SessionMessagePO latest = sessionMessageDao.selectLatestAssistantByTurnId(entity.getTurnId());
+            if (latest != null) {
+                log.info("Session assistant final message deduplicated by unique index. turnId={}, messageId={}",
+                        entity.getTurnId(), latest.getId());
+                return toEntity(latest);
+            }
+            throw ex;
+        }
     }
 
     @Override

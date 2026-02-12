@@ -11,6 +11,8 @@ public interface ISessionMessageRepository {
 
     SessionMessageEntity save(SessionMessageEntity entity);
 
+    SessionMessageEntity saveAssistantFinalMessageIfAbsent(SessionMessageEntity entity);
+
     SessionMessageEntity findById(Long id);
 
     List<SessionMessageEntity> findByTurnId(Long turnId);

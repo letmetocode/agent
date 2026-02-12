@@ -8,6 +8,7 @@ import com.getoffer.infrastructure.util.JsonCodec;
 import com.getoffer.types.enums.TurnStatusEnum;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -52,6 +53,25 @@ public class SessionTurnRepositoryImpl implements ISessionTurnRepository {
     public SessionTurnEntity findByPlanId(Long planId) {
         SessionTurnPO po = sessionTurnDao.selectByPlanId(planId);
         return po == null ? null : toEntity(po);
+    }
+
+    @Override
+    public boolean markTerminalIfNotTerminal(Long turnId,
+                                             TurnStatusEnum status,
+                                             String assistantSummary,
+                                             LocalDateTime completedAt) {
+        if (turnId == null || status == null || completedAt == null) {
+            return false;
+        }
+        return sessionTurnDao.updateToTerminalIfNotTerminal(turnId, status, assistantSummary, completedAt) > 0;
+    }
+
+    @Override
+    public boolean bindFinalResponseMessage(Long turnId, Long messageId) {
+        if (turnId == null || messageId == null) {
+            return false;
+        }
+        return sessionTurnDao.bindFinalResponseMessageIfAbsent(turnId, messageId) > 0;
     }
 
     @Override

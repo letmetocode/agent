@@ -3,6 +3,8 @@ package com.getoffer.domain.session.adapter.repository;
 import com.getoffer.domain.session.model.entity.SessionTurnEntity;
 import com.getoffer.types.enums.TurnStatusEnum;
 
+import java.time.LocalDateTime;
+
 import java.util.List;
 
 /**
@@ -17,6 +19,13 @@ public interface ISessionTurnRepository {
     SessionTurnEntity findById(Long id);
 
     SessionTurnEntity findByPlanId(Long planId);
+
+    boolean markTerminalIfNotTerminal(Long turnId,
+                                      TurnStatusEnum status,
+                                      String assistantSummary,
+                                      LocalDateTime completedAt);
+
+    boolean bindFinalResponseMessage(Long turnId, Long messageId);
 
     List<SessionTurnEntity> findBySessionId(Long sessionId);
 

@@ -24,6 +24,26 @@
         )
     </insert>
 
+    <select id="selectFinalAssistantByTurnId" resultMap="BaseResultMap">
+        SELECT sm.id, sm.session_id, sm.turn_id, sm.role, sm.content, sm.metadata, sm.created_at
+        FROM session_messages sm
+        JOIN session_turns st ON st.id = sm.turn_id
+        WHERE sm.turn_id = #{turnId}
+          AND sm.role = 'ASSISTANT'::message_role_enum
+          AND st.final_response_message_id IS NOT NULL
+          AND sm.id = st.final_response_message_id
+        LIMIT 1
+    </select>
+
+    <select id="selectLatestAssistantByTurnId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM session_messages
+        WHERE turn_id = #{turnId}
+          AND role = 'ASSISTANT'::message_role_enum
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
     <select id="selectById" resultMap="BaseResultMap">
         SELECT <include refid="Base_Column_List"/>
         FROM session_messages

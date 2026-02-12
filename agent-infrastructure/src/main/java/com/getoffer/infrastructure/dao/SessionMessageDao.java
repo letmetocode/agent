@@ -14,6 +14,10 @@ public interface SessionMessageDao {
 
     int insert(SessionMessagePO po);
 
+    SessionMessagePO selectFinalAssistantByTurnId(@Param("turnId") Long turnId);
+
+    SessionMessagePO selectLatestAssistantByTurnId(@Param("turnId") Long turnId);
+
     SessionMessagePO selectById(@Param("id") Long id);
 
     List<SessionMessagePO> selectByTurnId(@Param("turnId") Long turnId);
