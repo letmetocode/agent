@@ -77,6 +77,10 @@ app:
   share:
     # 任务分享链接生成时使用的外部访问地址（可通过环境变量覆盖）
     base-url: ${APP_SHARE_BASE_URL:http://127.0.0.1:8091}
+    # 令牌哈希盐（生产环境务必覆盖）
+    token-salt: ${APP_SHARE_TOKEN_SALT:agent-share-salt}
+    # 分享链接最大有效期（小时）
+    max-ttl-hours: ${APP_SHARE_MAX_TTL_HOURS:168}
 observability:
   http-log:
     # 开发环境默认开启全量入口日志，便于联调

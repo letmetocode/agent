@@ -8,11 +8,14 @@ import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
+import com.getoffer.domain.task.adapter.repository.ITaskShareLinkRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
+import com.getoffer.domain.task.model.entity.TaskShareLinkEntity;
 import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.types.enums.ResponseCode;
 import com.getoffer.types.enums.TaskStatusEnum;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,10 +25,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 
@@ -36,21 +43,32 @@ import java.util.Map;
 @RequestMapping("/api/tasks")
 public class TaskActionController {
 
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     private final IAgentTaskRepository agentTaskRepository;
     private final IAgentPlanRepository agentPlanRepository;
     private final ITaskExecutionRepository taskExecutionRepository;
+    private final ITaskShareLinkRepository taskShareLinkRepository;
     private final ObjectMapper objectMapper;
 
     @Value("${app.share.base-url:http://127.0.0.1:8091}")
     private String shareBaseUrl;
 
+    @Value("${app.share.token-salt:agent-share-salt}")
+    private String shareTokenSalt;
+
+    @Value("${app.share.max-ttl-hours:168}")
+    private Integer maxTtlHours;
+
     public TaskActionController(IAgentTaskRepository agentTaskRepository,
                                 IAgentPlanRepository agentPlanRepository,
                                 ITaskExecutionRepository taskExecutionRepository,
+                                ITaskShareLinkRepository taskShareLinkRepository,
                                 ObjectMapper objectMapper) {
         this.agentTaskRepository = agentTaskRepository;
         this.agentPlanRepository = agentPlanRepository;
         this.taskExecutionRepository = taskExecutionRepository;
+        this.taskShareLinkRepository = taskShareLinkRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -212,17 +230,94 @@ public class TaskActionController {
             return illegal("任务不存在");
         }
 
-        int ttlHours = expiresHours == null ? 24 : Math.max(1, Math.min(168, expiresHours));
+        int ttlHours = normalizeTtlHours(expiresHours);
         LocalDateTime expiresAt = LocalDateTime.now().plusHours(ttlHours);
-        String raw = String.format("task:%d:exp:%s:ver:%d", taskId, expiresAt, task.getVersion() == null ? 0 : task.getVersion());
-        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
-        String normalizedBaseUrl = shareBaseUrl == null ? "" : shareBaseUrl.replaceAll("/$", "");
-        String shareUrl = String.format("%s/share/tasks/%d?token=%s", normalizedBaseUrl, taskId, token);
 
-        Map<String, Object> result = new HashMap<>();
+        String token = generateToken();
+        String shareCode = generateShareCode();
+
+        TaskShareLinkEntity entity = new TaskShareLinkEntity();
+        entity.setTaskId(taskId);
+        entity.setShareCode(shareCode);
+        entity.setTokenHash(hashToken(token));
+        entity.setScope("RESULT_AND_REFERENCES");
+        entity.setExpiresAt(expiresAt);
+        entity.setRevoked(false);
+        entity.setCreatedBy("system");
+        entity.setVersion(0);
+
+        TaskShareLinkEntity saved = taskShareLinkRepository.save(entity);
+        String shareUrl = buildShareUrl(taskId, saved.getShareCode(), token);
+
+        Map<String, Object> result = toShareLinkItem(saved, taskId, false);
         result.put("shareUrl", shareUrl);
         result.put("token", token);
-        result.put("expiresAt", expiresAt);
+        return success(result);
+    }
+
+    @GetMapping("/{id}/share-links")
+    public Response<List<Map<String, Object>>> listShareLinks(@PathVariable("id") Long taskId) {
+        AgentTaskEntity task = agentTaskRepository.findById(taskId);
+        if (task == null) {
+            return illegal("任务不存在");
+        }
+
+        List<TaskShareLinkEntity> links = taskShareLinkRepository.findByTaskId(taskId);
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (links != null) {
+            for (TaskShareLinkEntity link : links) {
+                result.add(toShareLinkItem(link, taskId, true));
+            }
+        }
+        return success(result);
+    }
+
+    @PostMapping("/{id}/share-links/{shareId}/revoke")
+    public Response<Map<String, Object>> revokeShareLink(@PathVariable("id") Long taskId,
+                                                          @PathVariable("shareId") Long shareId,
+                                                          @RequestParam(value = "reason", required = false) String reason) {
+        AgentTaskEntity task = agentTaskRepository.findById(taskId);
+        if (task == null) {
+            return illegal("任务不存在");
+        }
+        if (shareId == null || shareId <= 0) {
+            return illegal("分享链接ID不能为空");
+        }
+
+        String normalizedReason = StringUtils.isBlank(reason) ? "MANUAL_REVOKE" : reason.trim();
+        boolean updated = taskShareLinkRepository.revokeById(taskId, shareId, normalizedReason);
+        if (!updated) {
+            return illegal("分享链接不存在或已撤销");
+        }
+
+        TaskShareLinkEntity latest = taskShareLinkRepository.findById(shareId);
+        if (latest == null) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("taskId", taskId);
+            result.put("shareId", shareId);
+            result.put("revoked", true);
+            result.put("revokedAt", LocalDateTime.now());
+            return success(result);
+        }
+
+        return success(toShareLinkItem(latest, taskId, true));
+    }
+
+    @PostMapping("/{id}/share-links/revoke-all")
+    public Response<Map<String, Object>> revokeAllShareLinks(@PathVariable("id") Long taskId,
+                                                              @RequestParam(value = "reason", required = false) String reason) {
+        AgentTaskEntity task = agentTaskRepository.findById(taskId);
+        if (task == null) {
+            return illegal("任务不存在");
+        }
+
+        String normalizedReason = StringUtils.isBlank(reason) ? "MANUAL_REVOKE_ALL" : reason.trim();
+        int revokedCount = taskShareLinkRepository.revokeAllByTaskId(taskId, normalizedReason);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("taskId", taskId);
+        result.put("revokedCount", revokedCount);
+        result.put("revokedAt", LocalDateTime.now());
         return success(result);
     }
 
@@ -289,6 +384,73 @@ public class TaskActionController {
             return null;
         }
         return latestExecution.getExecutionTimeMs();
+    }
+
+    private int normalizeTtlHours(Integer expiresHours) {
+        int limit = maxTtlHours == null || maxTtlHours <= 0 ? 168 : maxTtlHours;
+        int ttlHours = expiresHours == null ? 24 : expiresHours;
+        return Math.max(1, Math.min(limit, ttlHours));
+    }
+
+    private String generateToken() {
+        byte[] bytes = new byte[32];
+        SECURE_RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private String generateShareCode() {
+        byte[] bytes = new byte[9];
+        SECURE_RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private String hashToken(String token) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            String salted = token + ":" + StringUtils.defaultString(shareTokenSalt);
+            byte[] hashed = digest.digest(salted.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hashed);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 不可用", ex);
+        }
+    }
+
+    private String buildShareUrl(Long taskId, String shareCode, String token) {
+        String normalizedBaseUrl = shareBaseUrl == null ? "" : shareBaseUrl.replaceAll("/$", "");
+        return String.format("%s/share/tasks/%d?code=%s&token=%s", normalizedBaseUrl, taskId, shareCode, token);
+    }
+
+    private Map<String, Object> toShareLinkItem(TaskShareLinkEntity link, Long taskId, boolean includeSharePreviewUrl) {
+        Map<String, Object> item = new HashMap<>();
+        item.put("shareId", link.getId());
+        item.put("taskId", taskId);
+        item.put("shareCode", link.getShareCode());
+        item.put("scope", link.getScope());
+        item.put("status", resolveShareStatus(link));
+        item.put("expiresAt", link.getExpiresAt());
+        item.put("revoked", Boolean.TRUE.equals(link.getRevoked()));
+        item.put("revokedAt", link.getRevokedAt());
+        item.put("revokedReason", link.getRevokedReason());
+        item.put("createdAt", link.getCreatedAt());
+        item.put("updatedAt", link.getUpdatedAt());
+        if (includeSharePreviewUrl) {
+            String normalizedBaseUrl = shareBaseUrl == null ? "" : shareBaseUrl.replaceAll("/$", "");
+            item.put("shareUrl", String.format("%s/share/tasks/%d?code=%s", normalizedBaseUrl, taskId, link.getShareCode()));
+        }
+        return item;
+    }
+
+    private String resolveShareStatus(TaskShareLinkEntity link) {
+        if (link == null) {
+            return "UNKNOWN";
+        }
+        if (Boolean.TRUE.equals(link.getRevoked())) {
+            return "REVOKED";
+        }
+        if (link.getExpiresAt() != null && !link.getExpiresAt().isAfter(LocalDateTime.now())) {
+            return "EXPIRED";
+        }
+        return "ACTIVE";
     }
 
     private <T> Response<T> illegal(String message) {

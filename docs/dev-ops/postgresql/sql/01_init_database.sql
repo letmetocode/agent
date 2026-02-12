@@ -320,8 +320,38 @@ CREATE INDEX IF NOT EXISTS idx_executions_lookup ON task_executions(task_id, att
 
 COMMENT ON TABLE task_executions IS '任务执行记录表：存储每次执行的详细历史';
 
+
 -- =====================================================
--- 8. Plan/Task 事件表
+-- 8. 任务分享链接表
+-- =====================================================
+CREATE TABLE IF NOT EXISTS task_share_links (
+    id                  BIGSERIAL PRIMARY KEY,
+    task_id             BIGINT NOT NULL, -- 逻辑关联: agent_tasks.id
+
+    share_code          VARCHAR(64) NOT NULL,
+    token_hash          VARCHAR(128) NOT NULL,
+    scope               VARCHAR(32) NOT NULL DEFAULT 'RESULT_AND_REFERENCES',
+    expires_at          TIMESTAMP WITH TIME ZONE NOT NULL,
+
+    revoked             BOOLEAN NOT NULL DEFAULT FALSE,
+    revoked_at          TIMESTAMP WITH TIME ZONE,
+    revoked_reason      VARCHAR(128),
+
+    created_by          VARCHAR(64),
+    version             INTEGER NOT NULL DEFAULT 0,
+    created_at          TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_task_share_links_token_hash ON task_share_links(token_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_task_share_links_task_code ON task_share_links(task_id, share_code);
+CREATE INDEX IF NOT EXISTS idx_task_share_links_task_created ON task_share_links(task_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_share_links_revoked_expire ON task_share_links(revoked, expires_at);
+
+COMMENT ON TABLE task_share_links IS '任务分享链接表：存储可审计、可吊销的任务分享令牌元数据';
+
+-- =====================================================
+-- 9. Plan/Task 事件表
 -- =====================================================
 DROP TYPE IF EXISTS plan_task_event_type_enum CASCADE;
 CREATE TYPE plan_task_event_type_enum AS ENUM ('TASK_STARTED', 'TASK_COMPLETED', 'TASK_LOG', 'PLAN_FINISHED');

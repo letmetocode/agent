@@ -164,6 +164,24 @@ CREATE TABLE task_executions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE task_share_links (
+    id BIGSERIAL PRIMARY KEY,
+    task_id BIGINT NOT NULL,
+    share_code VARCHAR(64) NOT NULL,
+    token_hash VARCHAR(128) NOT NULL,
+    scope VARCHAR(32) NOT NULL DEFAULT 'RESULT_AND_REFERENCES',
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    revoked_at TIMESTAMP WITH TIME ZONE,
+    revoked_reason VARCHAR(128),
+    created_by VARCHAR(64),
+    version INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_task_share_links_task_code UNIQUE (task_id, share_code),
+    CONSTRAINT uq_task_share_links_token_hash UNIQUE (token_hash)
+);
+
 CREATE TABLE session_turns (
     id BIGSERIAL PRIMARY KEY,
     session_id BIGINT NOT NULL,
@@ -206,6 +224,8 @@ CREATE INDEX idx_plans_session_id ON agent_plans(session_id);
 CREATE INDEX idx_tasks_plan_id ON agent_tasks(plan_id);
 CREATE INDEX idx_tasks_scheduling ON agent_tasks(plan_id, status);
 CREATE INDEX idx_tasks_claim_scan ON agent_tasks(status, lease_until, plan_id, created_at);
+CREATE INDEX idx_task_share_links_task_created ON task_share_links(task_id, created_at DESC);
+CREATE INDEX idx_task_share_links_revoked_expire ON task_share_links(revoked, expires_at);
 CREATE INDEX idx_plan_task_events_plan_id_id ON plan_task_events(plan_id, id);
 CREATE INDEX idx_session_turns_session ON session_turns(session_id, id DESC);
 CREATE INDEX idx_session_messages_turn ON session_messages(turn_id, id);

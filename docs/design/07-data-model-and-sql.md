@@ -19,6 +19,7 @@
 - `agent_plans`
 - `agent_tasks`
 - `task_executions`
+- `task_share_links`
 - `plan_task_events`
 - `agent_registry`
 - `agent_tool_catalog`
@@ -36,7 +37,7 @@
 
 “数据库落地范围”指必须持久化并可跨实例恢复的数据边界，当前包括：
 - 会话链路：`agent_sessions/session_turns/session_messages`
-- 路由与规划执行链路：`workflow_definitions/workflow_drafts/routing_decisions/agent_plans/agent_tasks/task_executions`
+- 路由与规划执行链路：`workflow_definitions/workflow_drafts/routing_decisions/agent_plans/agent_tasks/task_executions/task_share_links`
 - 事件链路：`plan_task_events`
 - Agent 配置链路：`agent_registry/agent_tool_catalog/agent_tools/vector_store_registry`
 
@@ -56,6 +57,7 @@ flowchart TD
     P --> K[agent_tasks]
     K --> E[task_executions]
     P --> EV[plan_task_events]
+    K --> SL[task_share_links]
     K --> EV
     R1[agent_registry] --> AT[agent_tools]
     C[agent_tool_catalog] --> AT
@@ -113,6 +115,14 @@ sequenceDiagram
 - `token_usage`
 - `error_type`
 
+`task_share_links`：
+- `task_id`
+- `share_code`
+- `token_hash`
+- `expires_at`
+- `revoked/revoked_at/revoked_reason`
+- `scope`
+
 `plan_task_events`：
 - `id`（事件游标）
 - `plan_id`
@@ -162,6 +172,10 @@ sequenceDiagram
 - `agent-app/src/main/resources/mybatis/mapper/TaskExecutionMapper.xml`
   - `insert`
   - `getMaxAttemptNumber`
+- `agent-app/src/main/resources/mybatis/mapper/TaskShareLinkMapper.xml`
+  - `insert`
+  - `selectByTaskIdAndShareCode`
+  - `revokeById/revokeAllByTaskId`
 - `agent-app/src/main/resources/mybatis/mapper/PlanTaskEventMapper.xml`
   - `insert`
   - `selectByPlanIdAfterEventId`
@@ -215,7 +229,7 @@ sequenceDiagram
 - 空库初始化：可直接执行 `01_init_database.sql`。
 - 已有历史结构时，建议先重建 `public schema` 再执行最终版脚本，避免旧结构与 `DROP TYPE ... CASCADE` 产生连带影响。
 - 初始化后至少校验：
-  - 关键表：`session_turns/session_messages/routing_decisions/agent_plans/agent_tasks/plan_task_events`
+  - 关键表：`session_turns/session_messages/routing_decisions/agent_plans/agent_tasks/task_share_links/plan_task_events`
   - 关键枚举：`turn_status_enum/message_role_enum/plan_status_enum/task_status_enum/task_type_enum/routing_decision_type_enum`
   - 基线数据：
     - `agent_registry` 至少包含 `assistant` 与 `root` 两个激活 profile
