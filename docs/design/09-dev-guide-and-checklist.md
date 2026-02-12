@@ -82,6 +82,8 @@ sequenceDiagram
 - 任务依赖推进
 - 任务执行完成
 - Plan 自动闭环
+- 任务分享闭环：创建分享链接、TTL 钳制、列表查询、单条撤销、批量撤销
+- 匿名分享读取：code+token 成功读取、token/code 错误、链接撤销、链接过期、task 不存在
 - 未命中 Workflow Definition 时 Root 草案重试 3 次后降级单节点候选 Workflow Draft
 - 候选节点缺省 `agentId/agentKey` 时自动注入 fallback `assistant`
 - 含 Critic 节点计划完成后，最终回复不包含 `{"pass":...}` JSON
@@ -124,3 +126,5 @@ sequenceDiagram
   `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=TaskClaimRepositoryIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
 - Chat -> Plan -> SSE 闭环集成测试（需 Docker）：
   `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=SessionChatPlanSseIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
+- 分享链路集成测试（需 Docker）：
+  `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=TaskShareLinkControllerIntegrationTest,ShareAccessControllerIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
