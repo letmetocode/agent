@@ -11,6 +11,7 @@ import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
 import com.getoffer.domain.task.service.TaskAgentSelectionDomainService;
+import com.getoffer.domain.task.service.TaskBlackboardDomainService;
 import com.getoffer.domain.task.service.TaskDispatchDomainService;
 import com.getoffer.domain.task.service.TaskEvaluationDomainService;
 import com.getoffer.domain.task.service.TaskExecutionDomainService;
@@ -88,6 +89,7 @@ public class TaskExecutor {
     private final TaskPromptDomainService taskPromptDomainService;
     private final TaskEvaluationDomainService taskEvaluationDomainService;
     private final TaskRecoveryDomainService taskRecoveryDomainService;
+    private final TaskBlackboardDomainService taskBlackboardDomainService;
     private final ObjectMapper objectMapper;
     private final String claimOwner;
     private final int claimBatchSize;
@@ -149,6 +151,7 @@ public class TaskExecutor {
                         TaskPromptDomainService taskPromptDomainService,
                         TaskEvaluationDomainService taskEvaluationDomainService,
                         TaskRecoveryDomainService taskRecoveryDomainService,
+                        TaskBlackboardDomainService taskBlackboardDomainService,
                         ObjectMapper objectMapper,
                         @Qualifier("taskExecutionWorker") ThreadPoolExecutor taskExecutionWorker,
                         ObjectProvider<MeterRegistry> meterRegistryProvider,
@@ -179,6 +182,7 @@ public class TaskExecutor {
         this.taskPromptDomainService = taskPromptDomainService;
         this.taskEvaluationDomainService = taskEvaluationDomainService;
         this.taskRecoveryDomainService = taskRecoveryDomainService;
+        this.taskBlackboardDomainService = taskBlackboardDomainService;
         this.objectMapper = objectMapper;
         this.taskExecutionWorker = taskExecutionWorker;
         this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
@@ -871,24 +875,7 @@ public class TaskExecutor {
         if (plan == null || plan.getId() == null || task == null) {
             return;
         }
-        Map<String, Object> config = task.getConfigSnapshot();
-        Map<String, Object> delta = new HashMap<>();
-
-        boolean merge = getBoolean(config, "mergeOutput", "merge_output", "outputMerge");
-        if (merge) {
-            Map<String, Object> parsed = parseJsonMap(output);
-            if (parsed != null && !parsed.isEmpty()) {
-                delta.putAll(parsed);
-            }
-        }
-
-        if (delta.isEmpty()) {
-            String outputKey = getString(config, "outputKey", "output_key", "resultKey", "result_key");
-            if (StringUtils.isBlank(outputKey)) {
-                outputKey = StringUtils.defaultIfBlank(task.getNodeId(), "output");
-            }
-            delta.put(outputKey, output);
-        }
+        Map<String, Object> delta = taskBlackboardDomainService.buildContextDelta(task, output, this::parseJsonMap);
 
         for (int attempt = 1; attempt <= PLAN_CONTEXT_UPDATE_MAX_RETRY; attempt++) {
             AgentPlanEntity latestPlan = agentPlanRepository.findById(plan.getId());
@@ -896,10 +883,7 @@ public class TaskExecutor {
                 log.warn("Failed to update plan context because plan not found. planId={}", plan.getId());
                 return;
             }
-            Map<String, Object> mergedContext = latestPlan.getGlobalContext() == null
-                    ? new HashMap<>()
-                    : new HashMap<>(latestPlan.getGlobalContext());
-            mergedContext.putAll(delta);
+            Map<String, Object> mergedContext = taskBlackboardDomainService.mergeContext(latestPlan.getGlobalContext(), delta);
             latestPlan.setGlobalContext(mergedContext);
             if (safeUpdatePlan(latestPlan, attempt, PLAN_CONTEXT_UPDATE_MAX_RETRY)) {
                 plan.setGlobalContext(mergedContext);
@@ -910,44 +894,6 @@ public class TaskExecutor {
     }
 
 
-    private String getString(Map<String, Object> config, String... keys) {
-        if (config == null || config.isEmpty()) {
-            return null;
-        }
-        for (String key : keys) {
-            Object value = config.get(key);
-            if (value == null) {
-                continue;
-            }
-            String text = String.valueOf(value);
-            if (StringUtils.isNotBlank(text)) {
-                return text;
-            }
-        }
-        return null;
-    }
-
-
-    private boolean getBoolean(Map<String, Object> config, String... keys) {
-        if (config == null || config.isEmpty()) {
-            return false;
-        }
-        for (String key : keys) {
-            Object value = config.get(key);
-            if (value == null) {
-                continue;
-            }
-            if (value instanceof Boolean) {
-                return (Boolean) value;
-            }
-            String text = String.valueOf(value).trim();
-            if (text.isEmpty()) {
-                continue;
-            }
-            return "true".equalsIgnoreCase(text) || "1".equals(text);
-        }
-        return false;
-    }
 
     private Map<String, Object> parseJsonMap(String output) {
         if (StringUtils.isBlank(output)) {
