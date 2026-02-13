@@ -15,6 +15,10 @@
         <result column="definition_version" property="definitionVersion" jdbcType="INTEGER"/>
         <result column="draft_id" property="draftId" jdbcType="BIGINT"/>
         <result column="draft_key" property="draftKey" jdbcType="VARCHAR"/>
+        <result column="source_type" property="sourceType" jdbcType="VARCHAR"/>
+        <result column="fallback_flag" property="fallbackFlag" jdbcType="BOOLEAN"/>
+        <result column="fallback_reason" property="fallbackReason" jdbcType="VARCHAR"/>
+        <result column="planner_attempts" property="plannerAttempts" jdbcType="INTEGER"/>
         <result column="metadata" property="metadata" jdbcType="VARCHAR"/>
         <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
     </resultMap>
@@ -22,6 +26,7 @@
     <sql id="Base_Column_List">
         id, session_id, turn_id, decision_type, strategy, score, reason,
         definition_id, definition_key, definition_version, draft_id, draft_key,
+        source_type, fallback_flag, fallback_reason, planner_attempts,
         metadata, created_at
     </sql>
 
@@ -30,11 +35,13 @@
         INSERT INTO routing_decisions (
             session_id, turn_id, decision_type, strategy, score, reason,
             definition_id, definition_key, definition_version, draft_id, draft_key,
+            source_type, fallback_flag, fallback_reason, planner_attempts,
             metadata, created_at
         ) VALUES (
             #{sessionId}, #{turnId}, #{decisionType}::routing_decision_type_enum,
             #{strategy}, #{score}, #{reason},
             #{definitionId}, #{definitionKey}, #{definitionVersion}, #{draftId}, #{draftKey},
+            #{sourceType}, #{fallbackFlag}, #{fallbackReason}, #{plannerAttempts},
             #{metadata}::jsonb, CURRENT_TIMESTAMP
         )
     </insert>

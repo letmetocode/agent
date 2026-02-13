@@ -25,6 +25,10 @@ public class RoutingDecisionEntity {
     private Integer definitionVersion;
     private Long draftId;
     private String draftKey;
+    private String sourceType;
+    private Boolean fallbackFlag;
+    private String fallbackReason;
+    private Integer plannerAttempts;
     private Map<String, Object> metadata;
     private LocalDateTime createdAt;
 

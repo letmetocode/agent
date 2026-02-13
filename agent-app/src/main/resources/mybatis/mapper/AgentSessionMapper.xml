@@ -6,27 +6,31 @@
         <id column="id" property="id" jdbcType="BIGINT"/>
         <result column="user_id" property="userId" jdbcType="VARCHAR"/>
         <result column="title" property="title" jdbcType="VARCHAR"/>
+        <result column="agent_key" property="agentKey" jdbcType="VARCHAR"/>
+        <result column="scenario" property="scenario" jdbcType="VARCHAR"/>
         <result column="is_active" property="isActive" jdbcType="BOOLEAN"/>
         <result column="meta_info" property="metaInfo" jdbcType="VARCHAR"/>
         <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
     </resultMap>
 
     <sql id="Base_Column_List">
-        id, user_id, title, is_active, meta_info, created_at
+        id, user_id, title, agent_key, scenario, is_active, meta_info, created_at
     </sql>
 
     <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.AgentSessionPO"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO agent_sessions (
-            user_id, title, is_active, meta_info, created_at
+            user_id, title, agent_key, scenario, is_active, meta_info, created_at
         ) VALUES (
-            #{userId}, #{title}, #{isActive}, #{metaInfo}::jsonb, CURRENT_TIMESTAMP
+            #{userId}, #{title}, #{agentKey}, #{scenario}, #{isActive}, #{metaInfo}::jsonb, CURRENT_TIMESTAMP
         )
     </insert>
 
     <update id="update" parameterType="com.getoffer.infrastructure.dao.po.AgentSessionPO">
         UPDATE agent_sessions SET
             title = #{title},
+            agent_key = #{agentKey},
+            scenario = #{scenario},
             is_active = #{isActive},
             meta_info = #{metaInfo}::jsonb
         WHERE id = #{id}

@@ -35,6 +35,16 @@ public class AgentSessionPO {
     private String title;
 
     /**
+     * 会话绑定 Agent Key（可空，兼容旧数据）
+     */
+    private String agentKey;
+
+    /**
+     * 场景标识（可空）
+     */
+    private String scenario;
+
+    /**
      * 是否激活
      */
     private Boolean isActive;

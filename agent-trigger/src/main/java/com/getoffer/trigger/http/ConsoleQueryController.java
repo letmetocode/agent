@@ -432,6 +432,8 @@ public class ConsoleQueryController {
         dto.setSessionId(session.getId());
         dto.setUserId(session.getUserId());
         dto.setTitle(session.getTitle());
+        dto.setAgentKey(session.getAgentKey());
+        dto.setScenario(session.getScenario());
         dto.setActive(session.getIsActive());
         dto.setMetaInfo(session.getMetaInfo());
         dto.setCreatedAt(session.getCreatedAt());

@@ -2,21 +2,17 @@ package com.getoffer.api.dto;
 
 import lombok.Data;
 
-import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
- * 会话详情 DTO。
+ * 会话启动请求 DTO（V2）。
  */
 @Data
-public class SessionDetailDTO {
+public class SessionStartRequestDTO {
 
-    private Long sessionId;
     private String userId;
     private String title;
     private String agentKey;
     private String scenario;
-    private Boolean active;
     private Map<String, Object> metaInfo;
-    private LocalDateTime createdAt;
 }

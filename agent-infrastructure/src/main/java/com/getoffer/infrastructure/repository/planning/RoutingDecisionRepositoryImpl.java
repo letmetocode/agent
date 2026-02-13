@@ -50,6 +50,10 @@ public class RoutingDecisionRepositoryImpl implements IRoutingDecisionRepository
         entity.setDefinitionVersion(po.getDefinitionVersion());
         entity.setDraftId(po.getDraftId());
         entity.setDraftKey(po.getDraftKey());
+        entity.setSourceType(po.getSourceType());
+        entity.setFallbackFlag(po.getFallbackFlag());
+        entity.setFallbackReason(po.getFallbackReason());
+        entity.setPlannerAttempts(po.getPlannerAttempts());
         entity.setMetadata(jsonCodec.readMap(po.getMetadata()));
         entity.setCreatedAt(po.getCreatedAt());
         return entity;
@@ -69,6 +73,10 @@ public class RoutingDecisionRepositoryImpl implements IRoutingDecisionRepository
                 .definitionVersion(entity.getDefinitionVersion())
                 .draftId(entity.getDraftId())
                 .draftKey(entity.getDraftKey())
+                .sourceType(entity.getSourceType())
+                .fallbackFlag(entity.getFallbackFlag())
+                .fallbackReason(entity.getFallbackReason())
+                .plannerAttempts(entity.getPlannerAttempts())
                 .createdAt(entity.getCreatedAt())
                 .build();
         po.setMetadata(jsonCodec.writeValue(entity.getMetadata()));

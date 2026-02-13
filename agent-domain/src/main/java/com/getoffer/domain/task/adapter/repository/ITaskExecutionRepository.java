@@ -3,6 +3,7 @@ package com.getoffer.domain.task.adapter.repository;
 import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 任务执行记录仓储接口
@@ -51,6 +52,11 @@ public interface ITaskExecutionRepository {
      * 获取任务的最大尝试次数
      */
     Integer getMaxAttemptNumber(Long taskId);
+
+    /**
+     * 批量查询任务最新执行耗时（按最大 attempt_number）。
+     */
+    Map<Long, Long> findLatestExecutionTimeByTaskIds(List<Long> taskIds);
 
     /**
      * 批量保存执行记录

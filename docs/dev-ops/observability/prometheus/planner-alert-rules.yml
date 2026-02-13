@@ -1,0 +1,100 @@
+groups:
+  - name: agent-planner-recording-rules
+    interval: 30s
+    rules:
+      - record: agent:planner_route_total_5m
+        expr: sum by (env) (increase(agent_planner_route_total[5m]))
+      - record: agent:planner_fallback_total_5m
+        expr: sum by (env) (increase(agent_planner_fallback_total[5m]))
+      - record: agent:planner_fallback_ratio_5m
+        expr: |
+          agent:planner_fallback_total_5m
+          /
+          clamp_min(agent:planner_route_total_5m, 1)
+
+  - name: agent-planner-alerting-rules
+    interval: 30s
+    rules:
+      - alert: PlannerFallbackSpikeWarningStaging
+        expr: agent:planner_fallback_total_5m{env="staging"} > 10
+        for: 10m
+        labels:
+          service: agent-app
+          module: planner
+          severity: warning
+          env: staging
+        annotations:
+          summary: "[staging] Planner fallback 绝对值升高"
+          description: "5分钟窗口 fallback 增量为 {{ $value }}，超过阈值 10。"
+          runbook: "docs/dev-ops/observability/planner-alert-runbook.md"
+          dashboard: "TODO: replace-with-staging-dashboard-url"
+
+      - alert: PlannerFallbackRatioCriticalStaging
+        expr: agent:planner_fallback_ratio_5m{env="staging"} > 0.40
+        for: 10m
+        labels:
+          service: agent-app
+          module: planner
+          severity: critical
+          env: staging
+        annotations:
+          summary: "[staging] Planner fallback 比例持续偏高"
+          description: "5分钟窗口 fallback/route 比例为 {{ $value }}，超过阈值 0.40。"
+          runbook: "docs/dev-ops/observability/planner-alert-runbook.md"
+          dashboard: "TODO: replace-with-staging-dashboard-url"
+
+      - alert: PlannerFallbackSpikeWarningProd
+        expr: agent:planner_fallback_total_5m{env="prod"} > 20
+        for: 5m
+        labels:
+          service: agent-app
+          module: planner
+          severity: warning
+          env: prod
+        annotations:
+          summary: "[prod] Planner fallback 绝对值升高"
+          description: "5分钟窗口 fallback 增量为 {{ $value }}，超过阈值 20。"
+          runbook: "docs/dev-ops/observability/planner-alert-runbook.md"
+          dashboard: "TODO: replace-with-prod-dashboard-url"
+
+      - alert: PlannerFallbackRatioCriticalProd
+        expr: agent:planner_fallback_ratio_5m{env="prod"} > 0.30
+        for: 5m
+        labels:
+          service: agent-app
+          module: planner
+          severity: critical
+          env: prod
+        annotations:
+          summary: "[prod] Planner fallback 比例持续偏高"
+          description: "5分钟窗口 fallback/route 比例为 {{ $value }}，超过阈值 0.30。"
+          runbook: "docs/dev-ops/observability/planner-alert-runbook.md"
+          dashboard: "TODO: replace-with-prod-dashboard-url"
+
+      - alert: PlannerRouteMetricMissingStaging
+        expr: absent(agent_planner_route_total{env="staging"})
+        for: 15m
+        labels:
+          service: agent-app
+          module: planner
+          severity: critical
+          env: staging
+        annotations:
+          summary: "[staging] Planner 路由指标缺失"
+          description: "15分钟内未采集到 agent_planner_route_total{env=\"staging\"}。"
+          runbook: "docs/dev-ops/observability/planner-alert-runbook.md"
+          dashboard: "TODO: replace-with-staging-dashboard-url"
+
+      - alert: PlannerRouteMetricMissingProd
+        expr: absent(agent_planner_route_total{env="prod"})
+        for: 15m
+        labels:
+          service: agent-app
+          module: planner
+          severity: critical
+          env: prod
+        annotations:
+          summary: "[prod] Planner 路由指标缺失"
+          description: "15分钟内未采集到 agent_planner_route_total{env=\"prod\"}。"
+          runbook: "docs/dev-ops/observability/planner-alert-runbook.md"
+          dashboard: "TODO: replace-with-prod-dashboard-url"

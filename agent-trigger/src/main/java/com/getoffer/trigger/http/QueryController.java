@@ -125,8 +125,9 @@ public class QueryController {
             overview.setLatestPlanId(latestPlanId);
             List<AgentTaskEntity> latestPlanTasks = agentTaskRepository.findByPlanId(latestPlanId);
             overview.setLatestPlanTaskStats(toTaskStats(latestPlanTasks));
+            Map<Long, Long> latestExecutionTimeMap = resolveLatestExecutionTimeMap(latestPlanTasks);
             List<TaskDetailDTO> taskDtos = latestPlanTasks == null ? Collections.emptyList() : latestPlanTasks.stream()
-                    .map(this::toTaskDetailDTO)
+                    .map(task -> toTaskDetailDTO(task, latestExecutionTimeMap))
                     .collect(Collectors.toList());
             overview.setLatestPlanTasks(taskDtos);
         } else {
@@ -158,8 +159,9 @@ public class QueryController {
             return illegal("计划不存在");
         }
         List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(planId);
+        Map<Long, Long> latestExecutionTimeMap = resolveLatestExecutionTimeMap(tasks);
         List<TaskDetailDTO> data = tasks == null ? Collections.emptyList() : tasks.stream()
-                .map(this::toTaskDetailDTO)
+                .map(task -> toTaskDetailDTO(task, latestExecutionTimeMap))
                 .collect(Collectors.toList());
         return success(data);
     }
@@ -218,10 +220,10 @@ public class QueryController {
             if (sessionPlans == null || sessionPlans.isEmpty()) {
                 return success(Collections.emptyList());
             }
-            List<Long> sessionPlanIds = sessionPlans.stream()
+            java.util.Set<Long> sessionPlanIds = sessionPlans.stream()
                     .map(AgentPlanEntity::getId)
                     .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toSet());
             if (sessionPlanIds.isEmpty()) {
                 return success(Collections.emptyList());
             }
@@ -237,12 +239,15 @@ public class QueryController {
                     .collect(Collectors.toList());
         }
 
-        List<TaskDetailDTO> data = tasks.stream()
+        List<AgentTaskEntity> limitedTasks = tasks.stream()
                 .sorted(Comparator
                         .comparing(AgentTaskEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
                         .thenComparing(AgentTaskEntity::getId, Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(normalizedLimit)
-                .map(this::toTaskDetailDTO)
+                .collect(Collectors.toList());
+        Map<Long, Long> latestExecutionTimeMap = resolveLatestExecutionTimeMap(limitedTasks);
+        List<TaskDetailDTO> data = limitedTasks.stream()
+                .map(task -> toTaskDetailDTO(task, latestExecutionTimeMap))
                 .collect(Collectors.toList());
         return success(data);
     }
@@ -355,17 +360,30 @@ public class QueryController {
         long slowTaskCount = countExecutionsAbove(executions, 30_000L);
         long slaBreachCount = countExecutionsAbove(executions, 120_000L);
 
-        List<TaskDetailDTO> recentTasks = (tasks == null ? Collections.<AgentTaskEntity>emptyList() : tasks).stream()
+        List<AgentTaskEntity> recentTaskEntities = (tasks == null ? Collections.<AgentTaskEntity>emptyList() : tasks).stream()
                 .sorted(Comparator.comparing(AgentTaskEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(normalizedTaskLimit)
-                .map(this::toTaskDetailDTO)
                 .collect(Collectors.toList());
 
-        List<TaskDetailDTO> recentFailedTasks = (tasks == null ? Collections.<AgentTaskEntity>emptyList() : tasks).stream()
+        List<AgentTaskEntity> recentFailedTaskEntities = (tasks == null ? Collections.<AgentTaskEntity>emptyList() : tasks).stream()
                 .filter(item -> item.getStatus() == TaskStatusEnum.FAILED)
                 .sorted(Comparator.comparing(AgentTaskEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(normalizedTaskLimit)
-                .map(this::toTaskDetailDTO)
+                .collect(Collectors.toList());
+
+        List<AgentTaskEntity> taskProjection = Stream.concat(recentTaskEntities.stream(), recentFailedTaskEntities.stream())
+                .filter(item -> item != null && item.getId() != null)
+                .collect(Collectors.toMap(AgentTaskEntity::getId, item -> item, (left, right) -> left, java.util.LinkedHashMap::new))
+                .values().stream()
+                .collect(Collectors.toList());
+        Map<Long, Long> latestExecutionTimeMap = resolveLatestExecutionTimeMap(taskProjection);
+
+        List<TaskDetailDTO> recentTasks = recentTaskEntities.stream()
+                .map(task -> toTaskDetailDTO(task, latestExecutionTimeMap))
+                .collect(Collectors.toList());
+
+        List<TaskDetailDTO> recentFailedTasks = recentFailedTaskEntities.stream()
+                .map(task -> toTaskDetailDTO(task, latestExecutionTimeMap))
                 .collect(Collectors.toList());
 
         List<PlanSummaryDTO> recentPlans = (plans == null ? Collections.<AgentPlanEntity>emptyList() : plans).stream()
@@ -392,6 +410,8 @@ public class QueryController {
         dto.setSessionId(session.getId());
         dto.setUserId(session.getUserId());
         dto.setTitle(session.getTitle());
+        dto.setAgentKey(session.getAgentKey());
+        dto.setScenario(session.getScenario());
         dto.setActive(session.getIsActive());
         dto.setMetaInfo(session.getMetaInfo());
         dto.setCreatedAt(session.getCreatedAt());
@@ -432,6 +452,10 @@ public class QueryController {
     }
 
     private TaskDetailDTO toTaskDetailDTO(AgentTaskEntity task) {
+        return toTaskDetailDTO(task, null);
+    }
+
+    private TaskDetailDTO toTaskDetailDTO(AgentTaskEntity task, Map<Long, Long> latestExecutionTimeMap) {
         TaskDetailDTO dto = new TaskDetailDTO();
         dto.setTaskId(task.getId());
         dto.setPlanId(task.getPlanId());
@@ -449,23 +473,42 @@ public class QueryController {
         dto.setClaimAt(task.getClaimAt());
         dto.setLeaseUntil(task.getLeaseUntil());
         dto.setExecutionAttempt(task.getExecutionAttempt());
-        dto.setLatestExecutionTimeMs(resolveLatestExecutionTimeMs(task.getId()));
+        if (latestExecutionTimeMap == null) {
+            dto.setLatestExecutionTimeMs(resolveLatestExecutionTimeMs(task.getId()));
+        } else {
+            dto.setLatestExecutionTimeMs(task.getId() == null ? null : latestExecutionTimeMap.get(task.getId()));
+        }
         dto.setVersion(task.getVersion());
         dto.setCreatedAt(task.getCreatedAt());
         dto.setUpdatedAt(task.getUpdatedAt());
         return dto;
     }
 
+    private Map<Long, Long> resolveLatestExecutionTimeMap(List<AgentTaskEntity> tasks) {
+        if (tasks == null || tasks.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<Long> taskIds = tasks.stream()
+                .map(AgentTaskEntity::getId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (taskIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<Long, Long> latestMap = taskExecutionRepository.findLatestExecutionTimeByTaskIds(taskIds);
+        return latestMap == null ? Collections.emptyMap() : latestMap;
+    }
+
     private Long resolveLatestExecutionTimeMs(Long taskId) {
         if (taskId == null) {
             return null;
         }
-        Integer maxAttempt = taskExecutionRepository.getMaxAttemptNumber(taskId);
-        if (maxAttempt == null || maxAttempt <= 0) {
+        Map<Long, Long> latestMap = taskExecutionRepository.findLatestExecutionTimeByTaskIds(Collections.singletonList(taskId));
+        if (latestMap == null || latestMap.isEmpty()) {
             return null;
         }
-        TaskExecutionEntity latestExecution = taskExecutionRepository.findByTaskIdAndAttempt(taskId, maxAttempt);
-        return latestExecution == null ? null : latestExecution.getExecutionTimeMs();
+        return latestMap.get(taskId);
     }
 
     private TaskExecutionDetailDTO toTaskExecutionDetailDTO(TaskExecutionEntity execution) {

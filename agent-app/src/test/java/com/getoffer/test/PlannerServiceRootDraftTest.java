@@ -6,6 +6,8 @@ import com.getoffer.domain.agent.model.entity.AgentRegistryEntity;
 import com.getoffer.domain.planning.adapter.gateway.IRootWorkflowDraftPlanner;
 import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
+import com.getoffer.domain.planning.model.entity.RoutingDecisionEntity;
+import com.getoffer.domain.planning.model.entity.WorkflowDefinitionEntity;
 import com.getoffer.domain.planning.model.entity.WorkflowDraftEntity;
 import com.getoffer.domain.planning.model.valobj.RootWorkflowDraft;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
@@ -18,7 +20,10 @@ import com.getoffer.test.support.InMemoryWorkflowDefinitionRepository;
 import com.getoffer.test.support.InMemoryWorkflowDraftRepository;
 import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.types.enums.TaskStatusEnum;
+import com.getoffer.types.enums.WorkflowDefinitionStatusEnum;
 import com.getoffer.types.enums.WorkflowDraftStatusEnum;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -131,6 +136,60 @@ public class PlannerServiceRootDraftTest {
     }
 
     @Test
+    public void shouldRecordPlannerRouteAndFallbackMetrics() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        Metrics.addRegistry(registry);
+        try {
+            JsonCodec jsonCodec = new JsonCodec(new ObjectMapper());
+            InMemoryWorkflowDefinitionRepository workflowDefinitionRepository = new InMemoryWorkflowDefinitionRepository();
+            InMemoryWorkflowDraftRepository workflowDraftRepository = new InMemoryWorkflowDraftRepository();
+            InMemoryRoutingDecisionRepository routingDecisionRepository = new InMemoryRoutingDecisionRepository();
+            InMemoryAgentPlanRepository agentPlanRepository = new InMemoryAgentPlanRepository();
+            InMemoryAgentTaskRepository agentTaskRepository = new InMemoryAgentTaskRepository();
+            InMemoryAgentRegistryRepository agentRegistryRepository = new InMemoryAgentRegistryRepository();
+            agentRegistryRepository.save(agent("assistant", true));
+
+            IRootWorkflowDraftPlanner rootPlanner = (sessionId, query, context) -> {
+                throw new IllegalStateException("root failed");
+            };
+
+            PlannerServiceImpl plannerService = new PlannerServiceImpl(
+                    workflowDefinitionRepository,
+                    workflowDraftRepository,
+                    routingDecisionRepository,
+                    agentPlanRepository,
+                    agentTaskRepository,
+                    jsonCodec,
+                    rootPlanner,
+                    agentRegistryRepository,
+                    true,
+                    "root",
+                    3,
+                    0L,
+                    true,
+                    "assistant"
+            );
+
+            AgentPlanEntity plan = plannerService.createPlan(5006L, "root失败触发指标");
+            Assertions.assertEquals(PlanStatusEnum.READY, plan.getStatus());
+
+            double routeFallback = registry.get("agent.planner.route.total")
+                    .tag("decision_type", "FALLBACK")
+                    .counter()
+                    .count();
+            double fallbackCount = registry.get("agent.planner.fallback.total")
+                    .tag("reason", "ROOT_PLANNING_FAILED")
+                    .counter()
+                    .count();
+            Assertions.assertEquals(1D, routeFallback, 0.0001D);
+            Assertions.assertEquals(1D, fallbackCount, 0.0001D);
+        } finally {
+            Metrics.removeRegistry(registry);
+            registry.close();
+        }
+    }
+
+    @Test
     public void shouldAutoFallbackToRootWhenFallbackAgentKeyMissing() {
         JsonCodec jsonCodec = new JsonCodec(new ObjectMapper());
         InMemoryWorkflowDefinitionRepository workflowDefinitionRepository = new InMemoryWorkflowDefinitionRepository();
@@ -210,6 +269,68 @@ public class PlannerServiceRootDraftTest {
         List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(plan.getId());
         Assertions.assertEquals(1, tasks.size());
         Assertions.assertEquals("倍轻松back2f", tasks.get(0).getInputContext().get("productName"));
+    }
+
+    @Test
+    public void shouldRecordPlannerRouteMetricsForProductionHit() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        Metrics.addRegistry(registry);
+        try {
+            JsonCodec jsonCodec = new JsonCodec(new ObjectMapper());
+            InMemoryWorkflowDefinitionRepository workflowDefinitionRepository = new InMemoryWorkflowDefinitionRepository();
+            InMemoryWorkflowDraftRepository workflowDraftRepository = new InMemoryWorkflowDraftRepository();
+            InMemoryRoutingDecisionRepository routingDecisionRepository = new InMemoryRoutingDecisionRepository();
+            InMemoryAgentPlanRepository agentPlanRepository = new InMemoryAgentPlanRepository();
+            InMemoryAgentTaskRepository agentTaskRepository = new InMemoryAgentTaskRepository();
+            InMemoryAgentRegistryRepository agentRegistryRepository = new InMemoryAgentRegistryRepository();
+            agentRegistryRepository.save(agent("assistant", true));
+
+            WorkflowDefinitionEntity definition = new WorkflowDefinitionEntity();
+            definition.setDefinitionKey("metric-prod-hit");
+            definition.setTenantId("DEFAULT");
+            definition.setCategory("IT");
+            definition.setName("metric-prod-hit");
+            definition.setVersion(1);
+            definition.setRouteDescription("生产命中指标测试");
+            definition.setStatus(WorkflowDefinitionStatusEnum.ACTIVE);
+            definition.setIsActive(true);
+            Map<String, Object> graph = new HashMap<>();
+            graph.put("nodes", List.of(new HashMap<>(Map.of("id", "node-1", "type", "WORKER", "name", "worker-1"))));
+            graph.put("edges", new ArrayList<>());
+            definition.setGraphDefinition(graph);
+            definition.setInputSchema(new HashMap<>());
+            definition.setDefaultConfig(new HashMap<>());
+            workflowDefinitionRepository.save(definition);
+
+            PlannerServiceImpl plannerService = new PlannerServiceImpl(
+                    workflowDefinitionRepository,
+                    workflowDraftRepository,
+                    routingDecisionRepository,
+                    agentPlanRepository,
+                    agentTaskRepository,
+                    jsonCodec,
+                    null,
+                    agentRegistryRepository,
+                    true,
+                    "root",
+                    3,
+                    0L,
+                    true,
+                    "assistant"
+            );
+
+            AgentPlanEntity plan = plannerService.createPlan(5007L, "生产命中指标测试");
+            Assertions.assertEquals(PlanStatusEnum.READY, plan.getStatus());
+
+            double productionRoute = registry.get("agent.planner.route.total")
+                    .tag("decision_type", "HIT_PRODUCTION")
+                    .counter()
+                    .count();
+            Assertions.assertEquals(1D, productionRoute, 0.0001D);
+        } finally {
+            Metrics.removeRegistry(registry);
+            registry.close();
+        }
     }
 
     @Test

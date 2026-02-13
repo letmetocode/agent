@@ -24,6 +24,8 @@ import com.getoffer.types.enums.TaskStatusEnum;
 import com.getoffer.types.enums.TaskTypeEnum;
 import com.getoffer.types.enums.WorkflowDraftStatusEnum;
 import com.getoffer.types.exception.AppException;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Metrics;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,6 +70,15 @@ import java.util.regex.Pattern;
     private static final String DEFAULT_CREATOR = "SYSTEM";
     private static final String SOURCE_TYPE_AUTO_MISS_ROOT = "AUTO_MISS_ROOT";
     private static final String SOURCE_TYPE_AUTO_MISS_FALLBACK = "AUTO_MISS_FALLBACK";
+    private static final String METRIC_PLANNER_ROUTE_TOTAL = "agent.planner.route.total";
+    private static final String METRIC_PLANNER_FALLBACK_TOTAL = "agent.planner.fallback.total";
+    private static final Set<String> PLANNER_FALLBACK_REASON_TAG_WHITELIST = Set.of(
+            "AUTO_MISS_FALLBACK",
+            "ROOT_PLANNING_FAILED",
+            "ROOT_PLANNER_DISABLED",
+            "ROOT_PLANNER_MISSING",
+            "UNKNOWN"
+    );
     private static final Set<String> VIRTUAL_ENTRY_NODE_IDS = Set.of(
             "START", "BEGIN", "ENTRY", "ROOT_START", "SOURCE"
     );
@@ -89,6 +100,7 @@ import java.util.regex.Pattern;
     private final long rootRetryBackoffMs;
     private final boolean fallbackSingleNodeEnabled;
     private final String fallbackAgentKey;
+    private final MeterRegistry meterRegistry;
 
     public PlannerServiceImpl(IWorkflowDefinitionRepository workflowDefinitionRepository,
                               IWorkflowDraftRepository workflowDraftRepository,
@@ -141,6 +153,7 @@ import java.util.regex.Pattern;
         this.rootRetryBackoffMs = Math.max(rootRetryBackoffMs, 0L);
         this.fallbackSingleNodeEnabled = fallbackSingleNodeEnabled;
         this.fallbackAgentKey = StringUtils.defaultIfBlank(fallbackAgentKey, this.rootAgentKey);
+        this.meterRegistry = Metrics.globalRegistry;
     }
 
     @Override
@@ -233,6 +246,7 @@ import java.util.regex.Pattern;
         }
 
         RoutingDecisionEntity savedDecision = routingDecisionRepository.save(buildRoutingDecisionEntity(sessionId, extraContext, routedWorkflow));
+        recordRoutingMetrics(savedDecision);
         log.info("ROUTING_DECIDED sessionId={}, turnId={}, routingDecisionId={}, decisionType={}, strategy={}, reason={}, score={}, definitionId={}, draftId={}",
                 sessionId,
                 savedDecision == null ? null : savedDecision.getTurnId(),
@@ -283,6 +297,10 @@ import java.util.regex.Pattern;
             routed.graphDefinition = deepCopyMap(definition.getGraphDefinition());
             routed.inputSchema = deepCopyMap(definition.getInputSchema());
             routed.defaultConfig = deepCopyMap(definition.getDefaultConfig());
+            routed.sourceType = "PRODUCTION_ACTIVE";
+            routed.fallbackFlag = false;
+            routed.fallbackReason = null;
+            routed.plannerAttempts = 0;
             return routed;
         }
 
@@ -298,6 +316,10 @@ import java.util.regex.Pattern;
         routed.graphDefinition = deepCopyMap(draft.getGraphDefinition());
         routed.inputSchema = deepCopyMap(draft.getInputSchema());
         routed.defaultConfig = deepCopyMap(draft.getDefaultConfig());
+        routed.sourceType = draft.getSourceType();
+        routed.fallbackFlag = routed.decisionType == RoutingDecisionTypeEnum.FALLBACK;
+        routed.fallbackReason = extractFallbackReason(draft);
+        routed.plannerAttempts = resolvePlannerAttempts(draft, routed.fallbackReason);
         return routed;
     }
 
@@ -1300,6 +1322,32 @@ import java.util.regex.Pattern;
         return null;
     }
 
+    private String extractFallbackReason(WorkflowDraftEntity draft) {
+        if (draft == null || draft.getConstraints() == null) {
+            return null;
+        }
+        Object fallbackReason = draft.getConstraints().get("fallbackReason");
+        if (fallbackReason == null) {
+            return null;
+        }
+        String text = String.valueOf(fallbackReason).trim();
+        return StringUtils.isBlank(text) ? null : text;
+    }
+
+    private Integer resolvePlannerAttempts(WorkflowDraftEntity draft, String fallbackReason) {
+        if (draft == null) {
+            return 0;
+        }
+        if (StringUtils.equals(SOURCE_TYPE_AUTO_MISS_ROOT, draft.getSourceType())) {
+            return 1;
+        }
+        if (StringUtils.equals(SOURCE_TYPE_AUTO_MISS_FALLBACK, draft.getSourceType())
+                && StringUtils.equalsIgnoreCase(fallbackReason, "ROOT_PLANNING_FAILED")) {
+            return rootMaxAttempts;
+        }
+        return 0;
+    }
+
     private RoutingDecisionEntity buildRoutingDecisionEntity(Long sessionId,
                                                              Map<String, Object> extraContext,
                                                              RoutedWorkflow routedWorkflow) {
@@ -1319,10 +1367,47 @@ import java.util.regex.Pattern;
             decision.setDraftId(routedWorkflow.draft.getId());
             decision.setDraftKey(routedWorkflow.draft.getDraftKey());
         }
+        decision.setSourceType(routedWorkflow.sourceType);
+        decision.setFallbackFlag(routedWorkflow.fallbackFlag);
+        decision.setFallbackReason(routedWorkflow.fallbackReason);
+        decision.setPlannerAttempts(routedWorkflow.plannerAttempts);
+
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("sourceType", routedWorkflow.draft == null ? null : routedWorkflow.draft.getSourceType());
+        metadata.put("sourceType", routedWorkflow.sourceType);
+        metadata.put("fallbackFlag", routedWorkflow.fallbackFlag);
+        metadata.put("fallbackReason", routedWorkflow.fallbackReason);
+        metadata.put("plannerAttempts", routedWorkflow.plannerAttempts);
         decision.setMetadata(metadata);
         return decision;
+    }
+
+    private void recordRoutingMetrics(RoutingDecisionEntity decision) {
+        if (decision == null) {
+            return;
+        }
+        String decisionTypeTag = decision.getDecisionType() == null
+                ? "UNKNOWN"
+                : decision.getDecisionType().name();
+        meterRegistry.counter(METRIC_PLANNER_ROUTE_TOTAL, "decision_type", decisionTypeTag).increment();
+
+        boolean fallback = Boolean.TRUE.equals(decision.getFallbackFlag())
+                || decision.getDecisionType() == RoutingDecisionTypeEnum.FALLBACK;
+        if (!fallback) {
+            return;
+        }
+        String reasonTag = normalizeFallbackReasonTag(decision.getFallbackReason());
+        meterRegistry.counter(METRIC_PLANNER_FALLBACK_TOTAL, "reason", reasonTag).increment();
+    }
+
+    private String normalizeFallbackReasonTag(String fallbackReason) {
+        if (StringUtils.isBlank(fallbackReason)) {
+            return "UNKNOWN";
+        }
+        String normalized = fallbackReason.trim().toUpperCase(Locale.ROOT);
+        if (PLANNER_FALLBACK_REASON_TAG_WHITELIST.contains(normalized)) {
+            return normalized;
+        }
+        return "OTHER";
     }
 
     private Long extractTurnId(Map<String, Object> extraContext) {
@@ -1362,6 +1447,10 @@ import java.util.regex.Pattern;
             snapshot.put("draftKey", routedWorkflow.draft.getDraftKey());
             snapshot.put("draftSourceType", routedWorkflow.draft.getSourceType());
         }
+        snapshot.put("sourceType", routedWorkflow.sourceType);
+        snapshot.put("fallbackFlag", routedWorkflow.fallbackFlag);
+        snapshot.put("fallbackReason", routedWorkflow.fallbackReason);
+        snapshot.put("plannerAttempts", routedWorkflow.plannerAttempts);
         snapshot.put("executionGraphHash", hashGraph(routedWorkflow.graphDefinition));
         return snapshot;
     }
@@ -1399,6 +1488,10 @@ import java.util.regex.Pattern;
         private BigDecimal score;
         private WorkflowDefinitionEntity definition;
         private WorkflowDraftEntity draft;
+        private String sourceType;
+        private Boolean fallbackFlag;
+        private String fallbackReason;
+        private Integer plannerAttempts;
         private Map<String, Object> graphDefinition;
         private Map<String, Object> inputSchema;
         private Map<String, Object> defaultConfig;

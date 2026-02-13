@@ -57,6 +57,11 @@ public interface TaskExecutionDao {
     Integer getMaxAttemptNumber(@Param("taskId") Long taskId);
 
     /**
+     * 批量查询任务最新执行耗时（按最大 attempt_number）。
+     */
+    List<TaskExecutionPO> selectLatestExecutionByTaskIds(@Param("taskIds") List<Long> taskIds);
+
+    /**
      * 批量插入执行记录
      */
     int batchInsert(@Param("list") List<TaskExecutionPO> list);

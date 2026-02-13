@@ -83,7 +83,7 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
         seedWorkflowDefinition();
 
         Long sessionId = createSession();
-        ChatResult chat = triggerChat(sessionId);
+        ChatResult chat = triggerTurn(sessionId);
 
         CompletableFuture<Boolean> sseFuture = CompletableFuture.supplyAsync(
                 () -> waitPlanFinishedEvent(chat.planId)
@@ -91,7 +91,7 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
 
         Thread.sleep(300L);
         List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(chat.planId);
-        Assertions.assertFalse(tasks.isEmpty(), "chat 后应展开至少一个任务");
+        Assertions.assertFalse(tasks.isEmpty(), "turn 创建后应展开至少一个任务");
 
         for (AgentTaskEntity task : tasks) {
             task.setStatus(TaskStatusEnum.COMPLETED);
@@ -166,18 +166,18 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
         return root.path("data").path("sessionId").asLong();
     }
 
-    private ChatResult triggerChat(Long sessionId) throws Exception {
+    private ChatResult triggerTurn(Long sessionId) throws Exception {
         Map<String, Object> request = new HashMap<>();
         request.put("message", "please run integration sse test flow");
 
-        ResponseEntity<String> response = postJson("/api/sessions/" + sessionId + "/chat", request);
+        ResponseEntity<String> response = postJson("/api/v2/sessions/" + sessionId + "/turns", request);
         JsonNode root = objectMapper.readTree(response.getBody());
 
         ChatResult result = new ChatResult();
         result.planId = root.path("data").path("planId").asLong();
         result.turnId = root.path("data").path("turnId").asLong();
-        Assertions.assertTrue(result.planId > 0, "chat 应返回 planId");
-        Assertions.assertTrue(result.turnId > 0, "chat 应返回 turnId");
+        Assertions.assertTrue(result.planId > 0, "turn 创建应返回 planId");
+        Assertions.assertTrue(result.turnId > 0, "turn 创建应返回 turnId");
         return result;
     }
 

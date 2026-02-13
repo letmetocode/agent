@@ -3,13 +3,12 @@ package com.getoffer.api.dto;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-import java.util.Map;
 
 /**
- * 会话详情 DTO。
+ * 会话启动响应 DTO（V2）。
  */
 @Data
-public class SessionDetailDTO {
+public class SessionStartResponseDTO {
 
     private Long sessionId;
     private String userId;
@@ -17,6 +16,5 @@ public class SessionDetailDTO {
     private String agentKey;
     private String scenario;
     private Boolean active;
-    private Map<String, Object> metaInfo;
     private LocalDateTime createdAt;
 }

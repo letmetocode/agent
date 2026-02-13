@@ -140,6 +140,8 @@ public class AgentSessionRepositoryImpl implements IAgentSessionRepository {
         entity.setId(po.getId());
         entity.setUserId(po.getUserId());
         entity.setTitle(po.getTitle());
+        entity.setAgentKey(po.getAgentKey());
+        entity.setScenario(po.getScenario());
         entity.setIsActive(po.getIsActive());
 
         // JSONB 字段转换
@@ -162,6 +164,8 @@ public class AgentSessionRepositoryImpl implements IAgentSessionRepository {
                 .id(entity.getId())
                 .userId(entity.getUserId())
                 .title(entity.getTitle())
+                .agentKey(entity.getAgentKey())
+                .scenario(entity.getScenario())
                 .isActive(entity.getIsActive())
                 .createdAt(entity.getCreatedAt())
                 .build();

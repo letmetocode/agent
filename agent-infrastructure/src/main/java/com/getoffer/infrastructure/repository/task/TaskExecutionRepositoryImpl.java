@@ -8,7 +8,11 @@ import com.getoffer.infrastructure.util.JsonCodec;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -116,6 +120,32 @@ public class TaskExecutionRepositoryImpl implements ITaskExecutionRepository {
     @Override
     public Integer getMaxAttemptNumber(Long taskId) {
         return taskExecutionDao.getMaxAttemptNumber(taskId);
+    }
+
+    @Override
+    public Map<Long, Long> findLatestExecutionTimeByTaskIds(List<Long> taskIds) {
+        if (taskIds == null || taskIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<Long> dedupTaskIds = taskIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (dedupTaskIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<TaskExecutionPO> latestExecutions = taskExecutionDao.selectLatestExecutionByTaskIds(dedupTaskIds);
+        if (latestExecutions == null || latestExecutions.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<Long, Long> result = new LinkedHashMap<>();
+        for (TaskExecutionPO po : latestExecutions) {
+            if (po == null || po.getTaskId() == null) {
+                continue;
+            }
+            result.put(po.getTaskId(), po.getExecutionTimeMs());
+        }
+        return result;
     }
 
     /**

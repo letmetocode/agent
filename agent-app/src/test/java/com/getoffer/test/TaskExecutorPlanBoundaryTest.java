@@ -594,6 +594,24 @@ public class TaskExecutorPlanBoundaryTest {
         }
 
         @Override
+        public Map<Long, Long> findLatestExecutionTimeByTaskIds(List<Long> taskIds) {
+            Map<Long, Long> result = new HashMap<>();
+            if (taskIds == null || taskIds.isEmpty()) {
+                return result;
+            }
+            for (Long taskId : taskIds) {
+                if (taskId == null) {
+                    continue;
+                }
+                TaskExecutionEntity latest = findByTaskIdOrderByAttempt(taskId).stream().findFirst().orElse(null);
+                if (latest != null) {
+                    result.put(taskId, latest.getExecutionTimeMs());
+                }
+            }
+            return result;
+        }
+
+        @Override
         public List<TaskExecutionEntity> batchSave(List<TaskExecutionEntity> entities) {
             List<TaskExecutionEntity> result = new ArrayList<>();
             if (entities == null) {

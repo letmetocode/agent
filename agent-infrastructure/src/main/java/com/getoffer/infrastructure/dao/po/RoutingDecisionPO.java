@@ -30,6 +30,10 @@ public class RoutingDecisionPO {
     private Integer definitionVersion;
     private Long draftId;
     private String draftKey;
+    private String sourceType;
+    private Boolean fallbackFlag;
+    private String fallbackReason;
+    private Integer plannerAttempts;
     private String metadata;
     private LocalDateTime createdAt;
 }
