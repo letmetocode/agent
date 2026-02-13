@@ -2,7 +2,7 @@
 
 ## 1. 文档目标
 
-本文档作为系统架构主文档，回答四个问题：
+本文档回答四个问题：
 
 - 系统边界是什么（与哪些外部系统交互）
 - 关键链路如何流转（会话 -> 规划 -> 执行 -> 收敛 -> 回放）
@@ -42,8 +42,8 @@
 
 - `trigger` 不直接操作 SQL。
 - `domain` 不依赖 `infrastructure` 实现细节。
-- 并发语义和状态迁移必须先在领域层定义，再落到仓储 SQL。
-- 当前版本不引入登录与 RBAC 鉴权链路，前端默认全功能可见可用。
+- 并发语义和状态迁移先在领域层定义，再落地仓储 SQL。
+- 当前版本不引入登录与 RBAC；前端默认全功能可见可用。
 
 ## 3. 统一术语与数据边界
 
@@ -53,7 +53,6 @@
 - `Workflow Draft`：候选草案与治理对象。
 - `Routing Decision`：路由命中/兜底决策审计记录。
 - `AgentProfile`：`agent_registry` 中的执行配置。
-- `TaskClient`：运行时执行客户端（底层 `ChatClient`）。
 
 数据库落地范围（必须跨进程恢复）：
 
@@ -62,37 +61,26 @@
 - 事件流：`plan_task_events`
 - Agent 配置：`agent_registry/agent_tool_catalog/agent_tools/vector_store_registry`
 
-前端功能边界（当前版本）：
+## 4. 核心链路时序（Runtime）
 
-- 设置域仅保留 `/settings/profile`。
-- `/settings/system` 与 `/settings/access` 已下线，不再作为架构入口。
-- “不可用态”用于系统能力异常提示，不代表 RBAC 权限门控。
-
-## 4. 核心链路时序（C4-L2 / Runtime）
-
-### 4.1 会话触发与规划
+### 4.1 V3 会话编排入口
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant UI as Frontend
-    participant API as TurnV2Controller
+    participant ChatV3 as ChatV3Controller
+    participant Orchestrator as ConversationOrchestratorService
     participant Planner as PlannerService
     participant DB as PostgreSQL
 
-    UI->>API: POST /api/v2/sessions/{id}/turns
-    API->>Planner: createPlanByPrompt
-    Planner->>DB: query production definitions
-    alt 命中生产 Definition
-      Planner->>DB: create plan + tasks
-    else 未命中
-      Planner->>DB: root candidate draft(最多3次)
-      alt root失败
-        Planner->>DB: single-node fallback draft
-      end
-      Planner->>DB: create plan + tasks
-    end
-    API-->>UI: turn accepted + planId
+    UI->>ChatV3: POST /api/v3/chat/messages
+    ChatV3->>Orchestrator: submitMessage(request)
+    Orchestrator->>DB: create/reuse session + create turn + save user message
+    Orchestrator->>Planner: createPlan(sessionId, message, context)
+    Planner->>DB: route + create plan + create tasks
+    Orchestrator->>DB: update turn(planId, EXECUTING)
+    ChatV3-->>UI: sessionId + turnId + planId + streamPath
 ```
 
 ### 4.2 调度执行与终态收敛
@@ -115,24 +103,27 @@ sequenceDiagram
     Result->>DB: save final assistant message(if absent)
 ```
 
-### 4.3 SSE 实时与回放
+### 4.3 聊天语义 SSE（V3）
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant Exec as Executor/Daemon
     participant Event as PlanTaskEventPublisher
-    participant DB as PostgreSQL
-    participant Stream as PlanStreamController
+    participant Stream as ChatStreamV3Controller
     participant UI as Frontend
 
-    Exec->>Event: publish task/plan event
-    Event->>DB: insert plan_task_events
-    Event->>DB: pg_notify(channel)
-    UI->>Stream: GET /api/plans/{id}/stream (Last-Event-ID)
-    Stream->>DB: replay from cursor
-    Stream-->>UI: historical events + realtime push
+    Exec->>Event: publish TASK_* / PLAN_FINISHED
+    UI->>Stream: GET /api/v3/chat/sessions/{id}/stream?planId=...
+    Stream->>Event: replay(planId, cursor)
+    Stream-->>UI: message.accepted/planning.started/task.progress/task.completed
+    Stream-->>UI: answer.finalizing/answer.final
 ```
+
+### 4.4 路由决策查询（V3）
+
+- `GET /api/v3/chat/plans/{id}/routing` 返回结构化路由决策。
+- V2 路由查询入口已下线并返回迁移提示。
 
 ## 5. 一致性与并发策略
 
@@ -140,25 +131,21 @@ sequenceDiagram
 
 - `agent_plans`、`agent_tasks` 使用 `version` 乐观锁。
 - SQL 条件更新：`where id=? and version=?`。
-- Java 侧禁止提前自增 version，避免写偏。
 
 ### 5.2 任务 claim 代际隔离
 
 - claim 原子化写入 `claim_owner + lease_expire_at + execution_attempt`。
 - 回写终态与续约必须携带 `claim_owner + execution_attempt` guard。
-- 旧执行者回写被拒绝，防止跨实例覆盖。
 
 ### 5.3 回合终态幂等
 
 - 终态收敛采用“先抢占终态，再写最终 assistant 消息”。
 - `session_messages` 限制同一 turn 下 assistant 最终消息唯一（条件唯一索引）。
-- finalize 结果语义：`FINALIZED / ALREADY_FINALIZED / SKIPPED_NOT_TERMINAL`。
 
 ### 5.4 SSE 游标一致性
 
-- 游标优先级：`Last-Event-ID` > query `lastEventId`。
+- `Last-Event-ID` > query `lastEventId`。
 - 连接建立先回放，再实时订阅。
-- 连接存活期执行 replay sweep 兜底，覆盖通知丢失。
 
 ## 6. 失败模式与降级策略
 
@@ -166,139 +153,38 @@ sequenceDiagram
 - TaskClient 超时：按配置追加有限重试，超过上限进入 FAILED。
 - Plan 黑板写回冲突：读取最新 Plan 后有限重试。
 - SSE 通知丢失：依赖事件表回放补偿。
+- V3 会话编排无可用 Agent：明确返回 `暂无可用 Agent`。
 
 ## 7. 可观测性与审计
 
-### 7.1 指标基线（关键）
+- 入口日志：`HTTP_IN / HTTP_OUT / HTTP_ERROR`
+- 关键审计事件：`ROUTING_DECIDED`、`TURN_FINALIZED`、`CHAT_V3_ACCEPTED`
+- 告警规则：Planner / Executor-Terminal / SSE 已固化至 `docs/dev-ops/observability/prometheus/*`
 
-- 任务执行与过期运行：`agent.task.*`
-- Plan 终态收敛：
-  - `agent.plan.finalize.attempt.total`
-  - `agent.plan.finalize.dedup.total`
-  - `agent.plan.finished.publish.total`
-- Planner 路由与兜底：
-  - `agent.planner.route.total`（tag: `decision_type`）
-  - `agent.planner.fallback.total`（tag: `reason`）
-- SSE 实时与回放：
-  - `agent.sse.push.attempt.total`
-  - `agent.sse.push.fail.total`
-  - `agent.sse.replay.batch.total`
-  - `agent.sse.replay.hit.total`
-  - `agent.sse.replay.empty.total`
-  - `agent.sse.replay.events.total`
-  - `agent.sse.replay.duration`
+## 8. 对外 API 分层策略
 
-### 7.2 告警阈值（已固化）
+### 8.1 推荐（V3）
 
-已固化到 Prometheus 规则文件：
+- `POST /api/v3/chat/messages`
+- `GET /api/v3/chat/sessions/{id}/history`
+- `GET /api/v3/chat/sessions/{id}/stream`
+- `GET /api/v3/chat/plans/{id}/routing`
 
-- `docs/dev-ops/observability/prometheus/planner-alert-rules.yml`
-- `docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.yml`
-- `docs/dev-ops/observability/prometheus/sse-alert-rules.yml`
+### 8.2 下线（V2）
 
-分级阈值：
+- `GET /api/v2/agents/active`（已下线，返回迁移提示）
+- `POST /api/v2/agents`（已下线，返回迁移提示）
+- `POST /api/v2/sessions`（已下线，返回迁移提示）
+- `POST /api/v2/sessions/{id}/turns`（已下线，返回迁移提示）
+- `GET /api/v2/plans/{id}/routing`（已下线，返回迁移提示）
 
-- Planner（预发/生产）：fallback 绝对值、fallback 比例、指标断流。
-- Executor/Terminal（预发/生产）：finalize dedup 比例、claimed update guard reject 比例、timeout 最终失败比例、指标断流。
-- SSE（预发/生产）：推送失败比例、回放命中率、回放平均耗时、指标断流。
+策略说明：
 
-处置手册：
-
-- `docs/dev-ops/observability/planner-alert-runbook.md`
-- `docs/dev-ops/observability/executor-terminal-alert-runbook.md`
-- `docs/dev-ops/observability/sse-alert-runbook.md`
-
-### 7.3 HTTP 链路日志
-
-- 入口统一日志：`HTTP_IN / HTTP_OUT / HTTP_ERROR`
-- 全链路追踪字段：`X-Trace-Id`、`X-Request-Id`
-- 关键审计事件：`ROUTING_DECIDED`、`TURN_FINALIZED`、`CHAT_V1_REJECTED`
-
-## 8. 架构决策（ADR 摘要）
-
-- ADR-001：Workflow 命中优先生产 Definition，未命中再 Root 候选。
-- ADR-002：Root 不硬编码，启动即校验可用性。
-- ADR-003：最终用户输出仅暴露 `WORKER`，`CRITIC` 仅用于内部校验。
-- ADR-004：SSE 采用“事件持久化 + 通知广播 + 回放补偿”三层模型。
-- ADR-005：终态收敛采用幂等语义，避免重复最终消息。
+- 新前端仅走 V3 聚合协议。
+- V2 编排接口全部下线，统一迁移到 V3。
 
 ## 9. 与其他文档的映射
 
-- 产品需求入口：`README.md`
-- 前端 IA/UI 规范：`03-ui-ux-spec.md`
-- 数据模型与 SQL：`docs/archive/design/07-data-model-and-sql.md`
-- 观测与运维：`docs/archive/design/08-observability-and-ops.md`
-- 开发任务清单：`04-development-backlog.md`
-
-## 10. V2 会话与规划 API（已落地）
-
-### 10.1 接口与链路定位
-
-- `GET /api/v2/agents/active`：查询可用 Agent 列表。
-- `POST /api/v2/agents`：创建 Agent。
-- `POST /api/v2/sessions`：会话创建显式绑定 `agentKey`。
-- `POST /api/v2/sessions/{id}/turns`：回合触发规划并返回路由决策摘要。
-- `GET /api/v2/plans/{id}/routing`：返回路由决策详情（含 fallback 原因与重试次数）。
-
-链路状态：
-
-- 新链路：前端会话启动主路径已切换到 `/api/v2/*`。
-- 兼容链路：旧 `/api/sessions/{id}/chat` 已硬下线，调用方需迁移到 V2。
-- 设置链路：仅保留 `/settings/profile`，不包含系统配置与成员权限子系统。
-
-### 10.2 路由决策关键字段语义
-
-- `sourceType`：路由来源类型（如 production 命中、root candidate、auto fallback）。
-- `fallbackFlag`：是否触发 fallback。
-- `fallbackReason`：fallback 的结构化原因（如 `AUTO_MISS_FALLBACK`）。
-- `plannerAttempts`：本轮 root 规划尝试次数。
-
-### 10.3 持久化映射（V2 增量）
-
-- `agent_sessions`：新增 `agent_key`、`scenario`，用于会话与 Agent 显式绑定及场景审计。
-- `routing_decisions`：新增 `source_type`、`fallback_flag`、`fallback_reason`、`planner_attempts`。
-- `session_messages`：历史数据强制收敛为“同一 turn 仅 1 条 assistant 最终消息”（并补齐唯一索引）。
-- 对应迁移脚本：
-  - `docs/dev-ops/postgresql/sql/migrations/V20260212_01_session_planner_v2.sql`
-  - `docs/dev-ops/postgresql/sql/migrations/V20260212_01_session_planner_v2_rollback.sql`
-  - `docs/dev-ops/postgresql/sql/migrations/V20260213_02_executor_terminal_convergence.sql`
-  - `docs/dev-ops/postgresql/sql/migrations/V20260213_02_executor_terminal_convergence_rollback.sql`
-
-### 10.4 查询层性能优化（本轮）
-
-- `QueryController` 的任务聚合场景已从“逐任务查询 latestExecutionTimeMs”切换为批量查询。
-- 仓储新增 `ITaskExecutionRepository#findLatestExecutionTimeByTaskIds`，由 MyBatis 单次 SQL 批量返回每个任务的最新执行耗时。
-- 覆盖接口：`/api/tasks`、`/api/plans/{id}/tasks`、`/api/sessions/{id}/overview`、`/api/dashboard/overview`。
-- 效果：消除任务列表的 N+1 查询，降低会话与看板页查询放大。
-
-### 10.5 观测日志查询与闭环能力（本轮）
-
-- `/api/logs/paged` 已从“内存 flatten + 过滤”收敛为“DB 侧过滤 + count + 分页”。
-- 新增仓储能力：`IPlanTaskEventRepository#findLogsPaged`、`#countLogs`。
-- 新增观测告警目录接口：`GET /api/observability/alerts/catalog`，用于总览页展示规则与 runbook 入口。
-- 索引优化：`plan_task_events` 新增 `created_at DESC,id DESC`、`task_id+created_at`、`event_data->>'traceId'` 索引。
-- 对应迁移脚本：
-  - `docs/dev-ops/postgresql/sql/migrations/V20260213_03_observability_logs_query_optimization.sql`
-  - `docs/dev-ops/postgresql/sql/migrations/V20260213_03_observability_logs_query_optimization_rollback.sql`
-
-## 11. 下一阶段架构优化重点（P0）
-
-- SSE 指标与告警已固化：推送失败率、回放命中率、回放平均耗时纳入规则与 runbook。
-- 继续周期化执行并发 finalize 与 claim/lease 压测，按版本节奏校准阈值。
-
-
-## 12. 能力-证据映射（架构视角）
-
-| 架构能力 | 关键接口/配置 | 测试证据 | 提交证据 |
-| --- | --- | --- | --- |
-| 会话与规划 V2 | `POST /api/v2/sessions/{id}/turns`、`GET /api/v2/plans/{id}/routing` | `AgentV2ControllerTest`、`PlanRoutingV2ControllerTest`、`PlannerServiceRootDraftTest` | `0db0c5a`、`6f0769c` |
-| 执行与终态幂等 | finalize 幂等语义 + `session_messages` 终态唯一约束 | `TurnResultServiceTest`、`PlanStatusDaemonTest`、`ExecutorTerminalConvergenceIntegrationTest` | `50b15c5`、`b8acdde` |
-| SSE 回放补偿 | `GET /api/plans/{id}/stream` + replay sweep 参数 | `SessionChatPlanSseIntegrationTest` | `246e8f9`、`8ff4231` |
-| 观测与日志闭环 | `/api/logs/paged`、`/api/observability/alerts/catalog` | `ConsoleQueryControllerPerformanceTest`、`ObservabilityAlertCatalogControllerTest` | `924ee1e`、`6e43b60` |
-| 前端范围收口 | 路由保留 `/settings/profile` | 前端构建 `npm run build` | `5a02163` |
-
-当前架构默认假设：
-
-- 不接入登录与 RBAC 鉴权链路。
-- 系统配置治理后台不在当前版本架构边界内。
-- 优先保证会话/规划/执行/SSE/观测主链路的稳定性与可观测性。
+- 产品需求：`docs/01-product-requirements.md`
+- UI/UX 规范：`docs/03-ui-ux-spec.md`
+- 开发任务清单：`docs/04-development-backlog.md`

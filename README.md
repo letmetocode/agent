@@ -199,23 +199,33 @@ npm run dev
 
 前端会话页在识别到“未命中生产 Definition”时，会展示 Draft 提示与编辑入口。
 
-## 会话与规划 V2 接口
+## 会话编排 V3 接口（推荐）
 
-- `GET /api/v2/agents/active`：查询可用 Agent 列表。
-- `POST /api/v2/agents`：创建 Agent（最小字段：name/modelProvider/modelName）。
-- `POST /api/v2/sessions`：创建会话（必填 `userId + agentKey`）。
-- `POST /api/v2/sessions/{id}/turns`：创建回合并触发规划。
-- `GET /api/v2/plans/{id}/routing`：查询计划路由决策详情（含 fallback 原因与重试次数）。
+- `POST /api/v3/chat/messages`：统一会话编排入口（自动创建/复用 Session + 创建 Turn + 触发 Plan）。
+- `GET /api/v3/chat/sessions/{id}/history`：聚合返回会话历史（session/turns/messages + latestPlanId）。
+- `GET /api/v3/chat/sessions/{id}/stream?planId=...`：聊天语义 SSE（`message.accepted`、`task.progress`、`answer.final` 等）。
+- `GET /api/v3/chat/plans/{id}/routing`：查询路由决策详情（V2 路由接口替代）。
+- 默认策略：优先使用 `assistant`（若存在且激活），否则使用首个激活 Agent；无可用 Agent 时返回明确错误。
+
+## 会话与规划 V2 接口（已下线，仅保留迁移提示）
+
+> 说明：V2 接口已全部下线，仅保留迁移提示用于存量调用识别。替代方案见 `docs/04-development-backlog.md` 第 4 节。
+
+- `GET /api/v2/agents/active`：已下线，返回迁移提示（请使用 `/api/v3/chat/messages`）。
+- `POST /api/v2/agents`：已下线，返回迁移提示（请使用 `/api/v3/chat/messages`）。
+- `POST /api/v2/sessions`：已下线，返回迁移提示（请使用 `/api/v3/chat/messages`）。
+- `POST /api/v2/sessions/{id}/turns`：已下线，返回迁移提示（请使用 `/api/v3/chat/messages`）。
+- `GET /api/v2/plans/{id}/routing`：已下线，返回迁移提示（请使用 `/api/v3/chat/plans/{id}/routing`）。
 - 旧 `POST /api/sessions/{id}/chat` 已下线，调用会返回迁移提示。
 - 查询性能：`/api/tasks`、`/api/plans/{id}/tasks`、`/api/sessions/{id}/overview`、`/api/dashboard/overview` 已使用批量 latestExecution 查询，避免 N+1。
 - 观测闭环：`/api/logs/paged` 已改为 DB 侧分页查询；`GET /api/observability/alerts/catalog` 提供告警目录与 runbook 入口。
 
-### 会话与规划 V2 最小验证流程
+### 会话编排 V3 最小验证流程
 
-- 创建 Agent：`POST /api/v2/agents`
-- 启动会话：`POST /api/v2/sessions`
-- 触发回合：`POST /api/v2/sessions/{id}/turns`
-- 回查路由：`GET /api/v2/plans/{planId}/routing`
+- 发送消息：`POST /api/v3/chat/messages`
+- 回查历史：`GET /api/v3/chat/sessions/{sessionId}/history`
+- 订阅流式执行：`GET /api/v3/chat/sessions/{sessionId}/stream?planId={planId}`
+- 回查路由：`GET /api/v3/chat/plans/{planId}/routing`
 
 详细回归项见：`docs/04-development-backlog.md`。
 
@@ -254,6 +264,7 @@ npm run dev
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlannerServiceRootDraftTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=AgentV2ControllerTest,SessionV2ControllerTest,TurnV2ControllerTest,PlanRoutingV2ControllerTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=ChatControllerTest -Dsurefire.failIfNoSpecifiedTests=false test`
+  - `mvn -pl agent-app -am -DskipTests=false -Dtest=ConversationOrchestratorServiceTest,ChatV3ControllerTest,ChatStreamV3ControllerTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TaskExecutorPlanBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TurnResultServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlanStatusDaemonTest -Dsurefire.failIfNoSpecifiedTests=false test`

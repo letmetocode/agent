@@ -12,20 +12,21 @@
 
 ## 3) 核心用户路径（P0）
 
-1. 点击新聊天并输入目标
-2. 输入目标并触发执行
-3. 执行中途控制（暂停/继续/取消/失败重试）
-4. 查看结果与引用
+1. 点击“新聊天”并输入目标
+2. 系统自动创建/复用会话并触发执行
+3. 执行中查看实时状态（流式）
+4. 输出最终结果与引用
 5. 导出或分享结果
 6. 历史回溯与复盘
 
 ## 4) 当前版本范围（In Scope）
 
 - 会话-回合-消息模型（`session -> turn -> message`）
+- V3 会话编排聚合接口（后端统一编排，前端不再拼接旧接口）
 - Workflow 路由与 Root 候选 Draft 兜底
 - Task 调度执行（claim + lease + execution attempt）
 - Plan 终态自动收敛与最终回复汇总
-- SSE 实时推送与断线回放
+- SSE 实时推送与断线回放（含聊天语义流映射）
 - 前端控制台主路径：工作台/对话执行/任务中心/资产中心/观测日志/设置（仅个人偏好）
 - 分享能力保持可用（低优先级维护）
 
@@ -46,31 +47,35 @@
 
 ## 7) 已完成功能摘要（2026-02）
 
-- 会话与规划 V2 主链路闭环：新聊天（默认 Agent）-> Session 启动 -> Turn 触发 -> Routing 决策回查。
+- 会话编排 V3 主链路闭环：`POST /api/v3/chat/messages` 统一处理会话创建/复用 + Turn 创建 + Plan 触发。
+- 对话历史聚合：`GET /api/v3/chat/sessions/{id}/history` 一次返回会话、回合、消息与 `latestPlanId`。
+- 聊天语义流：`GET /api/v3/chat/sessions/{id}/stream` 输出 `message.accepted/task.progress/answer.final` 等事件。
+- 路由决策 V3：`GET /api/v3/chat/plans/{id}/routing`。
+- 会话编排 V2 入口全量下线（`/api/v2/agents/*`、`/api/v2/sessions*`、`/api/v2/plans/{id}/routing`）。
 - 终态幂等收敛：先抢占终态，再写最终消息；重复 finalize 去重。
-- SSE 语义统一：`Last-Event-ID` 优先于 query `lastEventId`，支持回放补偿。
 - 观测能力收口：日志分页 SQL 化、告警目录接口、总览页下钻链路可用。
-- 前端 IA 收口：移除系统配置与成员权限页面，设置仅保留个人偏好。
 
 ### 7.1 证据索引（接口 / 测试 / 提交）
 
 | 领域 | 关键接口 | 关键测试 | 关键提交 |
 | --- | --- | --- | --- |
-| 会话与规划 | `POST /api/v2/sessions`、`POST /api/v2/sessions/{id}/turns`、`GET /api/v2/plans/{id}/routing` | `AgentV2ControllerTest`、`SessionV2ControllerTest`、`TurnV2ControllerTest`、`PlanRoutingV2ControllerTest`、`PlannerServiceRootDraftTest` | `0db0c5a`、`6f0769c` |
-| 执行与终态 | `POST /api/tasks/{id}/pause`、`/resume`、`/cancel`、`/retry-from-failed` | `TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest`、`ExecutorTerminalConvergenceIntegrationTest` | `b8acdde`、`50b15c5` |
-| SSE | `GET /api/plans/{id}/stream` | `SessionChatPlanSseIntegrationTest` | `246e8f9`、`8ff4231` |
-| 观测与日志 | `GET /api/dashboard/overview`、`GET /api/logs/paged`、`GET /api/observability/alerts/catalog` | `PlanStreamControllerTest`、`ConsoleQueryControllerPerformanceTest`、`ObservabilityAlertCatalogControllerTest` | `924ee1e`、`6e43b60` |
-| 前端主路径 | `/workspace`、`/sessions`、`/tasks`、`/observability/*`、`/settings/profile` | 前端构建校验 `npm run build` | `8eb3daa`、`6f0769c`、`5a02163` |
-| 分享 | `POST /api/tasks/{id}/share-links`、`GET /api/share/tasks/{id}` | `TaskShareLinkControllerIntegrationTest`、`ShareAccessControllerIntegrationTest` | `aed6c29`、`c0339b7`、`28eb2f5` |
+| 会话编排 V3 | `POST /api/v3/chat/messages`、`GET /api/v3/chat/sessions/{id}/history`、`GET /api/v3/chat/sessions/{id}/stream` | `ConversationOrchestratorServiceTest`、`ChatV3ControllerTest`、`ChatStreamV3ControllerTest` | 本次重构 |
+| 路由决策 V3 | `GET /api/v3/chat/plans/{id}/routing` | `ChatRoutingV3ControllerTest` | 本次重构 |
+| V2 兼容入口下线 | `GET/POST /api/v2/agents/*`、`POST /api/v2/sessions`、`POST /api/v2/sessions/{id}/turns`、`GET /api/v2/plans/{id}/routing` | `AgentV2ControllerTest`、`SessionV2ControllerTest`、`TurnV2ControllerTest`、`PlanRoutingV2ControllerTest` | 本次重构 |
+| 执行与终态 | `POST /api/tasks/{id}/pause`、`/resume`、`/cancel`、`/retry-from-failed` | `TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest` | `b8acdde`、`50b15c5` |
+| SSE（底层） | `GET /api/plans/{id}/stream` | `PlanStreamControllerTest` | `246e8f9`、`8ff4231` |
+| 观测与日志 | `GET /api/dashboard/overview`、`GET /api/logs/paged`、`GET /api/observability/alerts/catalog` | `ConsoleQueryControllerPerformanceTest`、`ObservabilityAlertCatalogControllerTest` | `924ee1e`、`6e43b60` |
+| 前端主路径 | `/workspace`、`/sessions`、`/tasks`、`/observability/*` | 前端构建校验 `npm run build` | 本次重构 |
 
 ## 8) 需求验收标准（P0）
 
+- 前端发送消息仅调用 V3 聚合接口，不再依赖前端拼装旧链路。
+- 流式状态可实时展示执行进度，中间态不作为最终回复落地。
+- `answer.final` 到达后，聊天区最终消息与 `session_messages` 保持一致。
 - 含 Critic 节点的执行计划完成后，用户最终回复不出现 Critic JSON。
 - 同一 turn 在并发 finalize 下终态不反复、最终 assistant 消息不重复。
 - SSE 断线重连后可基于游标完成回放，不丢关键状态事件。
-- 会话页与任务详情页可完整完成“执行中控制 + 结果查看 + 引用定位”。
-- 路由决策可追溯：可查看 `sourceType/fallbackReason/plannerAttempts`，支持故障复盘。
-- 设置域仅保留个人偏好入口，不出现系统配置与成员权限入口。
+- V2 编排接口调用返回明确迁移提示，且文档同步替换为 V3。
 
 ## 9) 下一阶段优化目标（仅核心业务）
 
