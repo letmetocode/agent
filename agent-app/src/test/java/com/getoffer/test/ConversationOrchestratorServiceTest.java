@@ -12,6 +12,7 @@ import com.getoffer.domain.session.adapter.repository.ISessionTurnRepository;
 import com.getoffer.domain.session.model.entity.AgentSessionEntity;
 import com.getoffer.domain.session.model.entity.SessionMessageEntity;
 import com.getoffer.domain.session.model.entity.SessionTurnEntity;
+import com.getoffer.domain.session.service.SessionConversationDomainService;
 import com.getoffer.trigger.application.command.ChatConversationCommandService;
 import com.getoffer.types.enums.TurnStatusEnum;
 import com.getoffer.types.exception.AppException;
@@ -58,7 +59,8 @@ public class ConversationOrchestratorServiceTest {
                 sessionTurnRepository,
                 sessionMessageRepository,
                 routingDecisionRepository,
-                agentRegistryRepository
+                agentRegistryRepository,
+                new SessionConversationDomainService()
         );
 
         when(sessionTurnRepository.update(any(SessionTurnEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));

@@ -12,6 +12,8 @@ import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
 import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
+import com.getoffer.domain.task.service.TaskDispatchDomainService;
+import com.getoffer.domain.task.service.TaskExecutionDomainService;
 import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
 import com.getoffer.trigger.job.TaskExecutor;
@@ -203,6 +205,8 @@ public class TaskExecutorPlanBoundaryTest {
                 executionRepository,
                 agentFactory,
                 agentRegistryRepository,
+                new TaskDispatchDomainService(),
+                new TaskExecutionDomainService(),
                 new ObjectMapper(),
                 worker,
                 meterProvider,

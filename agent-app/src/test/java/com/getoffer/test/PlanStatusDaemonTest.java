@@ -2,6 +2,8 @@ package com.getoffer.test;
 
 import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
+import com.getoffer.domain.planning.service.PlanFinalizationDomainService;
+import com.getoffer.domain.planning.service.PlanTransitionDomainService;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.IPlanTaskEventRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
@@ -212,9 +214,10 @@ public class PlanStatusDaemonTest {
         TurnFinalizeApplicationService turnResultService = new TurnFinalizeApplicationService(
                 turnRepository,
                 messageRepository,
-                taskRepository
+                taskRepository,
+                new PlanFinalizationDomainService()
         );
-        return new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), turnResultService, 100, 1000);
+        return new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), turnResultService, new PlanTransitionDomainService(), 100, 1000);
     }
 
     private SessionTurnEntity newTurn(Long turnId,

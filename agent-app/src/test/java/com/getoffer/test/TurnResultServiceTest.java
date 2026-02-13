@@ -4,6 +4,7 @@ import com.getoffer.domain.session.adapter.repository.ISessionMessageRepository;
 import com.getoffer.domain.session.adapter.repository.ISessionTurnRepository;
 import com.getoffer.domain.session.model.entity.SessionMessageEntity;
 import com.getoffer.domain.session.model.entity.SessionTurnEntity;
+import com.getoffer.domain.planning.service.PlanFinalizationDomainService;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
@@ -36,7 +37,7 @@ public class TurnResultServiceTest {
                 buildTask(1002L, 10L, TaskTypeEnum.CRITIC, TaskStatusEnum.COMPLETED, "{\"pass\":true,\"feedback\":\"ok\"}")
         ));
 
-        TurnFinalizeApplicationService service = new TurnFinalizeApplicationService(turnRepository, messageRepository, taskRepository);
+        TurnFinalizeApplicationService service = new TurnFinalizeApplicationService(turnRepository, messageRepository, taskRepository, new PlanFinalizationDomainService());
         TurnFinalizeApplicationService.TurnFinalizeResult result = service.finalizeByPlan(10L, PlanStatusEnum.COMPLETED);
 
         Assertions.assertEquals(TurnStatusEnum.COMPLETED, result.getTurnStatus());
@@ -56,7 +57,7 @@ public class TurnResultServiceTest {
                 buildTask(1101L, 11L, TaskTypeEnum.CRITIC, TaskStatusEnum.COMPLETED, "{\"pass\":true,\"feedback\":\"ok\"}")
         ));
 
-        TurnFinalizeApplicationService service = new TurnFinalizeApplicationService(turnRepository, messageRepository, taskRepository);
+        TurnFinalizeApplicationService service = new TurnFinalizeApplicationService(turnRepository, messageRepository, taskRepository, new PlanFinalizationDomainService());
         service.finalizeByPlan(11L, PlanStatusEnum.COMPLETED);
 
         Assertions.assertEquals("本轮任务已执行完成，但暂无可展示的文本结果。", messageRepository.getLastSaved().getContent());
@@ -73,7 +74,7 @@ public class TurnResultServiceTest {
                 buildTask(1202L, 12L, TaskTypeEnum.CRITIC, TaskStatusEnum.COMPLETED, "{\"pass\":false,\"feedback\":\"bad\"}")
         ));
 
-        TurnFinalizeApplicationService service = new TurnFinalizeApplicationService(turnRepository, messageRepository, taskRepository);
+        TurnFinalizeApplicationService service = new TurnFinalizeApplicationService(turnRepository, messageRepository, taskRepository, new PlanFinalizationDomainService());
         TurnFinalizeApplicationService.TurnFinalizeResult result = service.finalizeByPlan(12L, PlanStatusEnum.FAILED);
 
         Assertions.assertEquals(TurnStatusEnum.FAILED, result.getTurnStatus());
@@ -92,7 +93,7 @@ public class TurnResultServiceTest {
         InMemorySessionMessageRepository messageRepository = new InMemorySessionMessageRepository();
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
 
-        TurnFinalizeApplicationService service = new TurnFinalizeApplicationService(turnRepository, messageRepository, taskRepository);
+        TurnFinalizeApplicationService service = new TurnFinalizeApplicationService(turnRepository, messageRepository, taskRepository, new PlanFinalizationDomainService());
         TurnFinalizeApplicationService.TurnFinalizeResult result = service.finalizeByPlan(13L, PlanStatusEnum.COMPLETED);
 
         Assertions.assertEquals(TurnFinalizeApplicationService.FinalizeOutcome.ALREADY_FINALIZED, result.getOutcome());
@@ -111,7 +112,7 @@ public class TurnResultServiceTest {
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
         taskRepository.setTasks(15L, List.of(buildTask(1501L, 15L, TaskTypeEnum.WORKER, TaskStatusEnum.COMPLETED, "done")));
 
-        TurnFinalizeApplicationService service = new TurnFinalizeApplicationService(turnRepository, messageRepository, taskRepository);
+        TurnFinalizeApplicationService service = new TurnFinalizeApplicationService(turnRepository, messageRepository, taskRepository, new PlanFinalizationDomainService());
         TurnFinalizeApplicationService.TurnFinalizeResult result = service.finalizeByPlan(15L, PlanStatusEnum.COMPLETED);
 
         Assertions.assertEquals(TurnFinalizeApplicationService.FinalizeOutcome.FINALIZED, result.getOutcome());
@@ -133,7 +134,7 @@ public class TurnResultServiceTest {
         InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
         taskRepository.setTasks(14L, List.of(buildTask(1401L, 14L, TaskTypeEnum.WORKER, TaskStatusEnum.COMPLETED, "new")));
 
-        TurnFinalizeApplicationService service = new TurnFinalizeApplicationService(turnRepository, messageRepository, taskRepository);
+        TurnFinalizeApplicationService service = new TurnFinalizeApplicationService(turnRepository, messageRepository, taskRepository, new PlanFinalizationDomainService());
         TurnFinalizeApplicationService.TurnFinalizeResult result = service.finalizeByPlan(14L, PlanStatusEnum.COMPLETED);
 
         Assertions.assertEquals(TurnFinalizeApplicationService.FinalizeOutcome.ALREADY_FINALIZED, result.getOutcome());
