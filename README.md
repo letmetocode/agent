@@ -29,6 +29,8 @@
 - 会话规则下沉：`SessionConversationDomainService`（标题/Agent 默认选择/上下文组装/错误语义）。
 - 终态收敛规则下沉：`PlanFinalizationDomainService`（Plan->Turn 终态映射与输出汇总）。
 - Plan 聚合状态推进下沉：`PlanTransitionDomainService`（Task 统计 -> Plan 状态迁移）。
+- Task 持久化策略下沉：`TaskPersistencePolicyDomainService`（乐观锁冲突识别、重试判定、错误归一化）。
+- Task 持久化写用例收口：`TaskPersistenceApplicationService`（claimed update / execution save / plan context retry）。
 - `trigger.service` 兼容包装类已删除，统一由 `trigger.application` 调用 domain。
 
 
@@ -275,7 +277,7 @@ npm run dev
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=ConversationOrchestratorServiceTest,ChatV3ControllerTest,ChatStreamV3ControllerTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TaskExecutorPlanBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TurnResultServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`
-  - `mvn -pl agent-app -am -DskipTests=false -Dtest=SessionConversationDomainServiceTest,PlanFinalizationDomainServiceTest,PlanTransitionDomainServiceTest,TaskExecutionDomainServiceTest,TaskPromptDomainServiceTest,TaskEvaluationDomainServiceTest,TaskRecoveryDomainServiceTest,TaskAgentSelectionDomainServiceTest,TaskBlackboardDomainServiceTest,TaskJsonDomainServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`
+  - `mvn -pl agent-app -am -DskipTests=false -Dtest=SessionConversationDomainServiceTest,PlanFinalizationDomainServiceTest,PlanTransitionDomainServiceTest,TaskExecutionDomainServiceTest,TaskPromptDomainServiceTest,TaskEvaluationDomainServiceTest,TaskRecoveryDomainServiceTest,TaskAgentSelectionDomainServiceTest,TaskBlackboardDomainServiceTest,TaskJsonDomainServiceTest,TaskPersistencePolicyDomainServiceTest,TaskPersistenceApplicationServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlanStatusDaemonTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=SessionChatPlanSseIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=ExecutorTerminalConvergenceIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
