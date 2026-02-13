@@ -1,0 +1,98 @@
+rule_files:
+  - executor-terminal-alert-rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'agent_plan_finalize_attempt_total{env="prod"}'
+        values: '0+100x30'
+      - series: 'agent_plan_finalize_dedup_total{env="prod"}'
+        values: '0+5x30'
+      - series: 'agent_task_claimed_update_guard_reject_total{env="prod"}'
+        values: '0+2x30'
+      - series: 'agent_task_claimed_update_success_total{env="prod"}'
+        values: '0+98x30'
+      - series: 'agent_task_execution_total{env="prod"}'
+        values: '0+100x30'
+      - series: 'agent_task_execution_timeout_final_fail_total{env="prod"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ExecutorFinalizeDedupRatioCriticalProd
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: ExecutorClaimGuardRejectCriticalProd
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: ExecutorTimeoutFinalFailCriticalProd
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'agent_plan_finalize_attempt_total{env="prod"}'
+        values: '0+100x30'
+      - series: 'agent_plan_finalize_dedup_total{env="prod"}'
+        values: '0+30x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ExecutorFinalizeDedupRatioCriticalProd
+        exp_alerts:
+          - exp_labels:
+              alertname: ExecutorFinalizeDedupRatioCriticalProd
+              service: agent-app
+              module: executor-terminal
+              severity: critical
+              env: prod
+
+  - interval: 1m
+    input_series:
+      - series: 'agent_task_claimed_update_guard_reject_total{env="prod"}'
+        values: '0+10x30'
+      - series: 'agent_task_claimed_update_success_total{env="prod"}'
+        values: '0+90x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ExecutorClaimGuardRejectCriticalProd
+        exp_alerts:
+          - exp_labels:
+              alertname: ExecutorClaimGuardRejectCriticalProd
+              service: agent-app
+              module: executor-terminal
+              severity: critical
+              env: prod
+
+  - interval: 1m
+    input_series:
+      - series: 'agent_task_execution_total{env="prod"}'
+        values: '0+100x30'
+      - series: 'agent_task_execution_timeout_final_fail_total{env="prod"}'
+        values: '0+5x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ExecutorTimeoutFinalFailCriticalProd
+        exp_alerts:
+          - exp_labels:
+              alertname: ExecutorTimeoutFinalFailCriticalProd
+              service: agent-app
+              module: executor-terminal
+              severity: critical
+              env: prod
+
+  - interval: 1m
+    input_series:
+      - series: 'agent_plan_finalize_attempt_total{env="staging"}'
+        values: '0+100x30'
+      - series: 'agent_plan_finalize_dedup_total{env="staging"}'
+        values: '0+30x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ExecutorFinalizeDedupRatioWarningStaging
+        exp_alerts:
+          - exp_labels:
+              alertname: ExecutorFinalizeDedupRatioWarningStaging
+              service: agent-app
+              module: executor-terminal
+              severity: warning
+              env: staging

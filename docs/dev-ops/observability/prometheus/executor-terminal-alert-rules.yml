@@ -1,0 +1,148 @@
+groups:
+  - name: agent-executor-terminal-recording-rules
+    interval: 30s
+    rules:
+      - record: agent:plan_finalize_attempt_total_5m
+        expr: sum by (env) (increase(agent_plan_finalize_attempt_total[5m]))
+      - record: agent:plan_finalize_dedup_total_5m
+        expr: sum by (env) (increase(agent_plan_finalize_dedup_total[5m]))
+      - record: agent:plan_finalize_dedup_ratio_5m
+        expr: |
+          agent:plan_finalize_dedup_total_5m
+          /
+          clamp_min(agent:plan_finalize_attempt_total_5m, 1)
+
+      - record: agent:task_claimed_update_guard_reject_total_5m
+        expr: sum by (env) (increase(agent_task_claimed_update_guard_reject_total[5m]))
+      - record: agent:task_claimed_update_success_total_5m
+        expr: sum by (env) (increase(agent_task_claimed_update_success_total[5m]))
+      - record: agent:task_claimed_update_guard_reject_ratio_5m
+        expr: |
+          agent:task_claimed_update_guard_reject_total_5m
+          /
+          clamp_min(agent:task_claimed_update_guard_reject_total_5m + agent:task_claimed_update_success_total_5m, 1)
+
+      - record: agent:task_execution_total_5m
+        expr: sum by (env) (increase(agent_task_execution_total[5m]))
+      - record: agent:task_execution_timeout_final_fail_total_5m
+        expr: sum by (env) (increase(agent_task_execution_timeout_final_fail_total[5m]))
+      - record: agent:task_execution_timeout_final_fail_ratio_5m
+        expr: |
+          agent:task_execution_timeout_final_fail_total_5m
+          /
+          clamp_min(agent:task_execution_total_5m, 1)
+
+  - name: agent-executor-terminal-alerting-rules
+    interval: 30s
+    rules:
+      - alert: ExecutorFinalizeDedupRatioWarningStaging
+        expr: agent:plan_finalize_dedup_ratio_5m{env="staging"} > 0.25
+        for: 10m
+        labels:
+          service: agent-app
+          module: executor-terminal
+          severity: warning
+          env: staging
+        annotations:
+          summary: "[staging] Plan finalize 去重比例偏高"
+          description: "5 分钟窗口 dedup/attempt 比例为 {{ $value }}，超过阈值 0.25。"
+          runbook: "docs/dev-ops/observability/executor-terminal-alert-runbook.md"
+          dashboard: "TODO: replace-with-staging-dashboard-url"
+
+      - alert: ExecutorFinalizeDedupRatioCriticalProd
+        expr: agent:plan_finalize_dedup_ratio_5m{env="prod"} > 0.20
+        for: 5m
+        labels:
+          service: agent-app
+          module: executor-terminal
+          severity: critical
+          env: prod
+        annotations:
+          summary: "[prod] Plan finalize 去重比例持续偏高"
+          description: "5 分钟窗口 dedup/attempt 比例为 {{ $value }}，超过阈值 0.20。"
+          runbook: "docs/dev-ops/observability/executor-terminal-alert-runbook.md"
+          dashboard: "TODO: replace-with-prod-dashboard-url"
+
+      - alert: ExecutorClaimGuardRejectWarningStaging
+        expr: agent:task_claimed_update_guard_reject_ratio_5m{env="staging"} > 0.08
+        for: 10m
+        labels:
+          service: agent-app
+          module: executor-terminal
+          severity: warning
+          env: staging
+        annotations:
+          summary: "[staging] claimed update guard 拒绝比例升高"
+          description: "5 分钟窗口 guard_reject 比例为 {{ $value }}，超过阈值 0.08。"
+          runbook: "docs/dev-ops/observability/executor-terminal-alert-runbook.md"
+          dashboard: "TODO: replace-with-staging-dashboard-url"
+
+      - alert: ExecutorClaimGuardRejectCriticalProd
+        expr: agent:task_claimed_update_guard_reject_ratio_5m{env="prod"} > 0.05
+        for: 5m
+        labels:
+          service: agent-app
+          module: executor-terminal
+          severity: critical
+          env: prod
+        annotations:
+          summary: "[prod] claimed update guard 拒绝比例持续偏高"
+          description: "5 分钟窗口 guard_reject 比例为 {{ $value }}，超过阈值 0.05。"
+          runbook: "docs/dev-ops/observability/executor-terminal-alert-runbook.md"
+          dashboard: "TODO: replace-with-prod-dashboard-url"
+
+      - alert: ExecutorTimeoutFinalFailCriticalStaging
+        expr: agent:task_execution_timeout_final_fail_ratio_5m{env="staging"} > 0.03
+        for: 10m
+        labels:
+          service: agent-app
+          module: executor-terminal
+          severity: critical
+          env: staging
+        annotations:
+          summary: "[staging] Task timeout 最终失败比例偏高"
+          description: "5 分钟窗口 timeout_final_fail/execution 比例为 {{ $value }}，超过阈值 0.03。"
+          runbook: "docs/dev-ops/observability/executor-terminal-alert-runbook.md"
+          dashboard: "TODO: replace-with-staging-dashboard-url"
+
+      - alert: ExecutorTimeoutFinalFailCriticalProd
+        expr: agent:task_execution_timeout_final_fail_ratio_5m{env="prod"} > 0.02
+        for: 5m
+        labels:
+          service: agent-app
+          module: executor-terminal
+          severity: critical
+          env: prod
+        annotations:
+          summary: "[prod] Task timeout 最终失败比例持续偏高"
+          description: "5 分钟窗口 timeout_final_fail/execution 比例为 {{ $value }}，超过阈值 0.02。"
+          runbook: "docs/dev-ops/observability/executor-terminal-alert-runbook.md"
+          dashboard: "TODO: replace-with-prod-dashboard-url"
+
+      - alert: ExecutorFinalizeMetricMissingStaging
+        expr: absent(agent_plan_finalize_attempt_total{env="staging"})
+        for: 15m
+        labels:
+          service: agent-app
+          module: executor-terminal
+          severity: critical
+          env: staging
+        annotations:
+          summary: "[staging] Plan finalize 指标缺失"
+          description: "15 分钟内未采集到 agent_plan_finalize_attempt_total{env=\"staging\"}。"
+          runbook: "docs/dev-ops/observability/executor-terminal-alert-runbook.md"
+          dashboard: "TODO: replace-with-staging-dashboard-url"
+
+      - alert: ExecutorFinalizeMetricMissingProd
+        expr: absent(agent_plan_finalize_attempt_total{env="prod"})
+        for: 15m
+        labels:
+          service: agent-app
+          module: executor-terminal
+          severity: critical
+          env: prod
+        annotations:
+          summary: "[prod] Plan finalize 指标缺失"
+          description: "15 分钟内未采集到 agent_plan_finalize_attempt_total{env=\"prod\"}。"
+          runbook: "docs/dev-ops/observability/executor-terminal-alert-runbook.md"
+          dashboard: "TODO: replace-with-prod-dashboard-url"

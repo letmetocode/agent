@@ -6,17 +6,14 @@
 项目当前处于开发阶段，优先保证功能完备与系统健康。  
 修改与新增以长期可维护方案为先，避免临时补丁与潜在隐患。
 
-## 核心能力（当前基线）
+## 产品需求文档（PRD）
 
-- 会话与回合管理：`session -> turn -> message` 全链路可追踪。
-- Workflow 路由：优先命中生产 Definition；未命中时由 Root 生成 Draft 草案。
-- Workflow 治理：未命中生产 Definition 的回合可在会话页直接查看/编辑 Draft，并发布为新 Definition 版本。
-- Root 兜底：Root 草案重试 3 次失败后，降级为单节点 Draft。
-- 执行调度：Task claim + lease + heartbeat，多实例并发安全。
-- Plan 闭环：`READY -> RUNNING -> COMPLETED/FAILED` 自动推进。
-- 结果汇总：最终用户回复仅汇总 `WORKER` 输出，不直接展示 `CRITIC` JSON。
-- 事件流：SSE 实时推送 + `lastEventId` 回放补偿。
-- 终态幂等：`TurnResultService` 先抢占终态再写最终消息，重复 finalize 不重复落库。
+完整 PRD 已独立维护在：`docs/01-product-requirements.md`。
+
+配套文档：
+- 系统架构：`docs/02-system-architecture.md`
+- UI/UX 规范：`docs/03-ui-ux-spec.md`
+- 开发任务清单：`docs/04-development-backlog.md`
 
 ## 模块结构
 
@@ -49,25 +46,7 @@
 - `/workflows/drafts`
 - `/share/tasks/:taskId`（匿名分享结果页）
 
-更多说明见：`frontend/README.md` 与 `docs/design/10-frontend-console-ia-and-layout.md`。
-
-前端控制台核心接口（已接入）：
-
-- 会话：`GET /api/sessions/list`、`GET /api/sessions/{id}/overview|turns|messages`、`POST /api/sessions/{id}/chat`
-- 任务分页与详情：`GET /api/tasks/paged`、`GET /api/tasks/{id}`、`GET /api/tasks/{id}/executions`
-- 任务控制：`POST /api/tasks/{id}/pause|resume|cancel|retry-from-failed`
-- 任务产物：`GET /api/tasks/{id}/export`、`POST /api/tasks/{id}/share-links`、`GET /api/tasks/{id}/share-links`、`POST /api/tasks/{id}/share-links/{shareId}/revoke`、`POST /api/tasks/{id}/share-links/revoke-all`
-- 匿名分享读取：`GET /api/share/tasks/{id}`
-- 观测：`GET /api/dashboard/overview`（含 P95/P99、慢任务与 SLA 指标）
-- 日志：`GET /api/logs/paged`（支持 `traceId`）
-- 资产：`GET /api/agents/tools`、`GET /api/agents/vector-stores`、`GET /api/knowledge-bases/{id}`、`GET /api/knowledge-bases/{id}/documents`、`POST /api/knowledge-bases/{id}/retrieval-tests`
-- 事件：`GET /api/plans/{id}/events`
-
-前端 UI 重构当前进展（2026-02）：
-
-- 已覆盖全部一级导航页面统一壳层与视觉基线（极简、现代、克制）。
-- 页面统一采用 `page-container` + `page-section` 骨架与标准状态组件。
-- 会话执行页与任务详情页已完成“效率优先”微调（关键动作更聚焦、路径更短）。
+更多说明见：`frontend/README.md` 与 `docs/03-ui-ux-spec.md`。
 
 ## 快速开始
 
@@ -78,6 +57,19 @@ PostgreSQL 最终版初始化脚本：
 - `docs/dev-ops/postgresql/sql/01_init_database.sql`
 
 脚本会初始化核心表、枚举以及基线 AgentProfile（`assistant` 与 `root`）。
+
+会话与规划 V2 增量迁移脚本：
+
+- `docs/dev-ops/postgresql/sql/migrations/V20260212_01_session_planner_v2.sql`
+- 回滚脚本：`docs/dev-ops/postgresql/sql/migrations/V20260212_01_session_planner_v2_rollback.sql`
+- `docs/dev-ops/postgresql/sql/migrations/V20260213_02_executor_terminal_convergence.sql`
+- 回滚脚本：`docs/dev-ops/postgresql/sql/migrations/V20260213_02_executor_terminal_convergence_rollback.sql`
+
+执行顺序建议：
+
+- 全新环境：执行 `docs/dev-ops/postgresql/sql/01_init_database.sql`（已包含 V2 字段）。
+- 存量环境：先备份数据库，再依次执行 `V20260212_01_session_planner_v2.sql`、`V20260213_02_executor_terminal_convergence.sql`。
+- 回滚场景：按逆序执行回滚脚本，并同步回滚应用版本。
 
 ### 1.5) 启动本地依赖（可选）
 
@@ -141,7 +133,6 @@ npm run dev
 - `planner.root.fallback.single-node.enabled`
 - `planner.root.fallback.agent-key`（Draft 节点缺省 agentKey，当前默认 `assistant`）
 
-
 ### 任务分享链接
 
 配置位置：`agent-app/src/main/resources/application*.yml`
@@ -182,9 +173,12 @@ npm run dev
 
 ## 文档导航
 
-- 开发设计文档索引：`docs/design/README.md`
+- 架构文档：`docs/02-system-architecture.md`
+- UI/UX 规范：`docs/03-ui-ux-spec.md`
+- 开发任务清单：`docs/04-development-backlog.md`
+
+- 产品需求文档：`docs/01-product-requirements.md`
 - 运维与 SQL 文档：`docs/dev-ops/`
-- Git 管理规范：`docs/dev-ops/git-management.md`
 - 前端说明：`frontend/README.md`
 
 ## Workflow 治理接口
@@ -198,6 +192,44 @@ npm run dev
 
 前端会话页在识别到“未命中生产 Definition”时，会展示 Draft 提示与编辑入口。
 
+## 会话与规划 V2 接口
+
+- `GET /api/v2/agents/active`：查询可用 Agent 列表。
+- `POST /api/v2/agents`：创建 Agent（最小字段：name/modelProvider/modelName）。
+- `POST /api/v2/sessions`：创建会话（必填 `userId + agentKey`）。
+- `POST /api/v2/sessions/{id}/turns`：创建回合并触发规划。
+- `GET /api/v2/plans/{id}/routing`：查询计划路由决策详情（含 fallback 原因与重试次数）。
+- 旧 `POST /api/sessions/{id}/chat` 已下线，调用会返回迁移提示。
+- 查询性能：`/api/tasks`、`/api/plans/{id}/tasks`、`/api/sessions/{id}/overview`、`/api/dashboard/overview` 已使用批量 latestExecution 查询，避免 N+1。
+
+### 会话与规划 V2 最小验证流程
+
+- 创建 Agent：`POST /api/v2/agents`
+- 启动会话：`POST /api/v2/sessions`
+- 触发回合：`POST /api/v2/sessions/{id}/turns`
+- 回查路由：`GET /api/v2/plans/{planId}/routing`
+
+详细回归项见：`docs/04-development-backlog.md`。
+
+
+## 监控告警规则（Planner + Executor/Terminal）
+
+告警阈值已固化为 Prometheus 规则文件：
+
+- Planner：`docs/dev-ops/observability/prometheus/planner-alert-rules.yml`
+- Planner 单测样例：`docs/dev-ops/observability/prometheus/planner-alert-rules.test.yml`
+- Planner 处置手册：`docs/dev-ops/observability/planner-alert-runbook.md`
+- Executor/Terminal：`docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.yml`
+- Executor/Terminal 单测样例：`docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.test.yml`
+- Executor/Terminal 处置手册：`docs/dev-ops/observability/executor-terminal-alert-runbook.md`
+
+常用校验命令：
+
+- `promtool check rules docs/dev-ops/observability/prometheus/planner-alert-rules.yml`
+- `promtool test rules docs/dev-ops/observability/prometheus/planner-alert-rules.test.yml`
+- `promtool check rules docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.yml`
+- `promtool test rules docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.test.yml`
+
 ## 常用命令
 
 - 构建：`mvn clean package`
@@ -206,12 +238,14 @@ npm run dev
 - 初始化 Git hooks：`bash scripts/setup-git-hooks.sh`
 - 指定回归：
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlannerServiceRootDraftTest -Dsurefire.failIfNoSpecifiedTests=false test`
+  - `mvn -pl agent-app -am -DskipTests=false -Dtest=AgentV2ControllerTest,SessionV2ControllerTest,TurnV2ControllerTest,PlanRoutingV2ControllerTest -Dsurefire.failIfNoSpecifiedTests=false test`
+  - `mvn -pl agent-app -am -DskipTests=false -Dtest=ChatControllerTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TaskExecutorPlanBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TurnResultServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlanStatusDaemonTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=SessionChatPlanSseIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
+  - `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=ExecutorTerminalConvergenceIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - 分享闭环（需 Docker）：`mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=TaskShareLinkControllerIntegrationTest,ShareAccessControllerIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
-  - 分享闭环（仅编译校验，默认跳过 Docker 集成测试）：`mvn -pl agent-app -am -DskipTests=false -Dtest=TaskShareLinkControllerIntegrationTest,ShareAccessControllerIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
 
 ## 术语约定
 
