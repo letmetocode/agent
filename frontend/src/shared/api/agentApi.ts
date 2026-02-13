@@ -1,9 +1,10 @@
 import { CHAT_HTTP_TIMEOUT_MS, http } from './http';
 import type {
+  ActiveAgentDTO,
+  AgentCreateRequest,
+  AgentCreateResponse,
   AgentToolDTO,
   ApiResponse,
-  ChatRequest,
-  ChatResponse,
   DashboardOverviewDTO,
   KnowledgeBaseDetailDTO,
   KnowledgeDocumentDTO,
@@ -15,10 +16,13 @@ import type {
   RetrievalTestResponseDTO,
   SessionCreateRequest,
   SessionCreateResponse,
+  SessionStartRequest,
+  SessionStartResponse,
   SessionDetailDTO,
   SessionMessageDTO,
   SessionOverviewDTO,
   SessionTurnDTO,
+  RoutingDecisionDTO,
   SharedTaskReadDTO,
   TaskDetailDTO,
   TaskExecutionDetailDTO,
@@ -27,6 +31,8 @@ import type {
   TaskShareLinkItemDTO,
   TaskShareRevokeResultDTO,
   VectorStoreDTO,
+  TurnCreateRequest,
+  TurnCreateResponse,
   WorkflowDraftDetailDTO,
   WorkflowDraftSummaryDTO,
   WorkflowDraftUpdateRequestDTO,
@@ -46,6 +52,15 @@ export const agentApi = {
   createSession: async (payload: SessionCreateRequest) =>
     unwrap(await http.post<ApiResponse<SessionCreateResponse>>('/api/sessions', payload)),
 
+  createSessionV2: async (payload: SessionStartRequest) =>
+    unwrap(await http.post<ApiResponse<SessionStartResponse>>('/api/v2/sessions', payload)),
+
+  getActiveAgentsV2: async () =>
+    unwrap(await http.get<ApiResponse<ActiveAgentDTO[]>>('/api/v2/agents/active')),
+
+  createAgentV2: async (payload: AgentCreateRequest) =>
+    unwrap(await http.post<ApiResponse<AgentCreateResponse>>('/api/v2/agents', payload)),
+
   getSessionsList: async (params: {
     userId: string;
     activeOnly?: boolean;
@@ -54,9 +69,9 @@ export const agentApi = {
     size?: number;
   }) => unwrap(await http.get<ApiResponse<PageResult<SessionDetailDTO>>>('/api/sessions/list', { params })),
 
-  sendChat: async (sessionId: number, payload: ChatRequest) =>
+  createTurnV2: async (sessionId: number, payload: TurnCreateRequest) =>
     unwrap(
-      await http.post<ApiResponse<ChatResponse>>(`/api/sessions/${sessionId}/chat`, payload, {
+      await http.post<ApiResponse<TurnCreateResponse>>(`/api/v2/sessions/${sessionId}/turns`, payload, {
         timeout: CHAT_HTTP_TIMEOUT_MS
       })
     ),
@@ -72,6 +87,9 @@ export const agentApi = {
 
   getPlan: async (planId: number) =>
     unwrap(await http.get<ApiResponse<PlanDetailDTO>>(`/api/plans/${planId}`)),
+
+  getPlanRoutingV2: async (planId: number) =>
+    unwrap(await http.get<ApiResponse<RoutingDecisionDTO | null>>(`/api/v2/plans/${planId}/routing`)),
 
   getPlanTasks: async (planId: number) =>
     unwrap(await http.get<ApiResponse<TaskDetailDTO[]>>(`/api/plans/${planId}/tasks`)),

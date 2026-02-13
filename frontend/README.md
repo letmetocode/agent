@@ -53,20 +53,28 @@ VITE_CHAT_TIMEOUT_MS=90000
 - 全局控制台壳布局（侧边导航 + 顶栏搜索 + 面包屑）
 - 页面级统一状态组件（空/加载/错误/不可用）
 - 会话页执行上下文聚合（回合、事件流、Plan/Task 进度）
+- 会话启动器已接入 V2 会话与回合接口（支持先选 Agent 或快速创建 Agent）
+- 会话主路径默认走 `/api/v2/*`，旧 `/api/sessions/{id}/chat` 已下线
 - 任务详情中途控制（暂停/继续/取消/失败重试）
 - 任务结果导出（Markdown/JSON）与分享链接生成、管理、批量失效
 - 日志分页检索（level/taskId/traceId/keyword）
 - 知识库文档详情与检索测试
 - 监控总览 P95/P99/慢任务/SLA 指标展示
+- 告警阈值与触发逻辑在后端监控系统固化（Prometheus 规则），前端仅负责展示与跳转排障入口。
 
 ## 已接入后端接口（2026-02）
 
 - 会话与执行：
+  - `GET /api/v2/agents/active`
+  - `POST /api/v2/agents`
+  - `POST /api/v2/sessions`
+  - `POST /api/v2/sessions/{id}/turns`
+  - `GET /api/v2/plans/{id}/routing`
   - `GET /api/sessions/list`
   - `GET /api/sessions/{id}/overview`
   - `GET /api/sessions/{id}/turns`
   - `GET /api/sessions/{id}/messages`
-  - `POST /api/sessions/{id}/chat`
+  - `POST /api/sessions/{id}/chat`（已下线，返回迁移提示）
   - `GET /api/plans/{id}`
   - `GET /api/plans/{id}/tasks`
   - `GET /api/plans/{id}/events`
@@ -141,3 +149,23 @@ VITE_CHAT_TIMEOUT_MS=90000
 - 匿名分享失败分支：
   - 分别验证 `token 错误`、`code 错误`、`链接已撤销`、`链接已过期`。
   - 预期：页面提示“链接不可用/已失效”，不泄露内部细节。
+
+
+## 会话与规划 V2 手工回归清单
+
+- Agent 选择路径：
+  - 在 `/sessions` 选择已有 Agent，输入目标启动执行。
+  - 预期：成功创建 Session 与 Turn，并跳转会话详情页。
+- Agent 快速创建路径：
+  - 在 `/sessions` 选择“快速创建 Agent”，填写最小字段后启动。
+  - 预期：先创建 Agent，再创建 Session + Turn。
+- 路由决策展示：
+  - 执行后在会话页“引用与异常”区域查看路由摘要。
+  - 预期：可看到 `sourceType/fallbackFlag/plannerAttempts`，fallback 时显示原因。
+- 候补草案提示：
+  - 触发未命中生产 Definition 场景。
+  - 预期：展示候补 Draft 提示，可跳转治理页或查看 Draft。
+
+- 旧接口下线验证：
+  - 直接调用 `/api/sessions/{id}/chat`。
+  - 预期：返回“旧接口已下线，请使用 /api/v2/sessions/{id}/turns”。

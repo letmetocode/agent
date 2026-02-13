@@ -12,6 +12,90 @@ export interface PageResult<T> {
   totalPages: number;
 }
 
+export interface ActiveAgentDTO {
+  agentId: number;
+  agentKey: string;
+  name: string;
+  modelProvider: string;
+  modelName: string;
+  active: boolean;
+}
+
+export interface AgentCreateRequest {
+  agentKey?: string;
+  name: string;
+  modelProvider: string;
+  modelName: string;
+  baseSystemPrompt?: string;
+  active?: boolean;
+  modelOptions?: Record<string, unknown>;
+  advisorConfig?: Record<string, unknown>;
+}
+
+export interface AgentCreateResponse {
+  agentId: number;
+  agentKey: string;
+  name: string;
+  modelProvider: string;
+  modelName: string;
+  active: boolean;
+  createdAt?: string;
+}
+
+export interface SessionStartRequest {
+  userId: string;
+  title?: string;
+  agentKey: string;
+  scenario?: string;
+  metaInfo?: Record<string, unknown>;
+}
+
+export interface SessionStartResponse {
+  sessionId: number;
+  userId: string;
+  title?: string;
+  agentKey: string;
+  scenario?: string;
+  active: boolean;
+  createdAt?: string;
+}
+
+export interface RoutingDecisionDTO {
+  routingDecisionId: number;
+  sessionId?: number;
+  turnId?: number;
+  decisionType?: string;
+  strategy?: string;
+  score?: number;
+  reason?: string;
+  sourceType?: string;
+  fallbackFlag?: boolean;
+  fallbackReason?: string;
+  plannerAttempts?: number;
+  definitionId?: number;
+  definitionKey?: string;
+  definitionVersion?: number;
+  draftId?: number;
+  draftKey?: string;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
+}
+
+export interface TurnCreateRequest {
+  message: string;
+  contextOverrides?: Record<string, unknown>;
+}
+
+export interface TurnCreateResponse {
+  sessionId: number;
+  turnId: number;
+  planId: number;
+  planGoal: string;
+  turnStatus: string;
+  assistantMessage?: string;
+  routingDecision?: RoutingDecisionDTO;
+}
+
 export interface SessionCreateRequest {
   userId: string;
   title?: string;
@@ -23,20 +107,6 @@ export interface SessionCreateResponse {
   userId: string;
   title?: string;
   active: boolean;
-}
-
-export interface ChatRequest {
-  message: string;
-  extraContext?: Record<string, unknown>;
-}
-
-export interface ChatResponse {
-  sessionId: number;
-  turnId: number;
-  planId: number;
-  planGoal: string;
-  turnStatus: string;
-  assistantMessage?: string;
 }
 
 export interface SessionDetailDTO {

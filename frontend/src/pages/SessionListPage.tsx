@@ -1,10 +1,10 @@
 import { CompassOutlined, PlusOutlined, ReloadOutlined, SendOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Col, Divider, Form, Input, List, Radio, Row, Space, Steps, Typography, message } from 'antd';
+import { Alert, Button, Card, Col, Divider, Form, Input, List, Radio, Row, Select, Space, Steps, Typography, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSessionStore } from '@/features/session/sessionStore';
 import { agentApi } from '@/shared/api/agentApi';
-import type { SessionDetailDTO } from '@/shared/types/api';
+import type { ActiveAgentDTO, SessionDetailDTO } from '@/shared/types/api';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { StateView } from '@/shared/ui/StateView';
 
@@ -12,6 +12,11 @@ interface LaunchFormValues {
   goal: string;
   mode: 'use-existing' | 'quick-create';
   title?: string;
+  agentKey?: string;
+  quickAgentName?: string;
+  quickAgentKey?: string;
+  modelProvider?: string;
+  modelName?: string;
 }
 
 export const SessionListPage = () => {
@@ -20,9 +25,12 @@ export const SessionListPage = () => {
   const [manualSessionId, setManualSessionId] = useState('');
   const [creating, setCreating] = useState(false);
   const [listLoading, setListLoading] = useState(false);
+  const [agentsLoading, setAgentsLoading] = useState(false);
   const [sessions, setSessions] = useState<SessionDetailDTO[]>([]);
+  const [activeAgents, setActiveAgents] = useState<ActiveAgentDTO[]>([]);
   const [listKeyword, setListKeyword] = useState('');
   const [form] = Form.useForm<LaunchFormValues>();
+  const launchMode = Form.useWatch('mode', form) || 'use-existing';
 
   const loadSessions = useCallback(
     async (keyword?: string) => {
@@ -48,9 +56,26 @@ export const SessionListPage = () => {
     [userId]
   );
 
+  const loadActiveAgents = useCallback(async () => {
+    setAgentsLoading(true);
+    try {
+      const data = await agentApi.getActiveAgentsV2();
+      setActiveAgents(data || []);
+      if (data && data.length > 0 && !form.getFieldValue('agentKey')) {
+        form.setFieldValue('agentKey', data[0].agentKey);
+      }
+    } catch (err) {
+      message.warning(`加载可用 Agent 失败: ${err instanceof Error ? err.message : String(err)}`);
+      setActiveAgents([]);
+    } finally {
+      setAgentsLoading(false);
+    }
+  }, [form]);
+
   useEffect(() => {
     void loadSessions();
-  }, [loadSessions]);
+    void loadActiveAgents();
+  }, [loadSessions, loadActiveAgents]);
 
   const createSession = async (values: LaunchFormValues) => {
     if (!userId) {
@@ -59,16 +84,65 @@ export const SessionListPage = () => {
       return;
     }
 
-    const title = values.title?.trim() || values.goal.trim();
+    const goal = values.goal.trim();
+    if (!goal) {
+      message.warning('请输入本次执行目标');
+      return;
+    }
+
     setCreating(true);
     try {
-      const session = await agentApi.createSession({ userId, title: title || undefined });
-      addBookmark({ sessionId: session.sessionId, title: session.title, createdAt: new Date().toISOString() });
-      message.success(`会话已创建 #${session.sessionId}`);
+      let agentKey = values.agentKey?.trim();
+      if (values.mode === 'quick-create') {
+        const quickName = values.quickAgentName?.trim();
+        if (!quickName) {
+          message.warning('请填写新 Agent 名称');
+          return;
+        }
+        const created = await agentApi.createAgentV2({
+          agentKey: values.quickAgentKey?.trim() || undefined,
+          name: quickName,
+          modelProvider: (values.modelProvider || 'openai').trim(),
+          modelName: (values.modelName || 'gpt-4o-mini').trim(),
+          active: true,
+          modelOptions: { temperature: 0.2 },
+          advisorConfig: {}
+        });
+        agentKey = created.agentKey;
+        await loadActiveAgents();
+      }
+
+      if (!agentKey) {
+        message.warning('请选择或创建 Agent');
+        return;
+      }
+
+      const title = values.title?.trim() || goal;
+      const session = await agentApi.createSessionV2({
+        userId,
+        title: title || undefined,
+        agentKey,
+        scenario: 'CONSOLE_LAUNCH',
+        metaInfo: {
+          launchMode: values.mode,
+          source: 'session-list'
+        }
+      });
+
+      const turn = await agentApi.createTurnV2(session.sessionId, {
+        message: goal,
+        contextOverrides: {
+          launchMode: values.mode,
+          launchFrom: 'session-list'
+        }
+      });
+
+      addBookmark({ sessionId: session.sessionId, title: session.title || title, createdAt: new Date().toISOString() });
+      message.success(`会话已创建并触发执行：Session #${session.sessionId} / Plan #${turn.planId}`);
       await loadSessions();
-      navigate(`/sessions/${session.sessionId}`);
+      navigate(`/sessions/${session.sessionId}?planId=${turn.planId}`);
     } catch (err) {
-      message.error(`创建会话失败: ${String(err)}`);
+      message.error(`创建执行失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setCreating(false);
     }
@@ -84,6 +158,15 @@ export const SessionListPage = () => {
           active: true,
           createdAt: item.createdAt
         }));
+
+  const agentOptions = useMemo(
+    () =>
+      activeAgents.map((item) => ({
+        label: `${item.name} (${item.agentKey})`,
+        value: item.agentKey
+      })),
+    [activeAgents]
+  );
 
   return (
     <div className="page-container">
@@ -114,7 +197,12 @@ export const SessionListPage = () => {
       <Row gutter={[16, 16]} className="page-section">
         <Col xs={24} xl={16}>
           <Card className="app-card" title="新建执行">
-            <Form form={form} layout="vertical" initialValues={{ mode: 'use-existing' }} onFinish={(values) => void createSession(values)}>
+            <Form
+              form={form}
+              layout="vertical"
+              initialValues={{ mode: 'use-existing', modelProvider: 'openai', modelName: 'gpt-4o-mini' }}
+              onFinish={(values) => void createSession(values)}
+            >
               <Form.Item label="目标" name="goal" rules={[{ required: true, message: '请输入本次执行目标' }]}>
                 <Input.TextArea rows={3} placeholder="例如：分析本周失败任务原因，并给出可执行修复清单" />
               </Form.Item>
@@ -135,12 +223,49 @@ export const SessionListPage = () => {
                 </Col>
               </Row>
 
+              {launchMode === 'use-existing' ? (
+                <Form.Item label="选择 Agent" name="agentKey" rules={[{ required: true, message: '请选择 Agent' }]}>
+                  <Select
+                    loading={agentsLoading}
+                    placeholder="请选择可用 Agent"
+                    options={agentOptions}
+                    notFoundContent={agentsLoading ? '加载中...' : '暂无可用 Agent'}
+                  />
+                </Form.Item>
+              ) : (
+                <Row gutter={12}>
+                  <Col xs={24} md={8}>
+                    <Form.Item label="新 Agent 名称" name="quickAgentName" rules={[{ required: true, message: '请输入 Agent 名称' }]}>
+                      <Input placeholder="例如：ops-planner" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Form.Item label="Agent Key（可选）" name="quickAgentKey">
+                      <Input placeholder="不填则根据名称生成" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={4}>
+                    <Form.Item label="Provider" name="modelProvider" rules={[{ required: true, message: '请输入 provider' }]}>
+                      <Input />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={4}>
+                    <Form.Item label="Model" name="modelName" rules={[{ required: true, message: '请输入 model' }]}>
+                      <Input />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              )}
+
               <Space>
                 <Button icon={<PlusOutlined />} type="primary" htmlType="submit" loading={creating}>
                   创建并进入执行
                 </Button>
                 <Button icon={<CompassOutlined />} onClick={() => navigate('/tasks')}>
                   进入任务中心
+                </Button>
+                <Button icon={<ReloadOutlined />} onClick={() => void loadActiveAgents()} loading={agentsLoading}>
+                  刷新 Agent
                 </Button>
               </Space>
             </Form>
@@ -153,6 +278,7 @@ export const SessionListPage = () => {
                 icon={<SendOutlined />}
                 onClick={() => {
                   if (!manualSessionId.trim()) {
+                    message.warning('请输入 sessionId');
                     return;
                   }
                   navigate(`/sessions/${manualSessionId.trim()}`);
@@ -165,46 +291,41 @@ export const SessionListPage = () => {
         </Col>
 
         <Col xs={24} xl={8}>
-          <Card className="app-card" title="核心用户路径">
+          <Card className="app-card" title="主路径步骤">
             <Steps
               direction="vertical"
               size="small"
               items={[
                 { title: '新建 Agent / 任务', description: '从统一启动器选择创建方式' },
-                { title: '输入目标', description: '明确目标、约束与引用范围' },
-                { title: '执行与中途控制', description: '暂停/继续/取消/插入指令' },
-                { title: '结果与引用', description: '查看结论、证据和中间产物' },
-                { title: '导出/分享与回溯', description: '沉淀到任务中心与历史记录' }
+                { title: '输入目标', description: '明确可执行目标与期望输出' },
+                { title: '执行与中途控制', description: '进入会话页查看计划与任务状态' },
+                { title: '结果沉淀', description: '导出、分享、回溯与复盘' }
               ]}
             />
           </Card>
         </Col>
 
         <Col xs={24}>
-          <Card
-            className="app-card"
-            title="最近会话"
-            extra={
-              <Space>
-                <Input
-                  allowClear
-                  style={{ width: 220 }}
-                  placeholder="按标题过滤"
-                  value={listKeyword}
-                  onChange={(event) => setListKeyword(event.target.value)}
-                  onPressEnter={() => void loadSessions(listKeyword)}
-                />
-                <Button icon={<ReloadOutlined />} onClick={() => void loadSessions(listKeyword)} />
-              </Space>
-            }
-          >
-            {listLoading ? <StateView type="loading" title="加载会话列表中" /> : null}
+          <Card className="app-card" title="最近会话" extra={<Button onClick={() => void loadSessions(listKeyword)} loading={listLoading}>刷新</Button>}>
+            <Space style={{ marginBottom: 12 }}>
+              <Input
+                placeholder="按标题或 sessionId 搜索"
+                value={listKeyword}
+                onChange={(event) => setListKeyword(event.target.value)}
+                onPressEnter={() => void loadSessions(listKeyword)}
+              />
+              <Button onClick={() => void loadSessions(listKeyword)} loading={listLoading}>
+                查询
+              </Button>
+            </Space>
+
+            {listLoading ? <StateView type="loading" title="加载会话列表" /> : null}
 
             {!listLoading && listSource.length === 0 ? (
               <StateView
                 type="empty"
-                title="暂无最近会话"
-                description="创建一次执行后，会自动写入会话列表供快速回访。"
+                title="暂无会话"
+                description="创建一次执行后，会话会自动沉淀在这里。"
                 actionText="立即创建"
                 onAction={() => form.submit()}
               />

@@ -36,6 +36,7 @@ import { StatusTag } from '@/shared/ui/StatusTag';
 import type {
   PlanTaskStatsDTO,
   PlanStreamEvent,
+  RoutingDecisionDTO,
   WorkflowDraftDetailDTO,
   SessionMessageDTO,
   SessionTurnDTO,
@@ -261,6 +262,7 @@ export const ConversationPage = () => {
   const [candidateSaving, setCandidateSaving] = useState(false);
   const [publishingCandidate, setPublishingCandidate] = useState(false);
   const [candidateDetail, setCandidateDetail] = useState<WorkflowDraftDetailDTO | null>(null);
+  const [routingDecision, setRoutingDecision] = useState<RoutingDecisionDTO | null>(null);
   const [candidateForm] = Form.useForm<CandidateWorkflowDraftFormValues>();
   const sseRef = useRef<EventSource | null>(null);
 
@@ -297,9 +299,14 @@ export const ConversationPage = () => {
       setSearchParams({ planId: String(planId) }, { replace: true });
     }
     try {
-      const [plan, tasks] = await Promise.all([agentApi.getPlan(planId), agentApi.getPlanTasks(planId)]);
+      const [plan, tasks, routing] = await Promise.all([
+        agentApi.getPlan(planId),
+        agentApi.getPlanTasks(planId),
+        agentApi.getPlanRoutingV2(planId).catch(() => null)
+      ]);
       setPlanDetail(plan);
       setPlanTasks(tasks);
+      setRoutingDecision(routing || null);
     } catch (err) {
       message.error(`加载计划失败: ${String(err)}`);
     }
@@ -367,11 +374,12 @@ export const ConversationPage = () => {
     if (!sid || !prompt.trim()) return;
     setSending(true);
     try {
-      const res = await agentApi.sendChat(sid, { message: prompt.trim() });
+      const res = await agentApi.createTurnV2(sid, { message: prompt.trim() });
       setPrompt('');
       await loadSessionBase();
       await switchPlan(res.planId);
       connectSse(res.planId);
+      setRoutingDecision(res.routingDecision || null);
       message.success(`已触发新回合，Plan #${res.planId}`);
     } catch (err) {
       message.error(toChatErrorMessage(err));
@@ -781,6 +789,27 @@ export const ConversationPage = () => {
                   label: '引用与异常',
                   children: (
                     <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                      {routingDecision ? (
+                        <Alert
+                          type={routingDecision.fallbackFlag ? 'warning' : 'info'}
+                          showIcon
+                          message={`路由决策：${routingDecision.decisionType || '-'}`}
+                          description={
+                            <Space direction="vertical" style={{ width: '100%' }}>
+                              <Text type="secondary">
+                                strategy={routingDecision.strategy || '-'} · reason={routingDecision.reason || '-'}
+                              </Text>
+                              <Text type="secondary">
+                                sourceType={routingDecision.sourceType || '-'} · attempts={routingDecision.plannerAttempts ?? 0}
+                              </Text>
+                              {routingDecision.fallbackReason ? (
+                                <Text type="secondary">fallbackReason={routingDecision.fallbackReason}</Text>
+                              ) : null}
+                            </Space>
+                          }
+                        />
+                      ) : null}
+
                       {fallbackCandidateHint ? (
                         <Alert
                           type="warning"
