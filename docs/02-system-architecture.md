@@ -128,8 +128,8 @@ sequenceDiagram
 ## 5. 一致性与并发策略
 
 - 领域充血：`SessionTurnEntity`、`AgentPlanEntity`、`AgentTaskEntity` 新增状态迁移与 claim/lease 领域行为，应用层仅编排不写规则。
-- 领域服务落位：`SessionConversationDomainService`、`PlanFinalizationDomainService`、`PlanTransitionDomainService`、`TaskDispatchDomainService`、`TaskExecutionDomainService`、`TaskPromptDomainService`、`TaskEvaluationDomainService`、`TaskRecoveryDomainService`、`TaskAgentSelectionDomainService`、`TaskBlackboardDomainService`、`TaskJsonDomainService`、`TaskPersistencePolicyDomainService` 承载会话策略、终态汇总、Plan 聚合迁移与 Task 执行/提示词/判定/回滚/Agent 选择/黑板写回/JSON 解析/持久化策略规则。
-- 应用层编排：`TaskPersistenceApplicationService` 统一承载 `Task`/`TaskExecution` 写入与 `Plan.globalContext` 乐观锁重试，`TaskExecutor` 仅消费用例结果并映射监控日志。
+- 领域服务落位：`SessionConversationDomainService`、`PlanFinalizationDomainService`、`PlanTransitionDomainService`、`TaskDispatchDomainService`、`TaskExecutionDomainService`、`TaskPromptDomainService`、`TaskEvaluationDomainService`、`TaskRecoveryDomainService`、`TaskAgentSelectionDomainService`、`TaskBlackboardDomainService`、`TaskJsonDomainService`、`TaskPersistencePolicyDomainService`、`TaskDependencyPolicyDomainService` 承载会话策略、终态汇总、Plan 聚合迁移与 Task 执行/提示词/判定/回滚/Agent 选择/黑板写回/JSON 解析/持久化/依赖判定策略规则。
+- 应用层编排：`TaskPersistenceApplicationService` 统一承载 `Task`/`TaskExecution` 写入与 `Plan.globalContext` 乐观锁重试，`TaskScheduleApplicationService` 统一承载 PENDING->READY/SKIPPED 编排，`PlanStatusSyncApplicationService` 统一承载 Plan 状态推进/终态 finalize/事件发布，`TaskExecutor` 仅消费用例结果并映射监控日志。
 - 兼容层清理：`trigger.service` 过渡包装类已删除，统一由 `trigger.application` 调用 domain。
 
 ### 5.1 Plan/Task 乐观锁

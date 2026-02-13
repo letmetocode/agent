@@ -49,11 +49,12 @@
 - 终态收敛幂等：先抢占终态，再写最终 assistant 消息。
 - finalize 去重与老代执行者回写拒绝。
 - 终态汇总迁移至 `trigger.application.command.TurnFinalizeApplicationService`，`PlanStatusDaemon` 仅调用应用用例。
-- 终态与状态推进规则下沉到 `PlanFinalizationDomainService`、`PlanTransitionDomainService`。
+- job 壳层化：`PlanStatusDaemon` 编排收口到 `PlanStatusSyncApplicationService`，`TaskSchedulerDaemon` 编排收口到 `TaskScheduleApplicationService`。
+- 终态与状态推进规则下沉到 `PlanFinalizationDomainService`、`PlanTransitionDomainService`，依赖判定规则下沉到 `TaskDependencyPolicyDomainService`。
 - `trigger.service` 兼容包装类已删除（统一 `trigger.application` -> `domain`）。
 
 **证据**
-- 测试：`TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest`、`PlanFinalizationDomainServiceTest`、`PlanTransitionDomainServiceTest`、`TaskExecutionDomainServiceTest`、`TaskPromptDomainServiceTest`、`TaskEvaluationDomainServiceTest`、`TaskRecoveryDomainServiceTest`、`TaskAgentSelectionDomainServiceTest`、`TaskBlackboardDomainServiceTest`、`TaskJsonDomainServiceTest`、`TaskPersistencePolicyDomainServiceTest`、`TaskPersistenceApplicationServiceTest`、`ApplicationDomainBoundaryTest`
+- 测试：`TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest`、`PlanFinalizationDomainServiceTest`、`PlanTransitionDomainServiceTest`、`TaskExecutionDomainServiceTest`、`TaskPromptDomainServiceTest`、`TaskEvaluationDomainServiceTest`、`TaskRecoveryDomainServiceTest`、`TaskAgentSelectionDomainServiceTest`、`TaskBlackboardDomainServiceTest`、`TaskJsonDomainServiceTest`、`TaskPersistencePolicyDomainServiceTest`、`TaskPersistenceApplicationServiceTest`、`TaskDependencyPolicyDomainServiceTest`、`TaskScheduleApplicationServiceTest`、`PlanStatusSyncApplicationServiceTest`、`ApplicationDomainBoundaryTest`
 
 **未完成 / 计划优化**
 - `P0`：并发压测常态化，校准超时与重试阈值。
@@ -133,7 +134,7 @@
 ## 5. 回归基线命令
 
 - 后端回归：
-  - `mvn -pl agent-app -am -DskipTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest=AgentV2ControllerTest,SessionV2ControllerTest,TurnV2ControllerTest,PlanRoutingV2ControllerTest,ConversationOrchestratorServiceTest,ChatV3ControllerTest,ChatRoutingV3ControllerTest,ChatStreamV3ControllerTest,TaskExecutorPlanBoundaryTest,TurnResultServiceTest,PlanStatusDaemonTest,ControllerArchitectureTest,SessionConversationDomainServiceTest,PlanFinalizationDomainServiceTest,ApplicationDomainBoundaryTest,PlanTransitionDomainServiceTest,TaskExecutionDomainServiceTest,TaskPromptDomainServiceTest,TaskEvaluationDomainServiceTest,TaskRecoveryDomainServiceTest,TaskAgentSelectionDomainServiceTest,TaskBlackboardDomainServiceTest,TaskJsonDomainServiceTest,TaskPersistencePolicyDomainServiceTest,TaskPersistenceApplicationServiceTest test`
+  - `mvn -pl agent-app -am -DskipTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest=AgentV2ControllerTest,SessionV2ControllerTest,TurnV2ControllerTest,PlanRoutingV2ControllerTest,ConversationOrchestratorServiceTest,ChatV3ControllerTest,ChatRoutingV3ControllerTest,ChatStreamV3ControllerTest,TaskExecutorPlanBoundaryTest,TurnResultServiceTest,PlanStatusDaemonTest,ControllerArchitectureTest,SessionConversationDomainServiceTest,PlanFinalizationDomainServiceTest,ApplicationDomainBoundaryTest,PlanTransitionDomainServiceTest,TaskExecutionDomainServiceTest,TaskPromptDomainServiceTest,TaskEvaluationDomainServiceTest,TaskRecoveryDomainServiceTest,TaskAgentSelectionDomainServiceTest,TaskBlackboardDomainServiceTest,TaskJsonDomainServiceTest,TaskPersistencePolicyDomainServiceTest,TaskPersistenceApplicationServiceTest,TaskDependencyPolicyDomainServiceTest,TaskScheduleApplicationServiceTest,PlanStatusSyncApplicationServiceTest test`
 - 前端构建：
   - `cd frontend && npm run build`
 
