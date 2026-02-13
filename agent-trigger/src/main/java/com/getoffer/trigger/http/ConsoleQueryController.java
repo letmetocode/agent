@@ -185,49 +185,62 @@ public class ConsoleQueryController {
             @RequestParam(value = "size", required = false) Integer size) {
         int normalizedPage = page == null ? 1 : Math.max(1, page);
         int normalizedSize = size == null ? 20 : Math.max(1, Math.min(100, size));
-        int perPlanLimit = Math.max(50, Math.min(300, normalizedSize * 8));
-
-        List<AgentPlanEntity> plans;
-        if (planId != null) {
-            AgentPlanEntity target = agentPlanRepository.findById(planId);
-            if (target == null) {
-                return illegal("计划不存在");
-            }
-            plans = Collections.singletonList(target);
-        } else {
-            List<AgentPlanEntity> allPlans = agentPlanRepository.findAll();
-            plans = (allPlans == null ? Collections.<AgentPlanEntity>emptyList() : allPlans).stream()
-                    .sorted(Comparator.comparing(AgentPlanEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
-                    .limit(100)
-                    .collect(Collectors.toList());
-        }
-
-        if (plans.isEmpty()) {
-            return success(pagedResult(normalizedPage, normalizedSize, 0, Collections.emptyList()));
-        }
+        int offset = (normalizedPage - 1) * normalizedSize;
 
         String normalizedLevel = normalizeKeyword(level).toUpperCase(Locale.ROOT);
+        if (!normalizedLevel.isEmpty() && !isSupportedLogLevel(normalizedLevel)) {
+            return illegal("日志级别非法，仅支持 INFO/WARN/ERROR");
+        }
         String normalizedKeyword = normalizeKeyword(keyword);
         String normalizedTraceId = normalizeKeyword(traceId);
 
-        List<Map<String, Object>> rows = plans.stream()
-                .flatMap(plan -> {
-                    List<PlanTaskEventEntity> events = planTaskEventRepository.findByPlanIdAfterEventId(plan.getId(), 0L, perPlanLimit);
-                    return events == null ? Stream.<PlanTaskEventEntity>empty() : events.stream();
-                })
-                .filter(event -> taskId == null || Objects.equals(taskId, event.getTaskId()))
-                .map(this::toLogItem)
-                .filter(item -> normalizedLevel.isEmpty() || normalizedLevel.equals(String.valueOf(item.get("level")).toUpperCase(Locale.ROOT)))
-                .filter(item -> normalizedTraceId.isEmpty() || String.valueOf(item.get("traceId")).toLowerCase(Locale.ROOT).contains(normalizedTraceId))
-                .filter(item -> normalizedKeyword.isEmpty() || containsLogKeyword(item, normalizedKeyword))
-                .sorted(Comparator.comparing(item -> String.valueOf(item.get("createdAt")), Comparator.nullsLast(Comparator.reverseOrder())))
-                .collect(Collectors.toList());
+        List<Long> targetPlanIds;
+        if (planId != null) {
+            AgentPlanEntity targetPlan = agentPlanRepository.findById(planId);
+            if (targetPlan == null) {
+                return illegal("计划不存在");
+            }
+            targetPlanIds = Collections.singletonList(targetPlan.getId());
+        } else {
+            List<AgentPlanEntity> allPlans = agentPlanRepository.findAll();
+            targetPlanIds = (allPlans == null ? Collections.<AgentPlanEntity>emptyList() : allPlans).stream()
+                    .sorted(Comparator.comparing(AgentPlanEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                    .limit(100)
+                    .map(AgentPlanEntity::getId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+        }
 
-        int total = rows.size();
-        int fromIndex = Math.min((normalizedPage - 1) * normalizedSize, total);
-        int toIndex = Math.min(fromIndex + normalizedSize, total);
-        List<Map<String, Object>> items = rows.subList(fromIndex, toIndex);
-        return success(pagedResult(normalizedPage, normalizedSize, total, items));
+        if (targetPlanIds.isEmpty()) {
+            return success(pagedResult(normalizedPage, normalizedSize, 0, Collections.emptyList()));
+        }
+
+        long totalCount = planTaskEventRepository.countLogs(
+                targetPlanIds,
+                taskId,
+                normalizedLevel,
+                normalizedTraceId,
+                normalizedKeyword
+        );
+        if (totalCount <= 0) {
+            return success(pagedResult(normalizedPage, normalizedSize, 0, Collections.emptyList()));
+        }
+
+        List<PlanTaskEventEntity> events = planTaskEventRepository.findLogsPaged(
+                targetPlanIds,
+                taskId,
+                normalizedLevel,
+                normalizedTraceId,
+                normalizedKeyword,
+                offset,
+                normalizedSize
+        );
+
+        List<Map<String, Object>> items = events == null ? Collections.emptyList() : events.stream()
+                .map(this::toLogItem)
+                .collect(Collectors.toList());
+        int safeTotal = totalCount > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) totalCount;
+        return success(pagedResult(normalizedPage, normalizedSize, safeTotal, items));
     }
 
     @GetMapping("/knowledge-bases/{id}")
@@ -411,6 +424,10 @@ public class ConsoleQueryController {
 
     private String normalizeKeyword(String text) {
         return text == null ? "" : text.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private boolean isSupportedLogLevel(String level) {
+        return "INFO".equals(level) || "WARN".equals(level) || "ERROR".equals(level);
     }
 
     private String safeText(String text) {

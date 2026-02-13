@@ -374,6 +374,9 @@ CREATE TABLE IF NOT EXISTS plan_task_events (
 
 CREATE INDEX IF NOT EXISTS idx_plan_task_events_plan_id_id ON plan_task_events(plan_id, id);
 CREATE INDEX IF NOT EXISTS idx_plan_task_events_created_at ON plan_task_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_plan_task_events_created_at_id_desc ON plan_task_events(created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_plan_task_events_task_id_created_at ON plan_task_events(task_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_plan_task_events_trace_id ON plan_task_events((event_data->>'traceId'));
 
 COMMENT ON TABLE plan_task_events IS 'Plan/Task 事件流表：用于 SSE 增量分发与审计';
 

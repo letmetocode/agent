@@ -17,4 +17,18 @@ public interface PlanTaskEventDao {
     List<PlanTaskEventPO> selectByPlanIdAfterEventId(@Param("planId") Long planId,
                                                      @Param("afterEventId") Long afterEventId,
                                                      @Param("limit") Integer limit);
+
+    List<PlanTaskEventPO> selectLogsPaged(@Param("planIds") List<Long> planIds,
+                                          @Param("taskId") Long taskId,
+                                          @Param("level") String level,
+                                          @Param("traceId") String traceId,
+                                          @Param("keyword") String keyword,
+                                          @Param("offset") Integer offset,
+                                          @Param("limit") Integer limit);
+
+    Long countLogs(@Param("planIds") List<Long> planIds,
+                   @Param("taskId") Long taskId,
+                   @Param("level") String level,
+                   @Param("traceId") String traceId,
+                   @Param("keyword") String keyword);
 }

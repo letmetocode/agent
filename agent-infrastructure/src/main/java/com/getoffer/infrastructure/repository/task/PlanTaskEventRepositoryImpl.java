@@ -5,10 +5,14 @@ import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
 import com.getoffer.infrastructure.dao.PlanTaskEventDao;
 import com.getoffer.infrastructure.dao.po.PlanTaskEventPO;
 import com.getoffer.infrastructure.util.JsonCodec;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -44,6 +48,87 @@ public class PlanTaskEventRepositoryImpl implements IPlanTaskEventRepository {
             return Collections.emptyList();
         }
         return events.stream().map(this::toEntity).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<PlanTaskEventEntity> findLogsPaged(List<Long> planIds,
+                                                   Long taskId,
+                                                   String level,
+                                                   String traceId,
+                                                   String keyword,
+                                                   int offset,
+                                                   int limit) {
+        if (limit <= 0 || offset < 0) {
+            return Collections.emptyList();
+        }
+        List<Long> normalizedPlanIds = normalizePlanIds(planIds);
+        if (normalizedPlanIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<PlanTaskEventPO> rows = planTaskEventDao.selectLogsPaged(
+                normalizedPlanIds,
+                taskId,
+                normalizeLevel(level),
+                normalizeText(traceId),
+                normalizeText(keyword),
+                offset,
+                limit
+        );
+        if (rows == null || rows.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return rows.stream().map(this::toEntity).collect(Collectors.toList());
+    }
+
+    @Override
+    public long countLogs(List<Long> planIds,
+                          Long taskId,
+                          String level,
+                          String traceId,
+                          String keyword) {
+        List<Long> normalizedPlanIds = normalizePlanIds(planIds);
+        if (normalizedPlanIds.isEmpty()) {
+            return 0L;
+        }
+        Long count = planTaskEventDao.countLogs(
+                normalizedPlanIds,
+                taskId,
+                normalizeLevel(level),
+                normalizeText(traceId),
+                normalizeText(keyword)
+        );
+        return count == null ? 0L : Math.max(count, 0L);
+    }
+
+    private List<Long> normalizePlanIds(List<Long> planIds) {
+        if (planIds == null || planIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Set<Long> uniqueIds = new LinkedHashSet<>();
+        for (Long planId : planIds) {
+            if (planId != null && planId > 0L) {
+                uniqueIds.add(planId);
+            }
+        }
+        if (uniqueIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return uniqueIds.stream().collect(Collectors.toList());
+    }
+
+    private String normalizeLevel(String level) {
+        if (StringUtils.isBlank(level)) {
+            return null;
+        }
+        return level.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeText(String text) {
+        if (StringUtils.isBlank(text)) {
+            return null;
+        }
+        return text.trim();
     }
 
     private PlanTaskEventEntity toEntity(PlanTaskEventPO po) {

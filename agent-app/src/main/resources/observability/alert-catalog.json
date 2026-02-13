@@ -1,0 +1,62 @@
+[
+  {
+    "module": "planner",
+    "alertName": "PlannerFallbackRatioCriticalProd",
+    "severity": "critical",
+    "env": "prod",
+    "summary": "Planner fallback 比例持续偏高",
+    "ruleFile": "docs/dev-ops/observability/prometheus/planner-alert-rules.yml",
+    "runbook": "docs/dev-ops/observability/planner-alert-runbook.md",
+    "dashboard": "TODO: replace-with-prod-dashboard-url"
+  },
+  {
+    "module": "planner",
+    "alertName": "PlannerFallbackSpikeWarningStaging",
+    "severity": "warning",
+    "env": "staging",
+    "summary": "Planner fallback 绝对值升高",
+    "ruleFile": "docs/dev-ops/observability/prometheus/planner-alert-rules.yml",
+    "runbook": "docs/dev-ops/observability/planner-alert-runbook.md",
+    "dashboard": "TODO: replace-with-staging-dashboard-url"
+  },
+  {
+    "module": "executor-terminal",
+    "alertName": "ExecutorFinalizeDedupRatioCriticalProd",
+    "severity": "critical",
+    "env": "prod",
+    "summary": "Plan finalize 去重比例持续偏高",
+    "ruleFile": "docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.yml",
+    "runbook": "docs/dev-ops/observability/executor-terminal-alert-runbook.md",
+    "dashboard": "TODO: replace-with-prod-dashboard-url"
+  },
+  {
+    "module": "executor-terminal",
+    "alertName": "ExecutorClaimGuardRejectWarningStaging",
+    "severity": "warning",
+    "env": "staging",
+    "summary": "claimed update guard 拒绝比例升高",
+    "ruleFile": "docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.yml",
+    "runbook": "docs/dev-ops/observability/executor-terminal-alert-runbook.md",
+    "dashboard": "TODO: replace-with-staging-dashboard-url"
+  },
+  {
+    "module": "sse",
+    "alertName": "SsePushFailRatioCriticalProd",
+    "severity": "critical",
+    "env": "prod",
+    "summary": "SSE 推送失败比例持续偏高",
+    "ruleFile": "docs/dev-ops/observability/prometheus/sse-alert-rules.yml",
+    "runbook": "docs/dev-ops/observability/sse-alert-runbook.md",
+    "dashboard": "TODO: replace-with-prod-dashboard-url"
+  },
+  {
+    "module": "sse",
+    "alertName": "SseReplayHitRatioLowWarningStaging",
+    "severity": "warning",
+    "env": "staging",
+    "summary": "SSE 回放命中率偏低",
+    "ruleFile": "docs/dev-ops/observability/prometheus/sse-alert-rules.yml",
+    "runbook": "docs/dev-ops/observability/sse-alert-runbook.md",
+    "dashboard": "TODO: replace-with-staging-dashboard-url"
+  }
+]

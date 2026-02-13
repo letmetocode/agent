@@ -15,6 +15,60 @@
         id, plan_id, task_id, event_type, event_data, created_at
     </sql>
 
+    <sql id="Logs_Filter_Where">
+        <if test="planIds != null and planIds.size() &gt; 0">
+            AND plan_id IN
+            <foreach collection="planIds" item="planId" open="(" separator="," close=")">
+                #{planId}
+            </foreach>
+        </if>
+
+        <if test="taskId != null">
+            AND task_id = #{taskId}
+        </if>
+
+        <if test="level != null and level != ''">
+            <choose>
+                <when test="level == 'WARN'">
+                    AND event_type = 'TASK_LOG'::plan_task_event_type_enum
+                </when>
+                <when test="level == 'ERROR'">
+                    AND (
+                        event_type = 'PLAN_FINISHED'::plan_task_event_type_enum
+                        OR (
+                            event_type = 'TASK_COMPLETED'::plan_task_event_type_enum
+                            AND UPPER(COALESCE(event_data -&gt;&gt; 'status', '')) = 'FAILED'
+                        )
+                    )
+                </when>
+                <otherwise>
+                    AND (
+                        event_type NOT IN (
+                            'TASK_LOG'::plan_task_event_type_enum,
+                            'PLAN_FINISHED'::plan_task_event_type_enum
+                        )
+                        AND NOT (
+                            event_type = 'TASK_COMPLETED'::plan_task_event_type_enum
+                            AND UPPER(COALESCE(event_data -&gt;&gt; 'status', '')) = 'FAILED'
+                        )
+                    )
+                </otherwise>
+            </choose>
+        </if>
+
+        <if test="traceId != null and traceId != ''">
+            AND LOWER(COALESCE(event_data -&gt;&gt; 'traceId', '')) LIKE CONCAT('%', LOWER(#{traceId}), '%')
+        </if>
+
+        <if test="keyword != null and keyword != ''">
+            AND (
+                LOWER(COALESCE(event_type::text, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+                OR COALESCE(task_id::text, '') LIKE CONCAT('%', #{keyword}, '%')
+                OR LOWER(COALESCE(event_data::text, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+            )
+        </if>
+    </sql>
+
     <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.PlanTaskEventPO"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO plan_task_events (
@@ -31,6 +85,25 @@
           AND id &gt; #{afterEventId}
         ORDER BY id ASC
         LIMIT #{limit}
+    </select>
+
+    <select id="selectLogsPaged" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM plan_task_events
+        <where>
+            <include refid="Logs_Filter_Where"/>
+        </where>
+        ORDER BY created_at DESC, id DESC
+        OFFSET #{offset}
+        LIMIT #{limit}
+    </select>
+
+    <select id="countLogs" resultType="java.lang.Long">
+        SELECT COUNT(1)
+        FROM plan_task_events
+        <where>
+            <include refid="Logs_Filter_Where"/>
+        </where>
     </select>
 
 </mapper>
