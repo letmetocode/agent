@@ -18,8 +18,6 @@ const ObservabilityOverviewPage = lazy(() =>
 );
 const LogsPage = lazy(() => import('@/pages/LogsPage').then((module) => ({ default: module.LogsPage })));
 const ProfileSettingsPage = lazy(() => import('@/pages/ProfileSettingsPage').then((module) => ({ default: module.ProfileSettingsPage })));
-const SystemSettingsPage = lazy(() => import('@/pages/SystemSettingsPage').then((module) => ({ default: module.SystemSettingsPage })));
-const AccessSettingsPage = lazy(() => import('@/pages/AccessSettingsPage').then((module) => ({ default: module.AccessSettingsPage })));
 const WorkflowDraftPage = lazy(() => import('@/pages/WorkflowDraftPage').then((module) => ({ default: module.WorkflowDraftPage })));
 
 const withSuspense = (node: ReactNode) => (
@@ -58,8 +56,6 @@ export const router = createBrowserRouter([
       { path: '/observability/logs', element: withSuspense(<LogsPage />) },
 
       { path: '/settings/profile', element: withSuspense(<ProfileSettingsPage />) },
-      { path: '/settings/system', element: withSuspense(<SystemSettingsPage />) },
-      { path: '/settings/access', element: withSuspense(<AccessSettingsPage />) },
 
       { path: '/workflows/drafts', element: withSuspense(<WorkflowDraftPage />) }
     ]

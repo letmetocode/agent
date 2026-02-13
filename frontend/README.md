@@ -43,8 +43,6 @@ VITE_CHAT_TIMEOUT_MS=90000
 - `/observability/overview`：监控总览
 - `/observability/logs`：日志检索
 - `/settings/profile`：个人设置
-- `/settings/system`：系统配置
-- `/settings/access`：成员与权限
 - `/workflows/drafts`：Workflow Draft 治理
 - `/share/tasks/:taskId`：匿名分享结果页（携带 code + token）
 

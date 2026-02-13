@@ -33,7 +33,7 @@
 - `任务中心`：任务筛选、追踪与失败重试
 - `资产中心`：工具与插件 + 知识库
 - `观测与日志`：监控总览与日志检索
-- `设置`：个人、系统、权限管理
+- `设置`：个人偏好
 
 关键路由：
 
@@ -42,7 +42,7 @@
 - `/tasks`、`/tasks/:taskId`
 - `/assets/tools`、`/assets/knowledge`、`/assets/knowledge/:kbId`
 - `/observability/overview`、`/observability/logs`
-- `/settings/profile`、`/settings/system`、`/settings/access`
+- `/settings/profile`
 - `/workflows/drafts`
 - `/share/tasks/:taskId`（匿名分享结果页）
 

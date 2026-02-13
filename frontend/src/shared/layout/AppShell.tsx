@@ -48,9 +48,7 @@ const APP_NAV_ITEMS: AppNavItem[] = [
     key: '/settings',
     label: '设置',
     children: [
-      { key: '/settings/profile', label: '个人设置', path: '/settings/profile' },
-      { key: '/settings/system', label: '系统配置', path: '/settings/system' },
-      { key: '/settings/access', label: '成员与权限', path: '/settings/access' }
+      { key: '/settings/profile', label: '个人设置', path: '/settings/profile' }
     ]
   }
 ];
@@ -64,9 +62,7 @@ const pathTitleMap: Record<string, string> = {
   '/assets/knowledge': '知识库',
   '/observability/overview': '监控总览',
   '/observability/logs': '日志检索',
-  '/settings/profile': '个人设置',
-  '/settings/system': '系统配置',
-  '/settings/access': '成员与权限'
+  '/settings/profile': '个人设置'
 };
 
 const flattenNavItems = (items: AppNavItem[]): Array<MenuItemType> =>

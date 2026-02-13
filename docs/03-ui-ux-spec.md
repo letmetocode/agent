@@ -20,7 +20,7 @@
 3. 任务中心（`/tasks`、`/tasks/:taskId`）
 4. 资产中心（`/assets/tools`、`/assets/knowledge`、`/assets/knowledge/:kbId`）
 5. 观测与日志（`/observability/overview`、`/observability/logs`）
-6. 设置（`/settings/profile`、`/settings/system`、`/settings/access`）
+6. 设置（`/settings/profile`）
 
 补充治理入口：
 
@@ -218,11 +218,9 @@
 - 会话启动器已支持“选择 Agent / 快速创建 Agent -> 启动 Session -> 触发 Turn”
 - 会话页可展示 routing 决策摘要与 fallback 提示
 
-待完善（与核心业务相关）：
+当前范围说明：
 
-- 系统设置页当前为演示保存，未接入后端配置接口
-- 成员权限页当前为静态示例，未接入真实 RBAC 管理接口
-- 登录仍为开发态手输 `userId`，未接统一身份认证
+- 当前版本默认全功能可用，不引入登录与 RBAC 门控
 - 旧会话接口已下线，前端主路径统一使用 V2 主链路
 
 ## 9. 验收清单（UI/UX）

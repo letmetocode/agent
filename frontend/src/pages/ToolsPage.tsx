@@ -110,8 +110,8 @@ export const ToolsPage = () => {
       <PageHeader
         title="工具与插件"
         description="统一管理 Agent 可调用能力：状态、授权与健康度。"
-        primaryActionText="前往系统配置"
-        onPrimaryAction={() => navigate('/settings/system')}
+        primaryActionText="新建执行"
+        onPrimaryAction={() => navigate('/sessions')}
       />
 
       <Card className="app-card page-section">
