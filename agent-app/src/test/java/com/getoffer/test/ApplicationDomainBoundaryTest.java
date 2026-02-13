@@ -15,6 +15,8 @@ import com.getoffer.domain.task.service.TaskJsonDomainService;
 import com.getoffer.domain.task.service.TaskPromptDomainService;
 import com.getoffer.domain.task.service.TaskEvaluationDomainService;
 import com.getoffer.domain.task.service.TaskRecoveryDomainService;
+import com.getoffer.domain.task.service.TaskPersistencePolicyDomainService;
+import com.getoffer.trigger.application.command.TaskPersistenceApplicationService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -36,6 +38,8 @@ public class ApplicationDomainBoundaryTest {
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskRecoveryDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskBlackboardDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskJsonDomainService.class));
+        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskPersistenceApplicationService.class));
+        Assertions.assertTrue(hasFieldType(TaskPersistenceApplicationService.class, TaskPersistencePolicyDomainService.class));
     }
 
     @Test

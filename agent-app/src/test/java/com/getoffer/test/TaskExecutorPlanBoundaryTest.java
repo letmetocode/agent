@@ -20,6 +20,8 @@ import com.getoffer.domain.task.service.TaskJsonDomainService;
 import com.getoffer.domain.task.service.TaskPromptDomainService;
 import com.getoffer.domain.task.service.TaskEvaluationDomainService;
 import com.getoffer.domain.task.service.TaskRecoveryDomainService;
+import com.getoffer.domain.task.service.TaskPersistencePolicyDomainService;
+import com.getoffer.trigger.application.command.TaskPersistenceApplicationService;
 import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
 import com.getoffer.trigger.job.TaskExecutor;
@@ -204,6 +206,16 @@ public class TaskExecutorPlanBoundaryTest {
         ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterProvider =
                 new DefaultListableBeanFactory().getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class);
 
+        TaskBlackboardDomainService taskBlackboardDomainService = new TaskBlackboardDomainService();
+        TaskPersistenceApplicationService taskPersistenceApplicationService =
+                new TaskPersistenceApplicationService(
+                        taskRepository,
+                        executionRepository,
+                        planRepository,
+                        taskBlackboardDomainService,
+                        new TaskPersistencePolicyDomainService()
+                );
+
         return new TaskExecutor(
                 taskRepository,
                 planRepository,
@@ -217,8 +229,9 @@ public class TaskExecutorPlanBoundaryTest {
                 new TaskPromptDomainService(),
                 new TaskEvaluationDomainService(),
                 new TaskRecoveryDomainService(),
-                new TaskBlackboardDomainService(),
+                taskBlackboardDomainService,
                 new TaskJsonDomainService(),
+                taskPersistenceApplicationService,
                 new ObjectMapper(),
                 worker,
                 meterProvider,
