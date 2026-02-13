@@ -10,6 +10,7 @@ import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
+import com.getoffer.domain.task.service.TaskAgentSelectionDomainService;
 import com.getoffer.domain.task.service.TaskDispatchDomainService;
 import com.getoffer.domain.task.service.TaskEvaluationDomainService;
 import com.getoffer.domain.task.service.TaskExecutionDomainService;
@@ -44,10 +45,8 @@ import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -83,6 +82,7 @@ public class TaskExecutor {
     private final ITaskExecutionRepository taskExecutionRepository;
     private final IAgentFactory agentFactory;
     private final IAgentRegistryRepository agentRegistryRepository;
+    private final TaskAgentSelectionDomainService taskAgentSelectionDomainService;
     private final TaskDispatchDomainService taskDispatchDomainService;
     private final TaskExecutionDomainService taskExecutionDomainService;
     private final TaskPromptDomainService taskPromptDomainService;
@@ -143,6 +143,7 @@ public class TaskExecutor {
                         ITaskExecutionRepository taskExecutionRepository,
                         IAgentFactory agentFactory,
                         IAgentRegistryRepository agentRegistryRepository,
+                        TaskAgentSelectionDomainService taskAgentSelectionDomainService,
                         TaskDispatchDomainService taskDispatchDomainService,
                         TaskExecutionDomainService taskExecutionDomainService,
                         TaskPromptDomainService taskPromptDomainService,
@@ -172,6 +173,7 @@ public class TaskExecutor {
         this.taskExecutionRepository = taskExecutionRepository;
         this.agentFactory = agentFactory;
         this.agentRegistryRepository = agentRegistryRepository;
+        this.taskAgentSelectionDomainService = taskAgentSelectionDomainService;
         this.taskDispatchDomainService = taskDispatchDomainService;
         this.taskExecutionDomainService = taskExecutionDomainService;
         this.taskPromptDomainService = taskPromptDomainService;
@@ -238,8 +240,8 @@ public class TaskExecutor {
                 .register(meterRegistry);
         this.expiredRunningDetectedCounter = counter("agent.task.expired_running.detected.total");
         this.expiredRunningCheckErrorCounter = counter("agent.task.expired_running.check_error.total");
-        this.workerFallbackAgentKeys = parseFallbackAgentKeys(workerFallbackAgentKeys, "worker", "assistant");
-        this.criticFallbackAgentKeys = parseFallbackAgentKeys(criticFallbackAgentKeys, "critic", "assistant");
+        this.workerFallbackAgentKeys = taskAgentSelectionDomainService.parseFallbackAgentKeys(workerFallbackAgentKeys, "worker", "assistant");
+        this.criticFallbackAgentKeys = taskAgentSelectionDomainService.parseFallbackAgentKeys(criticFallbackAgentKeys, "critic", "assistant");
         this.defaultAgentCacheTtlMs = defaultAgentCacheTtlMs > 0 ? defaultAgentCacheTtlMs : 30000L;
         this.auditLogEnabled = auditLogEnabled;
         this.auditSuccessLogEnabled = auditSuccessLogEnabled;
@@ -697,23 +699,22 @@ public class TaskExecutor {
      * 优先级：task config(agentId/agentKey) > fallback key 列表 > 首个激活 AgentProfile。
      */
     private ChatClient resolveTaskClient(AgentTaskEntity task, AgentPlanEntity plan, String systemPromptSuffix) {
-        Map<String, Object> config = task.getConfigSnapshot();
-        Long configuredAgentId = getLong(config, "agentId", "agent_id");
-        String configuredAgentKey = getString(config, "agentKey", "agent_key");
+        TaskAgentSelectionDomainService.SelectionPlan selectionPlan =
+                taskAgentSelectionDomainService.resolveSelectionPlan(task, workerFallbackAgentKeys, criticFallbackAgentKeys);
         String conversationId = buildConversationId(plan, task);
-        if (configuredAgentId != null) {
-            return agentFactory.createAgent(configuredAgentId, conversationId, systemPromptSuffix);
+
+        if (selectionPlan.configuredAgentId() != null) {
+            return agentFactory.createAgent(selectionPlan.configuredAgentId(), conversationId, systemPromptSuffix);
         }
-        if (StringUtils.isNotBlank(configuredAgentKey)) {
-            return agentFactory.createAgent(configuredAgentKey, conversationId, systemPromptSuffix);
+        if (StringUtils.isNotBlank(selectionPlan.configuredAgentKey())) {
+            return agentFactory.createAgent(selectionPlan.configuredAgentKey(), conversationId, systemPromptSuffix);
         }
-        List<String> fallbackKeys = task.getTaskType() == TaskTypeEnum.CRITIC
-                ? criticFallbackAgentKeys
-                : workerFallbackAgentKeys;
+
+        List<String> fallbackKeys = selectionPlan.fallbackKeys();
         for (String fallbackKey : fallbackKeys) {
             ChatClient fallbackTaskClient = tryCreateTaskClientByAgentKey(fallbackKey, conversationId, systemPromptSuffix);
             if (fallbackTaskClient != null) {
-                if (!"worker".equalsIgnoreCase(fallbackKey) && !"critic".equalsIgnoreCase(fallbackKey)) {
+                if (taskAgentSelectionDomainService.shouldWarnFallbackKey(fallbackKey)) {
                     log.warn("Task fallback agent profile key applied. taskId={}, nodeId={}, taskType={}, agentKey={}",
                             task.getId(), task.getNodeId(), task.getTaskType(), fallbackKey);
                 }
@@ -738,8 +739,7 @@ public class TaskExecutor {
         try {
             return agentFactory.createAgent(agentKey, conversationId, systemPromptSuffix);
         } catch (IllegalStateException ex) {
-            String message = StringUtils.defaultString(ex.getMessage());
-            if (message.startsWith("Agent not found:") || message.startsWith("Agent is inactive:")) {
+            if (taskAgentSelectionDomainService.isIgnorableCreateError(ex)) {
                 return null;
             }
             throw ex;
@@ -758,34 +758,12 @@ public class TaskExecutor {
             cachedDefaultAgentAtMillis = now;
             return null;
         }
-        AgentRegistryEntity selected = activeAgents.stream()
-                .filter(agent -> agent != null && StringUtils.isNotBlank(agent.getKey()))
-                .min(Comparator.comparing(AgentRegistryEntity::getId, Comparator.nullsLast(Long::compareTo)))
-                .orElse(null);
+        AgentRegistryEntity selected = taskAgentSelectionDomainService.selectDefaultActiveAgent(activeAgents);
         cachedDefaultAgent = selected;
         cachedDefaultAgentAtMillis = now;
         return selected;
     }
 
-    private List<String> parseFallbackAgentKeys(String configuredKeys, String... defaults) {
-        LinkedHashSet<String> keys = new LinkedHashSet<>();
-        if (StringUtils.isNotBlank(configuredKeys)) {
-            String[] parts = configuredKeys.split(",");
-            for (String part : parts) {
-                if (StringUtils.isNotBlank(part)) {
-                    keys.add(part.trim());
-                }
-            }
-        }
-        if (keys.isEmpty() && defaults != null) {
-            for (String item : defaults) {
-                if (StringUtils.isNotBlank(item)) {
-                    keys.add(item.trim());
-                }
-            }
-        }
-        return new ArrayList<>(keys);
-    }
 
     private String buildConversationId(AgentPlanEntity plan, AgentTaskEntity task) {
         String planPart = plan.getId() == null ? "plan" : "plan-" + plan.getId();
@@ -949,25 +927,6 @@ public class TaskExecutor {
         return null;
     }
 
-    private Long getLong(Map<String, Object> config, String... keys) {
-        if (config == null || config.isEmpty()) {
-            return null;
-        }
-        for (String key : keys) {
-            Object value = config.get(key);
-            if (value == null) {
-                continue;
-            }
-            if (value instanceof Number) {
-                return ((Number) value).longValue();
-            }
-            try {
-                return Long.parseLong(String.valueOf(value));
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        return null;
-    }
 
     private boolean getBoolean(Map<String, Object> config, String... keys) {
         if (config == null || config.isEmpty()) {
