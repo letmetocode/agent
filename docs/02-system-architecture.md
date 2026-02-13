@@ -83,6 +83,8 @@ sequenceDiagram
     ChatV3-->>UI: sessionId + turnId + planId + streamPath
 ```
 
+补充约束：Planner 在校验 `inputSchema.required` 前会用运行时上下文补全系统字段（例如 `sessionId`、`turnId`），避免把系统字段当作用户必填。
+
 ### 4.2 调度执行与终态收敛
 
 ```mermaid

@@ -27,9 +27,10 @@
 - V2 编排入口下线：`/api/v2/agents/*`、`/api/v2/sessions*`、`/api/v2/plans/{id}/routing`。
 - 会话编排迁移至 `trigger.application.command.ChatConversationCommandService`，`ChatV3Controller` 仅保留协议适配。
 - 会话核心策略下沉至 `domain.session.service.SessionConversationDomainService`（默认 Agent、标题、上下文、失败语义）。
+- Planner 输入校验增强：`inputSchema.required` 缺失系统字段（如 `sessionId`）时，先从运行时上下文自动补全再校验，避免创建会话后首轮报错。
 
 **证据**
-- 测试：`ConversationOrchestratorServiceTest`、`ChatV3ControllerTest`、`ChatRoutingV3ControllerTest`、`SessionConversationDomainServiceTest`、`AgentV2ControllerTest`、`SessionV2ControllerTest`、`TurnV2ControllerTest`、`PlanRoutingV2ControllerTest`
+- 测试：`ConversationOrchestratorServiceTest`、`ChatV3ControllerTest`、`ChatRoutingV3ControllerTest`、`SessionConversationDomainServiceTest`、`PlannerServiceRootDraftTest`、`AgentV2ControllerTest`、`SessionV2ControllerTest`、`TurnV2ControllerTest`、`PlanRoutingV2ControllerTest`
 
 **未完成 / 计划优化**
 - `P1`：V3 请求体高级参数（上下文覆写）前端可视化配置。
@@ -67,10 +68,11 @@
 - 优先级：`P0`
 
 **已完成功能**
-- V3 聊天语义 SSE：`message.accepted`、`planning.started`、`task.progress`、`task.completed`、`answer.finalizing`、`answer.final`。
+- V3 聊天语义 SSE：`message.accepted`、`planning.started`、`task.progress`、`task.completed`、`answer.finalizing`、`answer.final`、`stream.completed`。
 - 游标回放补偿（`Last-Event-ID` 优先）。
 - 最终结果从终态消息读取，避免中间态误作为最终输出。
 - 前端消费层自动恢复：断链指数退避重连（最多 3 次）+ 历史轮询兜底（1.5s 间隔，30s 超时）。
+- 重连提示降噪：断链先静默同步历史；仅在确认执行未结束时进入重连提示；同类 `stream.error` 10 秒去重。
 
 **证据**
 - 测试：`ChatStreamV3ControllerTest`、`PlanStreamControllerTest`

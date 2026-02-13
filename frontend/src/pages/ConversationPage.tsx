@@ -26,11 +26,12 @@ interface HistorySyncResult {
   runningPlanId?: number;
 }
 
-const EXECUTING_TURN_STATUS = new Set(['PLANNING', 'EXECUTING']);
+const EXECUTING_TURN_STATUS = new Set(['CREATED', 'PLANNING', 'EXECUTING', 'SUMMARIZING']);
 const SSE_MAX_RETRIES = 3;
 const SSE_RETRY_BASE_MS = 1200;
 const HISTORY_POLL_INTERVAL_MS = 1500;
 const HISTORY_POLL_TIMEOUT_MS = 30000;
+const STREAM_ERROR_DEDUP_MS = 10000;
 
 const safeTime = (value?: string) => {
   if (!value) {
@@ -80,6 +81,7 @@ export const ConversationPage = () => {
   const retryCountRef = useRef(0);
   const currentSubscriptionRef = useRef<string | null>(null);
   const lastFinalEventRef = useRef<{ key: string; eventId: number }>({ key: '', eventId: 0 });
+  const streamErrorHintAtRef = useRef<Record<string, number>>({});
 
   const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8091';
 
@@ -143,6 +145,19 @@ export const ConversationPage = () => {
     setProcessEvents((prev) => [row, ...prev].slice(0, 120));
   }, []);
 
+  const pushStreamErrorHint = useCallback(
+    (key: string, messageText: string) => {
+      const now = Date.now();
+      const lastAt = streamErrorHintAtRef.current[key] || 0;
+      if (now - lastAt < STREAM_ERROR_DEDUP_MS) {
+        return;
+      }
+      streamErrorHintAtRef.current[key] = now;
+      pushProcessEvent({ type: 'stream.error', message: messageText });
+    },
+    [pushProcessEvent]
+  );
+
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
       window.clearTimeout(reconnectTimerRef.current);
@@ -164,6 +179,7 @@ export const ConversationPage = () => {
     retryCountRef.current = 0;
     currentSubscriptionRef.current = null;
     lastFinalEventRef.current = { key: '', eventId: 0 };
+    streamErrorHintAtRef.current = {};
     if (sseRef.current) {
       sseRef.current.close();
       sseRef.current = null;
@@ -243,7 +259,7 @@ export const ConversationPage = () => {
         if (Date.now() >= historyPollDeadlineRef.current) {
           clearHistoryPollTimer();
           setStreamState('idle');
-          pushProcessEvent({ type: 'stream.error', message: '自动同步超时，请手动刷新查看最新结果。' });
+          pushStreamErrorHint('polling-timeout', '自动同步超时，请手动刷新查看最新结果。');
           return;
         }
 
@@ -252,7 +268,7 @@ export const ConversationPage = () => {
 
       void poll();
     },
-    [clearHistoryPollTimer, pushProcessEvent, syncHistorySnapshot]
+    [clearHistoryPollTimer, pushStreamErrorHint, syncHistorySnapshot]
   );
 
   const connectStream = useCallback(
@@ -266,6 +282,7 @@ export const ConversationPage = () => {
       clearHistoryPollTimer();
       if (options?.resetRetry !== false) {
         retryCountRef.current = 0;
+        streamErrorHintAtRef.current = {};
       }
 
       if (sseRef.current) {
@@ -290,8 +307,25 @@ export const ConversationPage = () => {
           }
 
           if (event.type !== 'stream.heartbeat') {
-            setStreamState((previous) => (previous === 'connected' ? previous : 'connected'));
+            if (event.type !== 'stream.completed') {
+              setStreamState((previous) => (previous === 'connected' ? previous : 'connected'));
+            }
             pushProcessEvent(event);
+          }
+
+          if (event.type === 'stream.completed') {
+            clearReconnectTimer();
+            clearHistoryPollTimer();
+            retryCountRef.current = 0;
+            currentSubscriptionRef.current = null;
+            if (sseRef.current) {
+              sseRef.current.close();
+              sseRef.current = null;
+            }
+            setStreaming(false);
+            setStreamState('idle');
+            void Promise.all([loadSessions(), syncHistorySnapshot(targetSessionId, { silent: true })]);
+            return;
           }
 
           if (event.type === 'answer.final') {
@@ -319,36 +353,56 @@ export const ConversationPage = () => {
           }
         },
         () => {
-          if (currentSubscriptionRef.current !== subscriptionKey) {
-            return;
-          }
+          const handleStreamError = async () => {
+            if (currentSubscriptionRef.current !== subscriptionKey) {
+              return;
+            }
 
-          setStreaming(false);
+            setStreaming(false);
 
-          if (sseRef.current) {
-            sseRef.current.close();
-            sseRef.current = null;
-          }
+            if (sseRef.current) {
+              sseRef.current.close();
+              sseRef.current = null;
+            }
 
-          if (retryCountRef.current >= SSE_MAX_RETRIES) {
-            currentSubscriptionRef.current = null;
-            pushProcessEvent({ type: 'stream.error', message: '流连接中断，已切换为自动同步模式。' });
-            startHistoryPolling(targetSessionId);
-            return;
-          }
+            const historyState = await syncHistorySnapshot(targetSessionId, { silent: true });
+            if (currentSubscriptionRef.current !== subscriptionKey) {
+              return;
+            }
 
-          retryCountRef.current += 1;
-          const delay = SSE_RETRY_BASE_MS * Math.pow(2, retryCountRef.current - 1);
-          setStreamState('retrying');
-          pushProcessEvent({
-            type: 'stream.error',
-            message: `流连接中断，正在重连（${retryCountRef.current}/${SSE_MAX_RETRIES}）...`
-          });
+            if (historyState && !historyState.hasExecutingTurn) {
+              clearReconnectTimer();
+              clearHistoryPollTimer();
+              retryCountRef.current = 0;
+              currentSubscriptionRef.current = null;
+              setStreamState('idle');
+              return;
+            }
 
-          clearReconnectTimer();
-          reconnectTimerRef.current = window.setTimeout(() => {
-            connectStream(targetSessionId, targetPlanId, { force: true, resetRetry: false });
-          }, delay);
+            if (retryCountRef.current >= SSE_MAX_RETRIES) {
+              currentSubscriptionRef.current = null;
+              pushStreamErrorHint('switch-polling', '流连接中断，已切换为自动同步模式。');
+              startHistoryPolling(targetSessionId);
+              return;
+            }
+
+            retryCountRef.current += 1;
+            const delay = SSE_RETRY_BASE_MS * Math.pow(2, retryCountRef.current - 1);
+            setStreamState('retrying');
+            if (retryCountRef.current > 1) {
+              pushStreamErrorHint(
+                'retrying',
+                `流连接中断，正在重连（${retryCountRef.current}/${SSE_MAX_RETRIES}）...`
+              );
+            }
+
+            clearReconnectTimer();
+            reconnectTimerRef.current = window.setTimeout(() => {
+              connectStream(targetSessionId, targetPlanId, { force: true, resetRetry: false });
+            }, delay);
+          };
+
+          void handleStreamError();
         }
       );
 
@@ -363,7 +417,16 @@ export const ConversationPage = () => {
 
       sseRef.current = source;
     },
-    [baseUrl, clearHistoryPollTimer, clearReconnectTimer, loadSessions, pushProcessEvent, startHistoryPolling, syncHistorySnapshot]
+    [
+      baseUrl,
+      clearHistoryPollTimer,
+      clearReconnectTimer,
+      loadSessions,
+      pushProcessEvent,
+      pushStreamErrorHint,
+      startHistoryPolling,
+      syncHistorySnapshot
+    ]
   );
 
   const loadHistory = useCallback(
@@ -389,7 +452,15 @@ export const ConversationPage = () => {
       stopStream();
       return;
     }
-    stopStream();
+
+    const hasSameSessionSubscription = Boolean(
+      sseRef.current && currentSubscriptionRef.current && currentSubscriptionRef.current.startsWith(`${sid}-`)
+    );
+
+    if (!hasSameSessionSubscription) {
+      stopStream();
+    }
+
     void loadHistory(sid);
   }, [loadHistory, sid, stopStream]);
 
@@ -397,16 +468,21 @@ export const ConversationPage = () => {
     if (!sid || !activePlanId) {
       return;
     }
+
+    const subscriptionKey = `${sid}-${activePlanId}`;
+    const isCurrentPlanSubscribed = currentSubscriptionRef.current === subscriptionKey && Boolean(sseRef.current);
+
     if (!hasExecutingTurn) {
-      stopStream();
+      if (!isCurrentPlanSubscribed) {
+        stopStream();
+      }
       return;
     }
     if (streamState === 'polling' || streamState === 'retrying') {
       return;
     }
 
-    const subscriptionKey = `${sid}-${activePlanId}`;
-    if (currentSubscriptionRef.current === subscriptionKey && sseRef.current) {
+    if (isCurrentPlanSubscribed) {
       return;
     }
 

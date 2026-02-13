@@ -227,15 +227,29 @@ public class ChatStreamV3Controller {
             return;
         }
 
+        Long turnId = resolveTurnIdFromEvent(eventData, subscriber.turnId);
+
         ChatStreamEventV3DTO answer = new ChatStreamEventV3DTO();
         answer.setType("answer.final");
         answer.setEventId(event.getId());
         answer.setSessionId(subscriber.sessionId);
         answer.setPlanId(subscriber.planId);
-        answer.setTurnId(resolveTurnIdFromEvent(eventData, subscriber.turnId));
+        answer.setTurnId(turnId);
         answer.setFinalAnswer(resolveFinalAnswer(eventData, subscriber.turnId));
         answer.setMetadata(eventData);
         if (!sendEvent(subscriber, answer, event.getId())) {
+            removeSubscriber(subscriber);
+            return;
+        }
+
+        ChatStreamEventV3DTO completed = new ChatStreamEventV3DTO();
+        completed.setType("stream.completed");
+        completed.setSessionId(subscriber.sessionId);
+        completed.setPlanId(subscriber.planId);
+        completed.setTurnId(turnId);
+        completed.setMessage("流式输出已完成");
+        completed.setMetadata(Map.of("reason", "PLAN_FINISHED", "eventId", event.getId()));
+        if (!sendEvent(subscriber, completed, event.getId())) {
             removeSubscriber(subscriber);
             return;
         }

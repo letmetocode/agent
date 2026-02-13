@@ -215,9 +215,10 @@ npm run dev
 
 - `POST /api/v3/chat/messages`：统一会话编排入口（自动创建/复用 Session + 创建 Turn + 触发 Plan）。
 - `GET /api/v3/chat/sessions/{id}/history`：聚合返回会话历史（session/turns/messages + latestPlanId）。
-- `GET /api/v3/chat/sessions/{id}/stream?planId=...`：聊天语义 SSE（`message.accepted`、`task.progress`、`answer.final` 等）。
+- `GET /api/v3/chat/sessions/{id}/stream?planId=...`：聊天语义 SSE（`message.accepted`、`task.progress`、`answer.final`、`stream.completed` 等）。
 - `GET /api/v3/chat/plans/{id}/routing`：查询路由决策详情（V2 路由接口替代）。
 - 默认策略：优先使用 `assistant`（若存在且激活），否则使用首个激活 Agent；无可用 Agent 时返回明确错误。
+- 输入校验策略：当 Workflow `inputSchema.required` 包含系统上下文字段（如 `sessionId`）时，由 Planner 从运行时上下文自动注入，避免误报 `Missing required input`。
 
 ## 会话与规划 V2 接口（已下线，仅保留迁移提示）
 

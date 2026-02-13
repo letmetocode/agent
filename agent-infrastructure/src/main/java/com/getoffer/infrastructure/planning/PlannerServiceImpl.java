@@ -238,12 +238,13 @@ import java.util.regex.Pattern;
 
         Map<String, Object> userInput = parseUserInput(userQuery);
         enrichRequiredInputFromQuery(routedWorkflow.inputSchema, userInput, userQuery);
-        validateInput(routedWorkflow.inputSchema, userInput);
 
         Map<String, Object> globalContext = buildGlobalContext(sessionId, userQuery, routedWorkflow, userInput);
         if (extraContext != null && !extraContext.isEmpty()) {
             globalContext.putAll(extraContext);
         }
+        enrichRequiredInputFromContext(routedWorkflow.inputSchema, userInput, globalContext);
+        validateInput(routedWorkflow.inputSchema, userInput);
 
         RoutingDecisionEntity savedDecision = routingDecisionRepository.save(buildRoutingDecisionEntity(sessionId, extraContext, routedWorkflow));
         recordRoutingMetrics(savedDecision);
@@ -889,6 +890,47 @@ import java.util.regex.Pattern;
             }
             userInput.put(key, inferred);
         }
+    }
+
+    private void enrichRequiredInputFromContext(Map<String, Object> inputSchema,
+                                                Map<String, Object> userInput,
+                                                Map<String, Object> globalContext) {
+        if (inputSchema == null || inputSchema.isEmpty() || userInput == null || globalContext == null || globalContext.isEmpty()) {
+            return;
+        }
+        Object required = inputSchema.get("required");
+        if (!(required instanceof List<?>)) {
+            return;
+        }
+        for (Object item : (List<?>) required) {
+            String key = item == null ? null : String.valueOf(item);
+            if (StringUtils.isBlank(key)) {
+                continue;
+            }
+            if (hasInputValue(userInput.get(key))) {
+                continue;
+            }
+            Object contextValue = globalContext.get(key);
+            if (!hasInputValue(contextValue)) {
+                contextValue = findContextValueByIgnoreCase(globalContext, key);
+            }
+            if (!hasInputValue(contextValue)) {
+                continue;
+            }
+            userInput.put(key, contextValue);
+        }
+    }
+
+    private Object findContextValueByIgnoreCase(Map<String, Object> globalContext, String key) {
+        if (globalContext == null || globalContext.isEmpty() || StringUtils.isBlank(key)) {
+            return null;
+        }
+        for (Map.Entry<String, Object> entry : globalContext.entrySet()) {
+            if (StringUtils.equalsIgnoreCase(entry.getKey(), key)) {
+                return entry.getValue();
+            }
+        }
+        return null;
     }
 
     private void validateInput(Map<String, Object> inputSchema, Map<String, Object> userInput) {

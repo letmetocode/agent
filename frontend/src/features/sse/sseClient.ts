@@ -94,6 +94,7 @@ export const openChatSseV3 = (
     'task.completed',
     'answer.finalizing',
     'answer.final',
+    'stream.completed',
     'stream.heartbeat',
     'stream.error'
   ];

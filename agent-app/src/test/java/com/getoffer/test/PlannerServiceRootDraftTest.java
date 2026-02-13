@@ -272,6 +272,46 @@ public class PlannerServiceRootDraftTest {
     }
 
     @Test
+    public void shouldInjectSessionIdWhenInputSchemaRequiresIt() {
+        JsonCodec jsonCodec = new JsonCodec(new ObjectMapper());
+        InMemoryWorkflowDefinitionRepository workflowDefinitionRepository = new InMemoryWorkflowDefinitionRepository();
+        InMemoryWorkflowDraftRepository workflowDraftRepository = new InMemoryWorkflowDraftRepository();
+        InMemoryRoutingDecisionRepository routingDecisionRepository = new InMemoryRoutingDecisionRepository();
+        InMemoryAgentPlanRepository agentPlanRepository = new InMemoryAgentPlanRepository();
+        InMemoryAgentTaskRepository agentTaskRepository = new InMemoryAgentTaskRepository();
+        InMemoryAgentRegistryRepository agentRegistryRepository = new InMemoryAgentRegistryRepository();
+        agentRegistryRepository.save(agent("root", true));
+
+        IRootWorkflowDraftPlanner rootPlanner = (sessionId, query, context) -> buildDraftWithRequiredSessionId(query);
+
+        PlannerServiceImpl plannerService = new PlannerServiceImpl(
+                workflowDefinitionRepository,
+                workflowDraftRepository,
+                routingDecisionRepository,
+                agentPlanRepository,
+                agentTaskRepository,
+                jsonCodec,
+                rootPlanner,
+                agentRegistryRepository,
+                true,
+                "root",
+                3,
+                0L,
+                true,
+                "root"
+        );
+
+        Long sessionId = 5010L;
+        AgentPlanEntity plan = plannerService.createPlan(sessionId, "你好");
+        Assertions.assertEquals(PlanStatusEnum.READY, plan.getStatus());
+        Assertions.assertEquals(sessionId, plan.getGlobalContext().get("sessionId"));
+
+        List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(plan.getId());
+        Assertions.assertEquals(1, tasks.size());
+        Assertions.assertEquals(sessionId, tasks.get(0).getInputContext().get("sessionId"));
+    }
+
+    @Test
     public void shouldRecordPlannerRouteMetricsForProductionHit() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         Metrics.addRegistry(registry);
@@ -439,6 +479,42 @@ public class PlannerServiceRootDraftTest {
         inputSchema.put("type", "object");
         inputSchema.put("properties", properties);
         inputSchema.put("required", Collections.singletonList("productName"));
+        draft.setInputSchema(inputSchema);
+
+        draft.setDefaultConfig(Collections.singletonMap("maxRetries", 2));
+        draft.setToolPolicy(Collections.singletonMap("mode", "restricted"));
+        draft.setConstraints(Collections.singletonMap("mode", "candidate-restricted"));
+        draft.setInputSchemaVersion("v1");
+
+        Map<String, Object> node = new HashMap<>();
+        node.put("id", "candidate-worker");
+        node.put("name", "执行");
+        node.put("type", "WORKER");
+        node.put("config", new HashMap<>());
+
+        Map<String, Object> graph = new HashMap<>();
+        graph.put("nodes", Collections.singletonList(node));
+        graph.put("edges", Collections.emptyList());
+        draft.setGraphDefinition(graph);
+        return draft;
+    }
+
+    private RootWorkflowDraft buildDraftWithRequiredSessionId(String query) {
+        RootWorkflowDraft draft = new RootWorkflowDraft();
+        draft.setCategory("candidate");
+        draft.setName("root-session-required-" + query);
+        draft.setRouteDescription(query);
+
+        Map<String, Object> properties = new HashMap<>();
+        Map<String, Object> sessionIdSchema = new HashMap<>();
+        sessionIdSchema.put("type", "integer");
+        sessionIdSchema.put("description", "会话 ID，由系统注入");
+        properties.put("sessionId", sessionIdSchema);
+
+        Map<String, Object> inputSchema = new HashMap<>();
+        inputSchema.put("type", "object");
+        inputSchema.put("properties", properties);
+        inputSchema.put("required", Collections.singletonList("sessionId"));
         draft.setInputSchema(inputSchema);
 
         draft.setDefaultConfig(Collections.singletonMap("maxRetries", 2));
