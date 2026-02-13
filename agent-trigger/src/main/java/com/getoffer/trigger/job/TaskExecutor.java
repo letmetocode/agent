@@ -23,6 +23,7 @@ import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
 import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import com.getoffer.types.enums.TaskStatusEnum;
 import com.getoffer.types.enums.TaskTypeEnum;
+import com.getoffer.trigger.application.command.TaskPersistenceApplicationService;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
@@ -92,6 +93,7 @@ public class TaskExecutor {
     private final TaskRecoveryDomainService taskRecoveryDomainService;
     private final TaskBlackboardDomainService taskBlackboardDomainService;
     private final TaskJsonDomainService taskJsonDomainService;
+    private final TaskPersistenceApplicationService taskPersistenceApplicationService;
     private final ObjectMapper objectMapper;
     private final String claimOwner;
     private final int claimBatchSize;
@@ -155,6 +157,7 @@ public class TaskExecutor {
                         TaskRecoveryDomainService taskRecoveryDomainService,
                         TaskBlackboardDomainService taskBlackboardDomainService,
                         TaskJsonDomainService taskJsonDomainService,
+                        TaskPersistenceApplicationService taskPersistenceApplicationService,
                         ObjectMapper objectMapper,
                         @Qualifier("taskExecutionWorker") ThreadPoolExecutor taskExecutionWorker,
                         ObjectProvider<MeterRegistry> meterRegistryProvider,
@@ -187,6 +190,7 @@ public class TaskExecutor {
         this.taskRecoveryDomainService = taskRecoveryDomainService;
         this.taskBlackboardDomainService = taskBlackboardDomainService;
         this.taskJsonDomainService = taskJsonDomainService;
+        this.taskPersistenceApplicationService = taskPersistenceApplicationService;
         this.objectMapper = objectMapper;
         this.taskExecutionWorker = taskExecutionWorker;
         this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
@@ -868,20 +872,35 @@ public class TaskExecutor {
                 text -> taskJsonDomainService.parseStrictJsonObject(text, this::parseJsonStrictObject)
         );
 
-        for (int attempt = 1; attempt <= PLAN_CONTEXT_UPDATE_MAX_RETRY; attempt++) {
-            AgentPlanEntity latestPlan = agentPlanRepository.findById(plan.getId());
-            if (latestPlan == null) {
-                log.warn("Failed to update plan context because plan not found. planId={}", plan.getId());
-                return;
-            }
-            Map<String, Object> mergedContext = taskBlackboardDomainService.mergeContext(latestPlan.getGlobalContext(), delta);
-            latestPlan.setGlobalContext(mergedContext);
-            if (safeUpdatePlan(latestPlan, attempt, PLAN_CONTEXT_UPDATE_MAX_RETRY)) {
-                plan.setGlobalContext(mergedContext);
-                plan.setVersion(latestPlan.getVersion());
-                return;
-            }
+        TaskPersistenceApplicationService.PlanContextUpdateResult result =
+                taskPersistenceApplicationService.updatePlanContextWithRetry(
+                        plan.getId(),
+                        delta,
+                        PLAN_CONTEXT_UPDATE_MAX_RETRY
+                );
+
+        if (result.outcome() == TaskPersistenceApplicationService.PlanContextUpdateOutcome.UPDATED) {
+            plan.setGlobalContext(result.mergedContext());
+            plan.setVersion(result.version());
+            return;
         }
+
+        if (result.outcome() == TaskPersistenceApplicationService.PlanContextUpdateOutcome.PLAN_NOT_FOUND) {
+            log.warn("Failed to update plan context because plan not found. planId={}", plan.getId());
+            return;
+        }
+
+        if (result.outcome() == TaskPersistenceApplicationService.PlanContextUpdateOutcome.OPTIMISTIC_LOCK_EXHAUSTED) {
+            log.warn("Failed to update plan context after retries. planId={}, attempts={}, error={}",
+                    plan.getId(),
+                    result.attempt(),
+                    result.errorMessage());
+            return;
+        }
+
+        log.warn("Failed to update plan context. planId={}, error={}",
+                plan.getId(),
+                result.errorMessage());
     }
 
 
@@ -1163,35 +1182,46 @@ public class TaskExecutor {
     }
 
     private boolean safeUpdateTask(AgentTaskEntity task) {
-        try {
-            agentTaskRepository.update(task);
+        TaskPersistenceApplicationService.TaskUpdateResult result =
+                taskPersistenceApplicationService.updateTask(task);
+        if (result.updated()) {
             return true;
-        } catch (Exception ex) {
-            log.warn("Failed to update task status. taskId={}, error={}", task.getId(), ex.getMessage());
-            return false;
         }
+        log.warn("Failed to update task status. taskId={}, error={}",
+                task == null ? null : task.getId(),
+                result.errorMessage());
+        return false;
     }
 
     private boolean safeUpdateClaimedTask(AgentTaskEntity task) {
-        try {
-            boolean updated = agentTaskRepository.updateClaimedTaskState(task);
-            if (!updated) {
-                claimedUpdateGuardRejectCounter.increment();
-                log.debug("Claimed task update skipped by ownership/attempt guard. taskId={}, owner={}, attempt={}, status={}",
-                        task.getId(), task.getClaimOwner(), task.getExecutionAttempt(), task.getStatus());
-                emitTaskAudit("claimed_update_guard_reject", task,
-                        "status=" + (task.getStatus() == null ? "null" : task.getStatus().name()));
-            } else {
-                claimedUpdateSuccessCounter.increment();
-            }
-            return updated;
-        } catch (Exception ex) {
-            claimedUpdateErrorCounter.increment();
-            log.warn("Failed to update claimed task. taskId={}, owner={}, attempt={}, error={}",
-                    task.getId(), task.getClaimOwner(), task.getExecutionAttempt(), ex.getMessage());
-            emitTaskAudit("claimed_update_error", task, "error_type=" + classifyError(ex));
+        TaskPersistenceApplicationService.ClaimedTaskUpdateResult result =
+                taskPersistenceApplicationService.updateClaimedTask(task);
+
+        if (result.outcome() == TaskPersistenceApplicationService.ClaimedTaskUpdateOutcome.UPDATED) {
+            claimedUpdateSuccessCounter.increment();
+            return true;
+        }
+
+        if (result.outcome() == TaskPersistenceApplicationService.ClaimedTaskUpdateOutcome.GUARD_REJECTED) {
+            claimedUpdateGuardRejectCounter.increment();
+            log.debug("Claimed task update skipped by ownership/attempt guard. taskId={}, owner={}, attempt={}, status={}",
+                    task == null ? null : task.getId(),
+                    task == null ? null : task.getClaimOwner(),
+                    task == null ? null : task.getExecutionAttempt(),
+                    task == null ? null : task.getStatus());
+            emitTaskAudit("claimed_update_guard_reject", task,
+                    "status=" + (task == null || task.getStatus() == null ? "null" : task.getStatus().name()));
             return false;
         }
+
+        claimedUpdateErrorCounter.increment();
+        log.warn("Failed to update claimed task. taskId={}, owner={}, attempt={}, error={}",
+                task == null ? null : task.getId(),
+                task == null ? null : task.getClaimOwner(),
+                task == null ? null : task.getExecutionAttempt(),
+                result.errorMessage());
+        emitTaskAudit("claimed_update_error", task, "error_type=persistence_error");
+        return false;
     }
 
     private ScheduledFuture<?> startHeartbeat(AgentTaskEntity task) {
@@ -1265,35 +1295,14 @@ public class TaskExecutor {
     }
 
     private void safeSaveExecution(TaskExecutionEntity execution) {
-        try {
-            taskExecutionRepository.save(execution);
-        } catch (Exception ex) {
-            log.warn("Failed to save task execution. taskId={}, error={}", execution.getTaskId(), ex.getMessage());
+        TaskPersistenceApplicationService.ExecutionSaveResult result =
+                taskPersistenceApplicationService.saveExecution(execution);
+        if (result.saved()) {
+            return;
         }
-    }
-
-    private boolean safeUpdatePlan(AgentPlanEntity plan, int attempt, int maxAttempts) {
-        if (plan == null || plan.getId() == null) {
-            return false;
-        }
-        try {
-            agentPlanRepository.update(plan);
-            return true;
-        } catch (Exception ex) {
-            boolean optimisticLock = ex.getMessage() != null && ex.getMessage().contains("Optimistic lock");
-            if (optimisticLock) {
-                if (attempt < maxAttempts) {
-                    log.debug("Retry updating plan context after optimistic lock. planId={}, attempt={}/{}",
-                            plan.getId(), attempt, maxAttempts);
-                } else {
-                    log.warn("Failed to update plan context after retries. planId={}, attempts={}, error={}",
-                            plan.getId(), maxAttempts, ex.getMessage());
-                }
-                return false;
-            }
-            log.warn("Failed to update plan context. planId={}, error={}", plan.getId(), ex.getMessage());
-            return false;
-        }
+        log.warn("Failed to save task execution. taskId={}, error={}",
+                execution == null ? null : execution.getTaskId(),
+                result.errorMessage());
     }
 
     private static final class TaskCallTimeoutException extends RuntimeException {
