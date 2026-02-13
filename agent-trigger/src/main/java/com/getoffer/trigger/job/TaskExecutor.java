@@ -15,6 +15,7 @@ import com.getoffer.domain.task.service.TaskBlackboardDomainService;
 import com.getoffer.domain.task.service.TaskDispatchDomainService;
 import com.getoffer.domain.task.service.TaskEvaluationDomainService;
 import com.getoffer.domain.task.service.TaskExecutionDomainService;
+import com.getoffer.domain.task.service.TaskJsonDomainService;
 import com.getoffer.domain.task.service.TaskPromptDomainService;
 import com.getoffer.domain.task.service.TaskRecoveryDomainService;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
@@ -90,6 +91,7 @@ public class TaskExecutor {
     private final TaskEvaluationDomainService taskEvaluationDomainService;
     private final TaskRecoveryDomainService taskRecoveryDomainService;
     private final TaskBlackboardDomainService taskBlackboardDomainService;
+    private final TaskJsonDomainService taskJsonDomainService;
     private final ObjectMapper objectMapper;
     private final String claimOwner;
     private final int claimBatchSize;
@@ -152,6 +154,7 @@ public class TaskExecutor {
                         TaskEvaluationDomainService taskEvaluationDomainService,
                         TaskRecoveryDomainService taskRecoveryDomainService,
                         TaskBlackboardDomainService taskBlackboardDomainService,
+                        TaskJsonDomainService taskJsonDomainService,
                         ObjectMapper objectMapper,
                         @Qualifier("taskExecutionWorker") ThreadPoolExecutor taskExecutionWorker,
                         ObjectProvider<MeterRegistry> meterRegistryProvider,
@@ -183,6 +186,7 @@ public class TaskExecutor {
         this.taskEvaluationDomainService = taskEvaluationDomainService;
         this.taskRecoveryDomainService = taskRecoveryDomainService;
         this.taskBlackboardDomainService = taskBlackboardDomainService;
+        this.taskJsonDomainService = taskJsonDomainService;
         this.objectMapper = objectMapper;
         this.taskExecutionWorker = taskExecutionWorker;
         this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
@@ -776,7 +780,7 @@ public class TaskExecutor {
     }
 
     private String buildPrompt(AgentTaskEntity task, AgentPlanEntity plan) {
-        return taskPromptDomainService.buildWorkerPrompt(task, plan, this::toJson);
+        return taskPromptDomainService.buildWorkerPrompt(task, plan, this::serializeJsonForDomain);
     }
 
     private String buildCriticPrompt(AgentTaskEntity task, AgentPlanEntity plan) {
@@ -784,7 +788,7 @@ public class TaskExecutor {
         AgentTaskEntity targetTask = targetNodeId == null ? null
                 : agentTaskRepository.findByPlanIdAndNodeId(plan.getId(), targetNodeId);
         String targetOutput = targetTask == null ? "" : StringUtils.defaultString(targetTask.getOutputResult());
-        return taskPromptDomainService.buildCriticPrompt(task, plan, targetNodeId, targetOutput, this::toJson);
+        return taskPromptDomainService.buildCriticPrompt(task, plan, targetNodeId, targetOutput, this::serializeJsonForDomain);
     }
 
 
@@ -813,31 +817,14 @@ public class TaskExecutor {
 
 
     private CriticDecision parseCriticDecision(String response) {
-        Map<String, Object> payload = parseJsonPayload(StringUtils.defaultString(response).trim());
+        Map<String, Object> payload = taskJsonDomainService.parseEmbeddedJsonObject(
+                response,
+                this::parseJsonStrictObject
+        );
         TaskEvaluationDomainService.CriticDecision decision = taskEvaluationDomainService.parseCriticDecision(response, payload);
         return new CriticDecision(decision.pass(), decision.feedback());
     }
 
-    private Map<String, Object> parseJsonPayload(String text) {
-        if (StringUtils.isBlank(text)) {
-            return null;
-        }
-        try {
-            return objectMapper.readValue(text, MAP_TYPE);
-        } catch (JsonProcessingException ex) {
-            int start = text.indexOf('{');
-            int end = text.lastIndexOf('}');
-            if (start < 0 || end <= start) {
-                return null;
-            }
-            String snippet = text.substring(start, end + 1);
-            try {
-                return objectMapper.readValue(snippet, MAP_TYPE);
-            } catch (JsonProcessingException ignored) {
-                return null;
-            }
-        }
-    }
 
     private void rollbackTarget(AgentPlanEntity plan, AgentTaskEntity criticTask, String feedback) {
         String targetNodeId = resolveTargetNodeId(criticTask);
@@ -875,7 +862,11 @@ public class TaskExecutor {
         if (plan == null || plan.getId() == null || task == null) {
             return;
         }
-        Map<String, Object> delta = taskBlackboardDomainService.buildContextDelta(task, output, this::parseJsonMap);
+        Map<String, Object> delta = taskBlackboardDomainService.buildContextDelta(
+                task,
+                output,
+                text -> taskJsonDomainService.parseStrictJsonObject(text, this::parseJsonStrictObject)
+        );
 
         for (int attempt = 1; attempt <= PLAN_CONTEXT_UPDATE_MAX_RETRY; attempt++) {
             AgentPlanEntity latestPlan = agentPlanRepository.findById(plan.getId());
@@ -895,29 +886,26 @@ public class TaskExecutor {
 
 
 
-    private Map<String, Object> parseJsonMap(String output) {
-        if (StringUtils.isBlank(output)) {
-            return null;
-        }
-        String trimmed = output.trim();
-        if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    private Map<String, Object> parseJsonStrictObject(String json) {
+        if (StringUtils.isBlank(json)) {
             return null;
         }
         try {
-            return objectMapper.readValue(trimmed, MAP_TYPE);
+            return objectMapper.readValue(json, MAP_TYPE);
         } catch (JsonProcessingException ex) {
             return null;
         }
     }
 
-    private String toJson(Object value) {
-        if (value == null) {
-            return "{}";
-        }
+    private String serializeJsonForDomain(Object value) {
+        return taskJsonDomainService.toJson(value, this::serializeJsonStrict);
+    }
+
+    private String serializeJsonStrict(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException ex) {
-            return String.valueOf(value);
+            throw new IllegalStateException(ex.getMessage(), ex);
         }
     }
 
