@@ -274,6 +274,28 @@ public class AgentTaskEntity {
         return this.claimOwner != null && !this.claimOwner.isBlank() && this.executionAttempt != null;
     }
 
+    public void applyCriticFeedback(String feedback) {
+        Map<String, Object> nextInputContext = this.inputContext == null
+                ? new HashMap<>()
+                : new HashMap<>(this.inputContext);
+        nextInputContext.put("feedback", feedback);
+        nextInputContext.put("criticFeedback", feedback);
+        this.inputContext = nextInputContext;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void incrementRetry() {
+        this.currentRetry = this.normalizedCurrentRetry() + 1;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public boolean exceedsRetryLimit() {
+        if (this.maxRetries == null) {
+            return false;
+        }
+        return this.normalizedCurrentRetry() > Math.max(this.maxRetries, 0);
+    }
+
     public int normalizedCurrentRetry() {
         return this.currentRetry == null ? 0 : Math.max(this.currentRetry, 0);
     }

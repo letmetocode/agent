@@ -14,6 +14,7 @@ import com.getoffer.domain.task.service.TaskDispatchDomainService;
 import com.getoffer.domain.task.service.TaskEvaluationDomainService;
 import com.getoffer.domain.task.service.TaskExecutionDomainService;
 import com.getoffer.domain.task.service.TaskPromptDomainService;
+import com.getoffer.domain.task.service.TaskRecoveryDomainService;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
 import com.getoffer.types.enums.PlanTaskEventTypeEnum;
@@ -86,6 +87,7 @@ public class TaskExecutor {
     private final TaskExecutionDomainService taskExecutionDomainService;
     private final TaskPromptDomainService taskPromptDomainService;
     private final TaskEvaluationDomainService taskEvaluationDomainService;
+    private final TaskRecoveryDomainService taskRecoveryDomainService;
     private final ObjectMapper objectMapper;
     private final String claimOwner;
     private final int claimBatchSize;
@@ -145,6 +147,7 @@ public class TaskExecutor {
                         TaskExecutionDomainService taskExecutionDomainService,
                         TaskPromptDomainService taskPromptDomainService,
                         TaskEvaluationDomainService taskEvaluationDomainService,
+                        TaskRecoveryDomainService taskRecoveryDomainService,
                         ObjectMapper objectMapper,
                         @Qualifier("taskExecutionWorker") ThreadPoolExecutor taskExecutionWorker,
                         ObjectProvider<MeterRegistry> meterRegistryProvider,
@@ -173,6 +176,7 @@ public class TaskExecutor {
         this.taskExecutionDomainService = taskExecutionDomainService;
         this.taskPromptDomainService = taskPromptDomainService;
         this.taskEvaluationDomainService = taskEvaluationDomainService;
+        this.taskRecoveryDomainService = taskRecoveryDomainService;
         this.objectMapper = objectMapper;
         this.taskExecutionWorker = taskExecutionWorker;
         this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
@@ -859,35 +863,21 @@ public class TaskExecutor {
             log.warn("Critic rollback skipped: target node not found. planId={}, taskId={}", plan.getId(), criticTask.getId());
             return;
         }
+
         AgentTaskEntity target = agentTaskRepository.findByPlanIdAndNodeId(plan.getId(), targetNodeId);
-        if (target == null) {
+        TaskRecoveryDomainService.RecoveryDecision decision =
+                taskRecoveryDomainService.applyCriticFeedback(target, feedback);
+
+        if (decision == TaskRecoveryDomainService.RecoveryDecision.NOT_FOUND) {
             log.warn("Critic rollback skipped: target task not found. planId={}, nodeId={}", plan.getId(), targetNodeId);
             return;
         }
-        if (target.getStatus() == TaskStatusEnum.FAILED) {
+        if (decision == TaskRecoveryDomainService.RecoveryDecision.ALREADY_FAILED) {
             return;
         }
-        Map<String, Object> context = target.getInputContext();
-        if (context == null) {
-            context = new HashMap<>();
-        }
-        context.put("feedback", feedback);
-        context.put("criticFeedback", feedback);
-        target.setInputContext(context);
-
-        int retry = target.getCurrentRetry() == null ? 0 : target.getCurrentRetry();
-        retry += 1;
-        target.setCurrentRetry(retry);
-
-        Integer maxRetries = target.getMaxRetries();
-        if (maxRetries != null && retry > maxRetries) {
-            target.fail("Validation failed: " + feedback);
+        if (decision.requiresUpdate()) {
             safeUpdateTask(target);
-            return;
         }
-
-        target.rollbackToRefining();
-        safeUpdateTask(target);
     }
 
     private String resolveTargetNodeId(AgentTaskEntity task) {
