@@ -11,6 +11,7 @@ import com.getoffer.domain.task.service.TaskAgentSelectionDomainService;
 import com.getoffer.domain.task.service.TaskBlackboardDomainService;
 import com.getoffer.domain.task.service.TaskDispatchDomainService;
 import com.getoffer.domain.task.service.TaskExecutionDomainService;
+import com.getoffer.domain.task.service.TaskJsonDomainService;
 import com.getoffer.domain.task.service.TaskPromptDomainService;
 import com.getoffer.domain.task.service.TaskEvaluationDomainService;
 import com.getoffer.domain.task.service.TaskRecoveryDomainService;
@@ -34,6 +35,7 @@ public class ApplicationDomainBoundaryTest {
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskEvaluationDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskRecoveryDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskBlackboardDomainService.class));
+        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskJsonDomainService.class));
     }
 
     @Test

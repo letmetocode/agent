@@ -16,6 +16,7 @@ import com.getoffer.domain.task.service.TaskAgentSelectionDomainService;
 import com.getoffer.domain.task.service.TaskBlackboardDomainService;
 import com.getoffer.domain.task.service.TaskDispatchDomainService;
 import com.getoffer.domain.task.service.TaskExecutionDomainService;
+import com.getoffer.domain.task.service.TaskJsonDomainService;
 import com.getoffer.domain.task.service.TaskPromptDomainService;
 import com.getoffer.domain.task.service.TaskEvaluationDomainService;
 import com.getoffer.domain.task.service.TaskRecoveryDomainService;
@@ -217,6 +218,7 @@ public class TaskExecutorPlanBoundaryTest {
                 new TaskEvaluationDomainService(),
                 new TaskRecoveryDomainService(),
                 new TaskBlackboardDomainService(),
+                new TaskJsonDomainService(),
                 new ObjectMapper(),
                 worker,
                 meterProvider,
