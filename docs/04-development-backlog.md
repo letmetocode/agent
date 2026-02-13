@@ -35,6 +35,25 @@
 - 分享能力可用但降优先级，不占用核心主链路资源。
 - 当前范围外：登录与 RBAC（明确延后，不在本轮交付）。
 
+## 3.1 核心可用性验收结果（2026-02-13）
+
+> 目标：先满足核心功能可用，暂停优化项落地。
+
+| 验收项 | 结果 | 证据命令/说明 |
+| --- | --- | --- |
+| 后端联编可用性 | 通过 | `mvn -pl agent-app -am -DskipTests test-compile` |
+| 会话与规划 V2 控制器回归 | 通过 | `AgentV2ControllerTest`、`SessionV2ControllerTest`、`TurnV2ControllerTest`、`PlanRoutingV2ControllerTest` |
+| 执行终态与观测核心回归 | 通过 | `PlannerServiceRootDraftTest`、`TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest`、`ConsoleQueryControllerPerformanceTest`、`ObservabilityAlertCatalogControllerTest` |
+| 旧接口收口与流式控制器 | 通过 | `ChatControllerTest`、`PlanStreamControllerTest` |
+| 前端主路径构建 | 通过 | `cd frontend && npm run build` |
+| Docker 集成回归（SSE/终态） | 环境阻塞 | `SessionChatPlanSseIntegrationTest`、`ExecutorTerminalConvergenceIntegrationTest` 依赖 Testcontainers；当前环境报错“Previous attempts to find a Docker environment failed” |
+
+当前结论：
+
+- 代码级 Blocker：`0`（当前已执行的核心单测/构建范围内未发现阻塞缺陷）。
+- 环境级阻塞：`1`（Docker/Testcontainers 不可用，导致两项集成测试无法在当前环境完成）。
+- 执行策略：继续按“先可用后优化”推进，仅在出现代码级 Blocker 时进入修复。
+
 ## 4. 业务域台账
 
 ### 4.1 会话与规划（Session + Planner）
