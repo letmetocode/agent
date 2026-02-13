@@ -148,7 +148,7 @@ export const AppShell = () => {
 
           <div className="app-shell-header-right">
             <Button icon={<PlusOutlined />} type="primary" onClick={() => navigate('/sessions')}>
-              新建执行
+              新聊天
             </Button>
             <Badge count={2} size="small">
               <Button type="text" icon={<BellOutlined />} />
