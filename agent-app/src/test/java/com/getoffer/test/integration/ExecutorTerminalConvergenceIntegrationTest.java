@@ -7,7 +7,7 @@ import com.getoffer.domain.session.model.entity.SessionMessageEntity;
 import com.getoffer.domain.session.model.entity.SessionTurnEntity;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
-import com.getoffer.trigger.service.TurnResultService;
+import com.getoffer.trigger.application.command.TurnFinalizeApplicationService;
 import com.getoffer.types.enums.MessageRoleEnum;
 import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.types.enums.TaskStatusEnum;
@@ -41,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 public class ExecutorTerminalConvergenceIntegrationTest extends PostgresIntegrationTestSupport {
 
     @Autowired
-    private TurnResultService turnResultService;
+    private TurnFinalizeApplicationService turnResultService;
 
     @Autowired
     private ISessionTurnRepository sessionTurnRepository;
@@ -65,12 +65,12 @@ public class ExecutorTerminalConvergenceIntegrationTest extends PostgresIntegrat
         int concurrency = 20;
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(8);
-        List<Future<TurnResultService.TurnFinalizeResult>> futures = new ArrayList<>();
+        List<Future<TurnFinalizeApplicationService.TurnFinalizeResult>> futures = new ArrayList<>();
         try {
             for (int i = 0; i < concurrency; i++) {
-                futures.add(pool.submit(new Callable<TurnResultService.TurnFinalizeResult>() {
+                futures.add(pool.submit(new Callable<TurnFinalizeApplicationService.TurnFinalizeResult>() {
                     @Override
-                    public TurnResultService.TurnFinalizeResult call() throws Exception {
+                    public TurnFinalizeApplicationService.TurnFinalizeResult call() throws Exception {
                         start.await(2, TimeUnit.SECONDS);
                         return turnResultService.finalizeByPlan(planId, PlanStatusEnum.COMPLETED);
                     }
@@ -81,14 +81,14 @@ public class ExecutorTerminalConvergenceIntegrationTest extends PostgresIntegrat
             int finalized = 0;
             int dedup = 0;
             int skipped = 0;
-            for (Future<TurnResultService.TurnFinalizeResult> future : futures) {
-                TurnResultService.TurnFinalizeResult result = future.get(8, TimeUnit.SECONDS);
+            for (Future<TurnFinalizeApplicationService.TurnFinalizeResult> future : futures) {
+                TurnFinalizeApplicationService.TurnFinalizeResult result = future.get(8, TimeUnit.SECONDS);
                 Assertions.assertNotNull(result);
-                if (result.getOutcome() == TurnResultService.FinalizeOutcome.FINALIZED) {
+                if (result.getOutcome() == TurnFinalizeApplicationService.FinalizeOutcome.FINALIZED) {
                     finalized++;
-                } else if (result.getOutcome() == TurnResultService.FinalizeOutcome.ALREADY_FINALIZED) {
+                } else if (result.getOutcome() == TurnFinalizeApplicationService.FinalizeOutcome.ALREADY_FINALIZED) {
                     dedup++;
-                } else if (result.getOutcome() == TurnResultService.FinalizeOutcome.SKIPPED_NOT_TERMINAL) {
+                } else if (result.getOutcome() == TurnFinalizeApplicationService.FinalizeOutcome.SKIPPED_NOT_TERMINAL) {
                     skipped++;
                 }
             }

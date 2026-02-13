@@ -9,7 +9,7 @@ import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
 import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.trigger.job.PlanStatusDaemon;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
-import com.getoffer.trigger.service.TurnResultService;
+import com.getoffer.trigger.application.command.TurnFinalizeApplicationService;
 import com.getoffer.domain.session.model.entity.SessionTurnEntity;
 import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import com.getoffer.types.enums.PlanStatusEnum;
@@ -209,7 +209,7 @@ public class PlanStatusDaemonTest {
                                        InMemoryPlanTaskEventRepository eventRepository,
                                        InMemorySessionTurnRepository turnRepository,
                                        InMemorySessionMessageRepository messageRepository) {
-        TurnResultService turnResultService = new TurnResultService(
+        TurnFinalizeApplicationService turnResultService = new TurnFinalizeApplicationService(
                 turnRepository,
                 messageRepository,
                 taskRepository

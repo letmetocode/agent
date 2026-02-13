@@ -12,7 +12,7 @@ import com.getoffer.domain.session.adapter.repository.ISessionTurnRepository;
 import com.getoffer.domain.session.model.entity.AgentSessionEntity;
 import com.getoffer.domain.session.model.entity.SessionMessageEntity;
 import com.getoffer.domain.session.model.entity.SessionTurnEntity;
-import com.getoffer.trigger.service.ConversationOrchestratorService;
+import com.getoffer.trigger.application.command.ChatConversationCommandService;
 import com.getoffer.types.enums.TurnStatusEnum;
 import com.getoffer.types.exception.AppException;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,7 +41,7 @@ public class ConversationOrchestratorServiceTest {
     private IRoutingDecisionRepository routingDecisionRepository;
     private IAgentRegistryRepository agentRegistryRepository;
 
-    private ConversationOrchestratorService conversationOrchestratorService;
+    private ChatConversationCommandService conversationOrchestratorService;
 
     @BeforeEach
     public void setUp() {
@@ -52,7 +52,7 @@ public class ConversationOrchestratorServiceTest {
         this.routingDecisionRepository = mock(IRoutingDecisionRepository.class);
         this.agentRegistryRepository = mock(IAgentRegistryRepository.class);
 
-        this.conversationOrchestratorService = new ConversationOrchestratorService(
+        this.conversationOrchestratorService = new ChatConversationCommandService(
                 plannerService,
                 agentSessionRepository,
                 sessionTurnRepository,
@@ -100,7 +100,7 @@ public class ConversationOrchestratorServiceTest {
         request.setUserId("dev-user");
         request.setMessage("生成推荐文案");
 
-        ConversationOrchestratorService.ConversationSubmitResult result = conversationOrchestratorService.submitMessage(request);
+        ChatConversationCommandService.ConversationSubmitResult result = conversationOrchestratorService.submitMessage(request);
 
         assertEquals(101L, result.getSessionId());
         assertEquals(201L, result.getTurnId());

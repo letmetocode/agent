@@ -7,6 +7,7 @@ import com.getoffer.domain.session.adapter.repository.ISessionMessageRepository;
 import com.getoffer.domain.session.adapter.repository.ISessionTurnRepository;
 import com.getoffer.domain.session.model.entity.SessionMessageEntity;
 import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
+import com.getoffer.trigger.application.sse.ChatSseEventMapper;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
 import com.getoffer.trigger.http.ChatStreamV3Controller;
 import com.getoffer.types.enums.MessageRoleEnum;
@@ -39,12 +40,14 @@ public class ChatStreamV3ControllerTest {
         this.sessionTurnRepository = mock(ISessionTurnRepository.class);
         this.sessionMessageRepository = mock(ISessionMessageRepository.class);
         this.planTaskEventPublisher = mock(PlanTaskEventPublisher.class);
+        ChatSseEventMapper mapper = new ChatSseEventMapper(sessionMessageRepository, sessionTurnRepository);
         this.controller = new ChatStreamV3Controller(
                 agentSessionRepository,
                 agentPlanRepository,
                 sessionTurnRepository,
                 sessionMessageRepository,
-                planTaskEventPublisher
+                planTaskEventPublisher,
+                mapper
         );
     }
 

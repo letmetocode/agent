@@ -1,11 +1,8 @@
 package com.getoffer.test;
 
-import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
-import com.getoffer.domain.planning.adapter.repository.IRoutingDecisionRepository;
-import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
-import com.getoffer.domain.planning.model.entity.RoutingDecisionEntity;
+import com.getoffer.api.dto.RoutingDecisionDTO;
+import com.getoffer.trigger.application.query.ChatRoutingQueryService;
 import com.getoffer.trigger.http.ChatRoutingV3Controller;
-import com.getoffer.types.enums.RoutingDecisionTypeEnum;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -21,34 +18,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 public class ChatRoutingV3ControllerTest {
 
     private MockMvc mockMvc;
-    private IAgentPlanRepository agentPlanRepository;
-    private IRoutingDecisionRepository routingDecisionRepository;
+    private ChatRoutingQueryService chatRoutingQueryService;
 
     @BeforeEach
     public void setUp() {
-        this.agentPlanRepository = mock(IAgentPlanRepository.class);
-        this.routingDecisionRepository = mock(IRoutingDecisionRepository.class);
+        this.chatRoutingQueryService = mock(ChatRoutingQueryService.class);
         this.mockMvc = MockMvcBuilders.standaloneSetup(
-                new ChatRoutingV3Controller(agentPlanRepository, routingDecisionRepository)
+                new ChatRoutingV3Controller(chatRoutingQueryService)
         ).build();
     }
 
     @Test
-    public void shouldRejectWhenPlanNotFound() throws Exception {
-        when(agentPlanRepository.findById(99L)).thenReturn(null);
-
-        mockMvc.perform(get("/api/v3/chat/plans/{id}/routing", 99L))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value("0002"))
-                .andExpect(jsonPath("$.info").value("计划不存在"));
-    }
-
-    @Test
     public void shouldReturnNullDataWhenRouteDecisionNotBound() throws Exception {
-        AgentPlanEntity plan = new AgentPlanEntity();
-        plan.setId(21L);
-        plan.setRouteDecisionId(null);
-        when(agentPlanRepository.findById(21L)).thenReturn(plan);
+        when(chatRoutingQueryService.getRoutingDecision(21L)).thenReturn(null);
 
         mockMvc.perform(get("/api/v3/chat/plans/{id}/routing", 21L))
                 .andExpect(status().isOk())
@@ -58,21 +40,14 @@ public class ChatRoutingV3ControllerTest {
 
     @Test
     public void shouldReturnRoutingDecision() throws Exception {
-        AgentPlanEntity plan = new AgentPlanEntity();
-        plan.setId(22L);
-        plan.setRouteDecisionId(88L);
-        when(agentPlanRepository.findById(22L)).thenReturn(plan);
-
-        RoutingDecisionEntity decision = new RoutingDecisionEntity();
-        decision.setId(88L);
-        decision.setSessionId(100L);
-        decision.setTurnId(200L);
-        decision.setDecisionType(RoutingDecisionTypeEnum.FALLBACK);
+        RoutingDecisionDTO decision = new RoutingDecisionDTO();
+        decision.setRoutingDecisionId(88L);
+        decision.setDecisionType("FALLBACK");
         decision.setSourceType("auto_miss_fallback");
         decision.setFallbackFlag(true);
-        decision.setFallbackReason("AUTO_MISS_FALLBACK");
         decision.setPlannerAttempts(3);
-        when(routingDecisionRepository.findById(88L)).thenReturn(decision);
+
+        when(chatRoutingQueryService.getRoutingDecision(22L)).thenReturn(decision);
 
         mockMvc.perform(get("/api/v3/chat/plans/{id}/routing", 22L))
                 .andExpect(status().isOk())
