@@ -26,10 +26,10 @@ public class ChatController {
         log.warn("CHAT_V1_REJECTED sessionId={}, messageLength={}, info={}",
                 sessionId,
                 message == null ? 0 : message.length(),
-                "旧接口已下线，请使用 /api/v2/sessions/{id}/turns");
+                "旧接口已下线，请使用 /api/v3/chat/messages");
         return Response.<ChatResponseDTO>builder()
                 .code(ResponseCode.ILLEGAL_PARAMETER.getCode())
-                .info("旧接口已下线，请使用 /api/v2/sessions/{id}/turns")
+                .info("旧接口已下线，请使用 /api/v3/chat/messages")
                 .build();
     }
 }

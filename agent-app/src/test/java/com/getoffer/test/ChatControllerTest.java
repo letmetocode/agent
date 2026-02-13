@@ -26,7 +26,7 @@ public class ChatControllerTest {
     }
 
     @Test
-    public void shouldRejectV1ChatEndpointAndGuideToV2() throws Exception {
+    public void shouldRejectV1ChatEndpointAndGuideToV3() throws Exception {
         String payload = objectMapper.writeValueAsString(Map.of("message", "hello"));
 
         mockMvc.perform(post("/api/sessions/{id}/chat", 100L)
@@ -34,6 +34,6 @@ public class ChatControllerTest {
                         .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("0002"))
-                .andExpect(jsonPath("$.info").value("旧接口已下线，请使用 /api/v2/sessions/{id}/turns"));
+                .andExpect(jsonPath("$.info").value("旧接口已下线，请使用 /api/v3/chat/messages"));
     }
 }
