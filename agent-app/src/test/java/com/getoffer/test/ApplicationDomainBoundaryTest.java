@@ -9,6 +9,8 @@ import com.getoffer.trigger.job.PlanStatusDaemon;
 import com.getoffer.trigger.job.TaskExecutor;
 import com.getoffer.domain.task.service.TaskDispatchDomainService;
 import com.getoffer.domain.task.service.TaskExecutionDomainService;
+import com.getoffer.domain.task.service.TaskPromptDomainService;
+import com.getoffer.domain.task.service.TaskEvaluationDomainService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +26,8 @@ public class ApplicationDomainBoundaryTest {
         Assertions.assertTrue(hasFieldType(PlanStatusDaemon.class, PlanTransitionDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskDispatchDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskExecutionDomainService.class));
+        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskPromptDomainService.class));
+        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskEvaluationDomainService.class));
     }
 
     @Test
