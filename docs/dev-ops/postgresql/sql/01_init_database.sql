@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
     id                  BIGSERIAL PRIMARY KEY,
     user_id             VARCHAR(100) NOT NULL, -- 外部用户ID
     title               VARCHAR(200),
+    agent_key           VARCHAR(128),
+    scenario            VARCHAR(64),
     is_active           BOOLEAN DEFAULT TRUE,
 
     -- 扩展字段 (存租户ID等)
@@ -190,6 +192,10 @@ CREATE TABLE IF NOT EXISTS routing_decisions (
     definition_version          INTEGER,
     draft_id                    BIGINT,
     draft_key                   VARCHAR(128),
+    source_type                 VARCHAR(32),
+    fallback_flag               BOOLEAN DEFAULT FALSE,
+    fallback_reason             VARCHAR(128),
+    planner_attempts            INTEGER DEFAULT 0,
     metadata                    JSONB DEFAULT '{}'::jsonb,
     created_at                  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
