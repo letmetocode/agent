@@ -16,6 +16,7 @@ import com.getoffer.domain.task.service.TaskDispatchDomainService;
 import com.getoffer.domain.task.service.TaskExecutionDomainService;
 import com.getoffer.domain.task.service.TaskPromptDomainService;
 import com.getoffer.domain.task.service.TaskEvaluationDomainService;
+import com.getoffer.domain.task.service.TaskRecoveryDomainService;
 import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
 import com.getoffer.trigger.job.TaskExecutor;
@@ -211,6 +212,7 @@ public class TaskExecutorPlanBoundaryTest {
                 new TaskExecutionDomainService(),
                 new TaskPromptDomainService(),
                 new TaskEvaluationDomainService(),
+                new TaskRecoveryDomainService(),
                 new ObjectMapper(),
                 worker,
                 meterProvider,
