@@ -1,25 +1,41 @@
-import { Alert, Card, Col, List, Progress, Row, Space, Statistic, Typography, message } from 'antd';
+import { Alert, Button, Card, Col, List, Progress, Row, Space, Statistic, Tag, Typography, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { agentApi } from '@/shared/api/agentApi';
-import type { DashboardOverviewDTO, TaskDetailDTO } from '@/shared/types/api';
+import type { DashboardOverviewDTO, ObservabilityAlertCatalogItemDTO, TaskDetailDTO } from '@/shared/types/api';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { StateView } from '@/shared/ui/StateView';
 
 const { Text } = Typography;
 
-const buildFailureSummary = (tasks: TaskDetailDTO[]) => {
+interface FailureSummaryItem {
+  id: string;
+  reason: string;
+  count: number;
+  taskId?: number;
+}
+
+const buildFailureSummary = (tasks: TaskDetailDTO[]): FailureSummaryItem[] => {
   const failed = tasks.filter((item) => item.status === 'FAILED');
   return failed.slice(0, 6).map((item) => ({
     id: `#${item.taskId}`,
     reason: item.outputResult || item.name || item.nodeId,
-    count: 1
+    count: 1,
+    taskId: item.taskId
   }));
 };
 
+const severityColor: Record<string, string> = {
+  critical: 'red',
+  warning: 'gold'
+};
+
 export const ObservabilityOverviewPage = () => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [overview, setOverview] = useState<DashboardOverviewDTO>();
+  const [alertCatalog, setAlertCatalog] = useState<ObservabilityAlertCatalogItemDTO[]>([]);
 
   useEffect(() => {
     let canceled = false;
@@ -27,9 +43,13 @@ export const ObservabilityOverviewPage = () => {
       setLoading(true);
       setError(undefined);
       try {
-        const rows = await agentApi.getDashboardOverview({ taskLimit: 50, planLimit: 20 });
+        const [overviewData, alertData] = await Promise.all([
+          agentApi.getDashboardOverview({ taskLimit: 50, planLimit: 20 }),
+          agentApi.getObservabilityAlertCatalog()
+        ]);
         if (!canceled) {
-          setOverview(rows);
+          setOverview(overviewData);
+          setAlertCatalog(alertData || []);
         }
       } catch (err) {
         if (!canceled) {
@@ -50,6 +70,23 @@ export const ObservabilityOverviewPage = () => {
     };
   }, []);
 
+  const drillToLogs = (params?: { level?: string; taskId?: number; traceId?: string; keyword?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.level) {
+      search.set('level', params.level);
+    }
+    if (params?.taskId) {
+      search.set('taskId', String(params.taskId));
+    }
+    if (params?.traceId) {
+      search.set('traceId', params.traceId);
+    }
+    if (params?.keyword) {
+      search.set('keyword', params.keyword);
+    }
+    navigate(`/observability/logs${search.toString() ? `?${search.toString()}` : ''}`);
+  };
+
   const total = overview?.taskStats?.total || 0;
   const completed = overview?.taskStats?.completed || 0;
   const failed = overview?.taskStats?.failed || 0;
@@ -66,7 +103,10 @@ export const ObservabilityOverviewPage = () => {
     return Number((((total - failed) / total) * 100).toFixed(1));
   }, [failed, total]);
 
-  const failures = useMemo(() => buildFailureSummary((overview?.recentFailedTasks || []) as TaskDetailDTO[]), [overview?.recentFailedTasks]);
+  const failures = useMemo(
+    () => buildFailureSummary((overview?.recentFailedTasks || []) as TaskDetailDTO[]),
+    [overview?.recentFailedTasks]
+  );
 
   if (loading) {
     return <StateView type="loading" title="加载监控数据中" />;
@@ -140,8 +180,64 @@ export const ObservabilityOverviewPage = () => {
               dataSource={failures}
               locale={{ emptyText: '暂无失败任务' }}
               renderItem={(item) => (
-                <List.Item>
+                <List.Item
+                  actions={[
+                    <Button
+                      key="drill"
+                      type="link"
+                      size="small"
+                      disabled={!item.taskId}
+                      onClick={() => drillToLogs({ level: 'ERROR', taskId: item.taskId })}
+                    >
+                      查看日志
+                    </Button>
+                  ]}
+                >
                   <List.Item.Meta title={`${item.id} · ${item.reason}`} description={`出现次数：${item.count}`} />
+                </List.Item>
+              )}
+            />
+          </Card>
+        </Col>
+
+        <Col xs={24}>
+          <Card
+            className="app-card"
+            title="告警规则目录（运行闭环）"
+            extra={
+              <Button type="link" onClick={() => drillToLogs({ level: 'ERROR' })}>
+                查看 ERROR 日志
+              </Button>
+            }
+          >
+            <List
+              dataSource={alertCatalog}
+              locale={{ emptyText: '暂无告警目录，请检查 /api/observability/alerts/catalog' }}
+              renderItem={(item) => (
+                <List.Item
+                  actions={[
+                    <Button
+                      key="drill"
+                      type="link"
+                      size="small"
+                      onClick={() => drillToLogs({ level: item.severity === 'critical' ? 'ERROR' : 'WARN', keyword: item.alertName })}
+                    >
+                      日志下钻
+                    </Button>
+                  ]}
+                >
+                  <Space direction="vertical" size={2}>
+                    <Space>
+                      <Text strong>{item.alertName}</Text>
+                      <Tag color={severityColor[item.severity] || 'blue'}>{item.severity?.toUpperCase()}</Tag>
+                      <Tag>{item.module}</Tag>
+                      <Tag>{item.env}</Tag>
+                    </Space>
+                    <Text type="secondary">{item.summary || '-'}</Text>
+                    <Text type="secondary" copyable>
+                      runbook: {item.runbook}
+                    </Text>
+                  </Space>
                 </List.Item>
               )}
             />
@@ -153,6 +249,11 @@ export const ObservabilityOverviewPage = () => {
         type="info"
         showIcon
         message={total > 0 ? '建议操作：优先处理失败任务，再跟踪 P95/P99 与慢任务走势。' : '暂无可观测任务数据，请先发起会话执行。'}
+        action={
+          <Button size="small" type="link" onClick={() => drillToLogs({ level: 'ERROR' })}>
+            查看异常日志
+          </Button>
+        }
       />
     </div>
   );

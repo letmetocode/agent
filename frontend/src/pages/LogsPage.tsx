@@ -2,6 +2,7 @@ import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { Button, Card, Drawer, Input, Select, Space, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { agentApi } from '@/shared/api/agentApi';
 import type { PlanLogDTO } from '@/shared/types/api';
 import { PageHeader } from '@/shared/ui/PageHeader';
@@ -16,6 +17,28 @@ interface LogRow {
   message: string;
   raw: string;
 }
+
+const parsePositiveNumber = (value: string | null, fallback: number) => {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.floor(parsed);
+};
+
+const parseLevelFilter = (value: string | null): 'ALL' | LogRow['level'] => {
+  if (!value) {
+    return 'ALL';
+  }
+  const normalized = value.trim().toUpperCase();
+  if (normalized === 'INFO' || normalized === 'WARN' || normalized === 'ERROR') {
+    return normalized;
+  }
+  return 'ALL';
+};
 
 const toLogLevel = (eventName?: string, eventData?: Record<string, unknown>): LogRow['level'] => {
   if (!eventName) {
@@ -60,17 +83,19 @@ const levelColor: Record<LogRow['level'], string> = {
 };
 
 export const LogsPage = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedLog, setSelectedLog] = useState<LogRow | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [rows, setRows] = useState<LogRow[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [size, setSize] = useState(10);
-  const [levelFilter, setLevelFilter] = useState<'ALL' | LogRow['level']>('ALL');
-  const [traceFilter, setTraceFilter] = useState('');
-  const [taskFilter, setTaskFilter] = useState('');
-  const [keyword, setKeyword] = useState('');
+
+  const [page, setPage] = useState(() => parsePositiveNumber(searchParams.get('page'), 1));
+  const [size, setSize] = useState(() => parsePositiveNumber(searchParams.get('size'), 10));
+  const [levelFilter, setLevelFilter] = useState<'ALL' | LogRow['level']>(() => parseLevelFilter(searchParams.get('level')));
+  const [traceFilter, setTraceFilter] = useState(() => searchParams.get('traceId') || '');
+  const [taskFilter, setTaskFilter] = useState(() => searchParams.get('taskId') || '');
+  const [keyword, setKeyword] = useState(() => searchParams.get('keyword') || '');
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
@@ -99,6 +124,29 @@ export const LogsPage = () => {
   useEffect(() => {
     void loadLogs();
   }, [loadLogs]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (levelFilter !== 'ALL') {
+      params.set('level', levelFilter);
+    }
+    if (traceFilter.trim()) {
+      params.set('traceId', traceFilter.trim());
+    }
+    if (taskFilter.trim()) {
+      params.set('taskId', taskFilter.trim());
+    }
+    if (keyword.trim()) {
+      params.set('keyword', keyword.trim());
+    }
+    if (page > 1) {
+      params.set('page', String(page));
+    }
+    if (size !== 10) {
+      params.set('size', String(size));
+    }
+    setSearchParams(params, { replace: true });
+  }, [keyword, levelFilter, page, setSearchParams, size, taskFilter, traceFilter]);
 
   const columns: ColumnsType<LogRow> = [
     { title: '时间', dataIndex: 'time', key: 'time', width: 180 },
@@ -161,6 +209,18 @@ export const LogsPage = () => {
           </Button>
           <Button icon={<ReloadOutlined />} onClick={() => void loadLogs()}>
             刷新
+          </Button>
+          <Button
+            onClick={() => {
+              setLevelFilter('ALL');
+              setTraceFilter('');
+              setTaskFilter('');
+              setKeyword('');
+              setPage(1);
+              setSize(10);
+            }}
+          >
+            清空筛选
           </Button>
         </Space>
 

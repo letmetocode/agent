@@ -11,6 +11,7 @@
 - SSE 规则：`docs/dev-ops/observability/prometheus/sse-alert-rules.yml`
 - SSE 规则测试样例：`docs/dev-ops/observability/prometheus/sse-alert-rules.test.yml`
 - SSE 告警处置手册：`docs/dev-ops/observability/sse-alert-runbook.md`
+- 告警目录配置：`agent-app/src/main/resources/observability/alert-catalog.json`
 
 ## 快速校验
 

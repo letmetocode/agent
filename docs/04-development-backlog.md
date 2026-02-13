@@ -75,13 +75,15 @@ flowchart TD
 
 ### 3.4 观测与运维模块（Observability）
 
-- 状态：`进行中`
+- 状态：`已完成（本轮收口）`
 - 已完成：
   - HTTP 入口统一日志与 `traceId/requestId` 注入。
   - Dashboard 可展示 P95/P99、慢任务、SLA 违约数。
   - 关键审计事件与执行记录字段已落库。
-- 未完成：
-  - 指标 -> 告警 -> 处置手册的统一看板闭环仍需补齐。
+  - 日志分页查询已改为 DB 侧过滤 + 计数 + 分页，避免内存全量扫描。
+  - 新增观测告警目录接口：`GET /api/observability/alerts/catalog`。
+  - 总览页支持告警目录展示与日志下钻（按 `level/taskId/keyword`）。
+- 持续动作（非功能缺口）：告警目录中的 dashboard 链接需按环境替换为真实地址。
 - 依赖：日志采样与脱敏配置、监控系统告警规则。
 - 验收：任意失败请求可通过 `traceId` 关联入口日志与执行日志。
 
@@ -159,7 +161,7 @@ flowchart TD
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TaskExecutorPlanBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TurnResultServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlanStatusDaemonTest -Dsurefire.failIfNoSpecifiedTests=false test`
-  - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlanStreamControllerTest -Dsurefire.failIfNoSpecifiedTests=false test`
+  - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlanStreamControllerTest,ConsoleQueryControllerPerformanceTest,ObservabilityAlertCatalogControllerTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `promtool check rules docs/dev-ops/observability/prometheus/planner-alert-rules.yml`
   - `promtool test rules docs/dev-ops/observability/prometheus/planner-alert-rules.test.yml`
   - `promtool check rules docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.yml`

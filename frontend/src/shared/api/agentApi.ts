@@ -6,6 +6,7 @@ import type {
   AgentToolDTO,
   ApiResponse,
   DashboardOverviewDTO,
+  ObservabilityAlertCatalogItemDTO,
   KnowledgeBaseDetailDTO,
   KnowledgeDocumentDTO,
   PageResult,
@@ -217,6 +218,9 @@ export const agentApi = {
     page?: number;
     size?: number;
   }) => unwrap(await http.get<ApiResponse<PageResult<PlanLogDTO>>>('/api/logs/paged', { params })),
+
+  getObservabilityAlertCatalog: async () =>
+    unwrap(await http.get<ApiResponse<ObservabilityAlertCatalogItemDTO[]>>('/api/observability/alerts/catalog')),
 
   getDashboardOverview: async (params?: { taskLimit?: number; planLimit?: number }) =>
     unwrap(await http.get<ApiResponse<DashboardOverviewDTO>>('/api/dashboard/overview', { params }))

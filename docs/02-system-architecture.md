@@ -263,6 +263,16 @@ sequenceDiagram
 - 覆盖接口：`/api/tasks`、`/api/plans/{id}/tasks`、`/api/sessions/{id}/overview`、`/api/dashboard/overview`。
 - 效果：消除任务列表的 N+1 查询，降低会话与看板页查询放大。
 
+### 10.5 观测日志查询与闭环能力（本轮）
+
+- `/api/logs/paged` 已从“内存 flatten + 过滤”收敛为“DB 侧过滤 + count + 分页”。
+- 新增仓储能力：`IPlanTaskEventRepository#findLogsPaged`、`#countLogs`。
+- 新增观测告警目录接口：`GET /api/observability/alerts/catalog`，用于总览页展示规则与 runbook 入口。
+- 索引优化：`plan_task_events` 新增 `created_at DESC,id DESC`、`task_id+created_at`、`event_data->>'traceId'` 索引。
+- 对应迁移脚本：
+  - `docs/dev-ops/postgresql/sql/migrations/V20260213_03_observability_logs_query_optimization.sql`
+  - `docs/dev-ops/postgresql/sql/migrations/V20260213_03_observability_logs_query_optimization_rollback.sql`
+
 ## 11. 下一阶段架构优化重点（P0）
 
 - SSE 指标与告警已固化：推送失败率、回放命中率、回放平均耗时纳入规则与 runbook。

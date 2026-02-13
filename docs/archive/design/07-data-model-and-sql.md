@@ -207,6 +207,9 @@ sequenceDiagram
 - owner 续约索引：`claim_owner lease_until`
 - 聚合统计建议按 `plan_id` 优化访问路径
 - SSE 事件回放索引：`plan_task_events(plan_id, id)`
+- 日志分页排序索引：`plan_task_events(created_at DESC, id DESC)`
+- 任务维度日志索引：`plan_task_events(task_id, created_at DESC)`
+- Trace 过滤索引：`plan_task_events((event_data->>'traceId'))`
 - Turn 查询索引：`session_turns(session_id, id DESC)`
 - 对话消息索引：`session_messages(session_id, id)`
 - 最终回复去重索引：`session_messages(turn_id, role)`（`role='ASSISTANT'` 条件唯一索引）

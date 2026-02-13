@@ -335,6 +335,17 @@ export interface PlanLogDTO {
   createdAt?: string;
 }
 
+export interface ObservabilityAlertCatalogItemDTO {
+  module: 'planner' | 'executor-terminal' | 'sse' | string;
+  alertName: string;
+  severity: 'warning' | 'critical' | string;
+  env: 'staging' | 'prod' | string;
+  summary?: string;
+  ruleFile: string;
+  runbook: string;
+  dashboard?: string;
+}
+
 export interface DashboardOverviewDTO {
   taskStats?: {
     total: number;

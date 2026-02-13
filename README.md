@@ -208,6 +208,7 @@ npm run dev
 - `GET /api/v2/plans/{id}/routing`：查询计划路由决策详情（含 fallback 原因与重试次数）。
 - 旧 `POST /api/sessions/{id}/chat` 已下线，调用会返回迁移提示。
 - 查询性能：`/api/tasks`、`/api/plans/{id}/tasks`、`/api/sessions/{id}/overview`、`/api/dashboard/overview` 已使用批量 latestExecution 查询，避免 N+1。
+- 观测闭环：`/api/logs/paged` 已改为 DB 侧分页查询；`GET /api/observability/alerts/catalog` 提供告警目录与 runbook 入口。
 
 ### 会话与规划 V2 最小验证流程
 
@@ -232,6 +233,7 @@ npm run dev
 - SSE：`docs/dev-ops/observability/prometheus/sse-alert-rules.yml`
 - SSE 单测样例：`docs/dev-ops/observability/prometheus/sse-alert-rules.test.yml`
 - SSE 处置手册：`docs/dev-ops/observability/sse-alert-runbook.md`
+- 告警目录配置：`agent-app/src/main/resources/observability/alert-catalog.json`（总览页闭环入口）
 
 常用校验命令：
 
