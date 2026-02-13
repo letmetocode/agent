@@ -53,7 +53,7 @@
 - 路由决策 V3：`GET /api/v3/chat/plans/{id}/routing`。
 - 会话编排 V2 入口全量下线（`/api/v2/agents/*`、`/api/v2/sessions*`、`/api/v2/plans/{id}/routing`）。
 - 终态幂等收敛：先抢占终态，再写最终消息；重复 finalize 去重。
-- DDD 充血收口：会话策略/终态汇总/Plan 聚合迁移/Task 执行策略与提示词/判定/回滚/Agent 选择/黑板写回策略下沉至 domain service。
+- DDD 充血收口：会话策略/终态汇总/Plan 聚合迁移/Task 执行策略与提示词/判定/回滚/Agent 选择/黑板写回/JSON 解析策略下沉至 domain service。
 - 观测能力收口：日志分页 SQL 化、告警目录接口、总览页下钻链路可用。
 
 ### 7.1 证据索引（接口 / 测试 / 提交）
@@ -63,7 +63,7 @@
 | 会话编排 V3 | `POST /api/v3/chat/messages`、`GET /api/v3/chat/sessions/{id}/history`、`GET /api/v3/chat/sessions/{id}/stream` | `ConversationOrchestratorServiceTest`、`ChatV3ControllerTest`、`ChatStreamV3ControllerTest`、`SessionConversationDomainServiceTest` | 本次重构 |
 | 路由决策 V3 | `GET /api/v3/chat/plans/{id}/routing` | `ChatRoutingV3ControllerTest` | 本次重构 |
 | V2 兼容入口下线 | `GET/POST /api/v2/agents/*`、`POST /api/v2/sessions`、`POST /api/v2/sessions/{id}/turns`、`GET /api/v2/plans/{id}/routing` | `AgentV2ControllerTest`、`SessionV2ControllerTest`、`TurnV2ControllerTest`、`PlanRoutingV2ControllerTest` | 本次重构 |
-| 执行与终态 | `POST /api/tasks/{id}/pause`、`/resume`、`/cancel`、`/retry-from-failed` | `TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest`、`PlanFinalizationDomainServiceTest`、`PlanTransitionDomainServiceTest`、`TaskExecutionDomainServiceTest`、`TaskPromptDomainServiceTest`、`TaskEvaluationDomainServiceTest`、`TaskRecoveryDomainServiceTest`、`TaskAgentSelectionDomainServiceTest`、`TaskBlackboardDomainServiceTest` | `b8acdde`、`50b15c5` |
+| 执行与终态 | `POST /api/tasks/{id}/pause`、`/resume`、`/cancel`、`/retry-from-failed` | `TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest`、`PlanFinalizationDomainServiceTest`、`PlanTransitionDomainServiceTest`、`TaskExecutionDomainServiceTest`、`TaskPromptDomainServiceTest`、`TaskEvaluationDomainServiceTest`、`TaskRecoveryDomainServiceTest`、`TaskAgentSelectionDomainServiceTest`、`TaskBlackboardDomainServiceTest`、`TaskJsonDomainServiceTest` | `b8acdde`、`50b15c5` |
 | SSE（底层） | `GET /api/plans/{id}/stream` | `PlanStreamControllerTest` | `246e8f9`、`8ff4231` |
 | 观测与日志 | `GET /api/dashboard/overview`、`GET /api/logs/paged`、`GET /api/observability/alerts/catalog` | `ConsoleQueryControllerPerformanceTest`、`ObservabilityAlertCatalogControllerTest` | `924ee1e`、`6e43b60` |
 | 前端主路径 | `/workspace`、`/sessions`、`/tasks`、`/observability/*` | 前端构建校验 `npm run build` | 本次重构 |
