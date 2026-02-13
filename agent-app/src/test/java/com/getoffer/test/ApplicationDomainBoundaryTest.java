@@ -4,8 +4,11 @@ import com.getoffer.domain.planning.service.PlanFinalizationDomainService;
 import com.getoffer.domain.planning.service.PlanTransitionDomainService;
 import com.getoffer.domain.session.service.SessionConversationDomainService;
 import com.getoffer.trigger.application.command.ChatConversationCommandService;
+import com.getoffer.trigger.application.command.PlanStatusSyncApplicationService;
+import com.getoffer.trigger.application.command.TaskScheduleApplicationService;
 import com.getoffer.trigger.application.command.TurnFinalizeApplicationService;
 import com.getoffer.trigger.job.PlanStatusDaemon;
+import com.getoffer.trigger.job.TaskSchedulerDaemon;
 import com.getoffer.trigger.job.TaskExecutor;
 import com.getoffer.domain.task.service.TaskAgentSelectionDomainService;
 import com.getoffer.domain.task.service.TaskBlackboardDomainService;
@@ -16,6 +19,7 @@ import com.getoffer.domain.task.service.TaskPromptDomainService;
 import com.getoffer.domain.task.service.TaskEvaluationDomainService;
 import com.getoffer.domain.task.service.TaskRecoveryDomainService;
 import com.getoffer.domain.task.service.TaskPersistencePolicyDomainService;
+import com.getoffer.domain.task.service.TaskDependencyPolicy;
 import com.getoffer.trigger.application.command.TaskPersistenceApplicationService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -29,7 +33,8 @@ public class ApplicationDomainBoundaryTest {
     public void applicationServicesShouldDependOnDomainServices() {
         Assertions.assertTrue(hasFieldType(ChatConversationCommandService.class, SessionConversationDomainService.class));
         Assertions.assertTrue(hasFieldType(TurnFinalizeApplicationService.class, PlanFinalizationDomainService.class));
-        Assertions.assertTrue(hasFieldType(PlanStatusDaemon.class, PlanTransitionDomainService.class));
+        Assertions.assertTrue(hasFieldType(PlanStatusDaemon.class, PlanStatusSyncApplicationService.class));
+        Assertions.assertTrue(hasFieldType(PlanStatusSyncApplicationService.class, PlanTransitionDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskAgentSelectionDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskDispatchDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskExecutionDomainService.class));
@@ -40,6 +45,8 @@ public class ApplicationDomainBoundaryTest {
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskJsonDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskPersistenceApplicationService.class));
         Assertions.assertTrue(hasFieldType(TaskPersistenceApplicationService.class, TaskPersistencePolicyDomainService.class));
+        Assertions.assertTrue(hasFieldType(TaskSchedulerDaemon.class, TaskScheduleApplicationService.class));
+        Assertions.assertTrue(hasFieldType(TaskScheduleApplicationService.class, TaskDependencyPolicy.class));
     }
 
     @Test

@@ -10,6 +10,7 @@ import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
 import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.trigger.job.PlanStatusDaemon;
+import com.getoffer.trigger.application.command.PlanStatusSyncApplicationService;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
 import com.getoffer.trigger.application.command.TurnFinalizeApplicationService;
 import com.getoffer.domain.session.model.entity.SessionTurnEntity;
@@ -217,7 +218,14 @@ public class PlanStatusDaemonTest {
                 taskRepository,
                 new PlanFinalizationDomainService()
         );
-        return new PlanStatusDaemon(planRepository, taskRepository, new PlanTaskEventPublisher(eventRepository), turnResultService, new PlanTransitionDomainService(), 100, 1000);
+        PlanStatusSyncApplicationService syncApplicationService = new PlanStatusSyncApplicationService(
+                planRepository,
+                taskRepository,
+                new PlanTaskEventPublisher(eventRepository),
+                turnResultService,
+                new PlanTransitionDomainService()
+        );
+        return new PlanStatusDaemon(syncApplicationService, 100, 1000);
     }
 
     private SessionTurnEntity newTurn(Long turnId,
