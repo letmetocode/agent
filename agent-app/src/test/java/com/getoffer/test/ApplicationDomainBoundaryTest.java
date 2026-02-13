@@ -7,6 +7,7 @@ import com.getoffer.trigger.application.command.ChatConversationCommandService;
 import com.getoffer.trigger.application.command.TurnFinalizeApplicationService;
 import com.getoffer.trigger.job.PlanStatusDaemon;
 import com.getoffer.trigger.job.TaskExecutor;
+import com.getoffer.domain.task.service.TaskAgentSelectionDomainService;
 import com.getoffer.domain.task.service.TaskDispatchDomainService;
 import com.getoffer.domain.task.service.TaskExecutionDomainService;
 import com.getoffer.domain.task.service.TaskPromptDomainService;
@@ -25,6 +26,7 @@ public class ApplicationDomainBoundaryTest {
         Assertions.assertTrue(hasFieldType(ChatConversationCommandService.class, SessionConversationDomainService.class));
         Assertions.assertTrue(hasFieldType(TurnFinalizeApplicationService.class, PlanFinalizationDomainService.class));
         Assertions.assertTrue(hasFieldType(PlanStatusDaemon.class, PlanTransitionDomainService.class));
+        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskAgentSelectionDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskDispatchDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskExecutionDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskPromptDomainService.class));

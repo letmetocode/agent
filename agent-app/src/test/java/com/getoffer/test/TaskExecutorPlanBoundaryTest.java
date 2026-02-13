@@ -12,6 +12,7 @@ import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
 import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
+import com.getoffer.domain.task.service.TaskAgentSelectionDomainService;
 import com.getoffer.domain.task.service.TaskDispatchDomainService;
 import com.getoffer.domain.task.service.TaskExecutionDomainService;
 import com.getoffer.domain.task.service.TaskPromptDomainService;
@@ -208,6 +209,7 @@ public class TaskExecutorPlanBoundaryTest {
                 executionRepository,
                 agentFactory,
                 agentRegistryRepository,
+                new TaskAgentSelectionDomainService(),
                 new TaskDispatchDomainService(),
                 new TaskExecutionDomainService(),
                 new TaskPromptDomainService(),
