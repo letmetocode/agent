@@ -70,6 +70,11 @@ management:
 sse:
   heartbeat-interval-ms: 10000
   replay-interval-ms: 3000
+  replay:
+    # 每次回放 sweep 的单批次查询上限
+    batch-size: 200
+    # 每次 sweep 对单订阅者最多回放批次数，默认 1（避免单连接拖垮系统）
+    max-batches-per-sweep: 1
 
 event:
   notify:

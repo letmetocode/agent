@@ -6,7 +6,13 @@ import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -45,22 +51,43 @@ public class PlanStreamController {
     private final int replayBatchSize;
     private final int replayMaxBatchesPerSweep;
     private final AtomicLong heartbeatTick;
+    private final MeterRegistry meterRegistry;
+    private final Counter ssePushAttemptCounter;
+    private final Counter ssePushFailCounter;
+    private final Counter sseReplayBatchCounter;
+    private final Counter sseReplayHitCounter;
+    private final Counter sseReplayEmptyCounter;
+    private final Counter sseReplayEventsCounter;
+    private final Timer sseReplayDurationTimer;
 
     public PlanStreamController(IAgentPlanRepository agentPlanRepository,
                                 IAgentTaskRepository agentTaskRepository,
-                                PlanTaskEventPublisher planTaskEventPublisher) {
+                                PlanTaskEventPublisher planTaskEventPublisher,
+                                ObjectProvider<MeterRegistry> meterRegistryProvider,
+                                @Value("${sse.replay.batch-size:200}") int replayBatchSize,
+                                @Value("${sse.replay.max-batches-per-sweep:1}") int replayMaxBatchesPerSweep) {
         this.agentPlanRepository = agentPlanRepository;
         this.agentTaskRepository = agentTaskRepository;
         this.planTaskEventPublisher = planTaskEventPublisher;
         this.subscribersByPlan = new ConcurrentHashMap<>();
+        this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
         this.pushExecutor = Executors.newFixedThreadPool(4, runnable -> {
             Thread thread = new Thread(runnable, "plan-stream-push");
             thread.setDaemon(true);
             return thread;
         });
-        this.replayBatchSize = 200;
-        this.replayMaxBatchesPerSweep = 1;
+        this.replayBatchSize = replayBatchSize <= 0 ? 200 : replayBatchSize;
+        this.replayMaxBatchesPerSweep = replayMaxBatchesPerSweep <= 0 ? 1 : replayMaxBatchesPerSweep;
         this.heartbeatTick = new AtomicLong(0L);
+        this.ssePushAttemptCounter = counter("agent.sse.push.attempt.total");
+        this.ssePushFailCounter = counter("agent.sse.push.fail.total");
+        this.sseReplayBatchCounter = counter("agent.sse.replay.batch.total");
+        this.sseReplayHitCounter = counter("agent.sse.replay.hit.total");
+        this.sseReplayEmptyCounter = counter("agent.sse.replay.empty.total");
+        this.sseReplayEventsCounter = counter("agent.sse.replay.events.total");
+        this.sseReplayDurationTimer = Timer.builder("agent.sse.replay.duration")
+                .description("Duration of replay sweep per subscriber")
+                .register(meterRegistry);
     }
 
     @GetMapping(value = "/{id}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -94,31 +121,41 @@ public class PlanStreamController {
     }
 
     private void replayMissedEvents(Long planId, String subscriberId, int maxBatches) {
+        Timer.Sample replaySample = Timer.start(meterRegistry);
         int allowedBatches = maxBatches <= 0 ? 1 : maxBatches;
         int currentBatch = 0;
         SubscriberState subscriber = getSubscriber(planId, subscriberId);
         if (subscriber == null) {
+            replaySample.stop(sseReplayDurationTimer);
             return;
         }
-        while (currentBatch < allowedBatches) {
-            List<PlanTaskEventEntity> events;
-            try {
-                events = planTaskEventPublisher.replay(planId, subscriber.lastEventId.get(), replayBatchSize);
-            } catch (Exception ex) {
-                log.warn("Replay plan events failed. planId={}, subscriberId={}, error={}",
-                        planId, subscriberId, ex.getMessage());
-                return;
+        try {
+            while (currentBatch < allowedBatches) {
+                sseReplayBatchCounter.increment();
+                List<PlanTaskEventEntity> events;
+                try {
+                    events = planTaskEventPublisher.replay(planId, subscriber.lastEventId.get(), replayBatchSize);
+                } catch (Exception ex) {
+                    log.warn("Replay plan events failed. planId={}, subscriberId={}, error={}",
+                            planId, subscriberId, ex.getMessage());
+                    return;
+                }
+                if (events == null || events.isEmpty()) {
+                    sseReplayEmptyCounter.increment();
+                    return;
+                }
+                sseReplayHitCounter.increment();
+                sseReplayEventsCounter.increment(events.size());
+                for (PlanTaskEventEntity event : events) {
+                    deliverEvent(planId, subscriberId, event);
+                }
+                currentBatch++;
+                if (events.size() < replayBatchSize) {
+                    return;
+                }
             }
-            if (events == null || events.isEmpty()) {
-                return;
-            }
-            for (PlanTaskEventEntity event : events) {
-                deliverEvent(planId, subscriberId, event);
-            }
-            currentBatch++;
-            if (events.size() < replayBatchSize) {
-                return;
-            }
+        } finally {
+            replaySample.stop(sseReplayDurationTimer);
         }
     }
 
@@ -241,6 +278,7 @@ public class PlanStreamController {
         if (emitter == null) {
             return false;
         }
+        ssePushAttemptCounter.increment();
         try {
             SseEmitter.SseEventBuilder builder = SseEmitter.event().name(name).data(data);
             if (eventId != null) {
@@ -248,10 +286,15 @@ public class PlanStreamController {
             }
             emitter.send(builder);
             return true;
-        } catch (IOException ex) {
+        } catch (IOException | RuntimeException ex) {
+            ssePushFailCounter.increment();
             log.debug("SSE send failed: {}", ex.getMessage());
             return false;
         }
+    }
+
+    private Counter counter(String name) {
+        return Counter.builder(name).register(meterRegistry);
     }
 
     private static final class SubscriberState {
