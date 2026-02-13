@@ -43,6 +43,7 @@
 - `trigger` 不直接操作 SQL。
 - `domain` 不依赖 `infrastructure` 实现细节。
 - 并发语义和状态迁移必须先在领域层定义，再落到仓储 SQL。
+- 当前版本不引入登录与 RBAC 鉴权链路，前端默认全功能可见可用。
 
 ## 3. 统一术语与数据边界
 
@@ -60,6 +61,12 @@
 - 路由与执行：`workflow_definitions/workflow_drafts/routing_decisions/agent_plans/agent_tasks/task_executions`
 - 事件流：`plan_task_events`
 - Agent 配置：`agent_registry/agent_tool_catalog/agent_tools/vector_store_registry`
+
+前端功能边界（当前版本）：
+
+- 设置域仅保留 `/settings/profile`。
+- `/settings/system` 与 `/settings/access` 已下线，不再作为架构入口。
+- “不可用态”用于系统能力异常提示，不代表 RBAC 权限门控。
 
 ## 4. 核心链路时序（C4-L2 / Runtime）
 
@@ -237,6 +244,7 @@ sequenceDiagram
 
 - 新链路：前端会话启动主路径已切换到 `/api/v2/*`。
 - 兼容链路：旧 `/api/sessions/{id}/chat` 已硬下线，调用方需迁移到 V2。
+- 设置链路：仅保留 `/settings/profile`，不包含系统配置与成员权限子系统。
 
 ### 10.2 路由决策关键字段语义
 
@@ -277,3 +285,20 @@ sequenceDiagram
 
 - SSE 指标与告警已固化：推送失败率、回放命中率、回放平均耗时纳入规则与 runbook。
 - 继续周期化执行并发 finalize 与 claim/lease 压测，按版本节奏校准阈值。
+
+
+## 12. 能力-证据映射（架构视角）
+
+| 架构能力 | 关键接口/配置 | 测试证据 | 提交证据 |
+| --- | --- | --- | --- |
+| 会话与规划 V2 | `POST /api/v2/sessions/{id}/turns`、`GET /api/v2/plans/{id}/routing` | `AgentV2ControllerTest`、`PlanRoutingV2ControllerTest`、`PlannerServiceRootDraftTest` | `0db0c5a`、`6f0769c` |
+| 执行与终态幂等 | finalize 幂等语义 + `session_messages` 终态唯一约束 | `TurnResultServiceTest`、`PlanStatusDaemonTest`、`ExecutorTerminalConvergenceIntegrationTest` | `50b15c5`、`b8acdde` |
+| SSE 回放补偿 | `GET /api/plans/{id}/stream` + replay sweep 参数 | `SessionChatPlanSseIntegrationTest` | `246e8f9`、`8ff4231` |
+| 观测与日志闭环 | `/api/logs/paged`、`/api/observability/alerts/catalog` | `ConsoleQueryControllerPerformanceTest`、`ObservabilityAlertCatalogControllerTest` | `924ee1e`、`6e43b60` |
+| 前端范围收口 | 路由保留 `/settings/profile` | 前端构建 `npm run build` | `5a02163` |
+
+当前架构默认假设：
+
+- 不接入登录与 RBAC 鉴权链路。
+- 系统配置治理后台不在当前版本架构边界内。
+- 优先保证会话/规划/执行/SSE/观测主链路的稳定性与可观测性。
