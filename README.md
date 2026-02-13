@@ -19,10 +19,18 @@
 
 - `agent-app`：启动与全局配置装配（Spring、调度、MyBatis 资源）
 - `agent-trigger`：HTTP/SSE 适配层 + `trigger.application` 用例编排层（入口协议与业务编排解耦）
-- `agent-domain`：领域实体、状态机、仓储端口
+- `agent-domain`：领域实体、领域服务、状态机、仓储端口
 - `agent-infrastructure`：DAO/Mapper、仓储实现、Planner/AI/MCP 适配
 - `agent-api`：对外 DTO 与统一响应
 - `agent-types`：通用枚举、异常、常量
+
+### DDD 充血重构基线（2026-02）
+
+- 会话规则下沉：`SessionConversationDomainService`（标题/Agent 默认选择/上下文组装/错误语义）。
+- 终态收敛规则下沉：`PlanFinalizationDomainService`（Plan->Turn 终态映射与输出汇总）。
+- Plan 聚合状态推进下沉：`PlanTransitionDomainService`（Task 统计 -> Plan 状态迁移）。
+- `trigger.service` 兼容包装类已删除，统一由 `trigger.application` 调用 domain。
+
 
 ## 前端控制台信息架构（2026-02）
 
@@ -267,6 +275,7 @@ npm run dev
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=ConversationOrchestratorServiceTest,ChatV3ControllerTest,ChatStreamV3ControllerTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TaskExecutorPlanBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TurnResultServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`
+  - `mvn -pl agent-app -am -DskipTests=false -Dtest=SessionConversationDomainServiceTest,PlanFinalizationDomainServiceTest,PlanTransitionDomainServiceTest,TaskExecutionDomainServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlanStatusDaemonTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=SessionChatPlanSseIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=ExecutorTerminalConvergenceIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`

@@ -15,7 +15,7 @@
 
 - `agent-app`：启动装配、配置加载、调度线程池、MyBatis 资源。
 - `agent-trigger`：HTTP/SSE 入口适配 + `trigger.application` 用例编排（命令/查询/SSE语义映射）。
-- `agent-domain`：领域实体、状态机、仓储端口、核心语义。
+- `agent-domain`：领域实体、领域服务、状态机、仓储端口、核心语义。
 - `agent-infrastructure`：DAO/Mapper、仓储实现、AI/MCP 适配、Planner 实现。
 - `agent-api`：对外 DTO 与统一响应协议。
 - `agent-types`：枚举、异常、常量。
@@ -128,6 +128,8 @@ sequenceDiagram
 ## 5. 一致性与并发策略
 
 - 领域充血：`SessionTurnEntity`、`AgentPlanEntity`、`AgentTaskEntity` 新增状态迁移与 claim/lease 领域行为，应用层仅编排不写规则。
+- 领域服务落位：`SessionConversationDomainService`、`PlanFinalizationDomainService`、`PlanTransitionDomainService`、`TaskDispatchDomainService`、`TaskExecutionDomainService` 承载会话策略、终态汇总、Plan 聚合迁移与 Task 执行策略规则。
+- 兼容层清理：`trigger.service` 过渡包装类已删除，统一由 `trigger.application` 调用 domain。
 
 ### 5.1 Plan/Task 乐观锁
 

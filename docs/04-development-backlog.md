@@ -26,9 +26,10 @@
 - V3 路由决策：`GET /api/v3/chat/plans/{id}/routing`。
 - V2 编排入口下线：`/api/v2/agents/*`、`/api/v2/sessions*`、`/api/v2/plans/{id}/routing`。
 - 会话编排迁移至 `trigger.application.command.ChatConversationCommandService`，`ChatV3Controller` 仅保留协议适配。
+- 会话核心策略下沉至 `domain.session.service.SessionConversationDomainService`（默认 Agent、标题、上下文、失败语义）。
 
 **证据**
-- 测试：`ConversationOrchestratorServiceTest`、`ChatV3ControllerTest`、`ChatRoutingV3ControllerTest`、`AgentV2ControllerTest`、`SessionV2ControllerTest`、`TurnV2ControllerTest`、`PlanRoutingV2ControllerTest`
+- 测试：`ConversationOrchestratorServiceTest`、`ChatV3ControllerTest`、`ChatRoutingV3ControllerTest`、`SessionConversationDomainServiceTest`、`AgentV2ControllerTest`、`SessionV2ControllerTest`、`TurnV2ControllerTest`、`PlanRoutingV2ControllerTest`
 
 **未完成 / 计划优化**
 - `P1`：V3 请求体高级参数（上下文覆写）前端可视化配置。
@@ -42,12 +43,15 @@
 
 **已完成功能**
 - claim/lease/executionAttempt 并发语义收口。
+- `TaskExecutor` 的 claim 配额与超时重试规则分别下沉至 `TaskDispatchDomainService`、`TaskExecutionDomainService`。
 - 终态收敛幂等：先抢占终态，再写最终 assistant 消息。
 - finalize 去重与老代执行者回写拒绝。
 - 终态汇总迁移至 `trigger.application.command.TurnFinalizeApplicationService`，`PlanStatusDaemon` 仅调用应用用例。
+- 终态与状态推进规则下沉到 `PlanFinalizationDomainService`、`PlanTransitionDomainService`。
+- `trigger.service` 兼容包装类已删除（统一 `trigger.application` -> `domain`）。
 
 **证据**
-- 测试：`TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest`
+- 测试：`TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest`、`PlanFinalizationDomainServiceTest`、`PlanTransitionDomainServiceTest`、`TaskExecutionDomainServiceTest`、`ApplicationDomainBoundaryTest`
 
 **未完成 / 计划优化**
 - `P0`：并发压测常态化，校准超时与重试阈值。
@@ -127,7 +131,7 @@
 ## 5. 回归基线命令
 
 - 后端回归：
-  - `mvn -pl agent-app -am -DskipTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest=AgentV2ControllerTest,SessionV2ControllerTest,TurnV2ControllerTest,PlanRoutingV2ControllerTest,ConversationOrchestratorServiceTest,ChatV3ControllerTest,ChatRoutingV3ControllerTest,ChatStreamV3ControllerTest,TurnResultServiceTest,PlanStatusDaemonTest,ControllerArchitectureTest test`
+  - `mvn -pl agent-app -am -DskipTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest=AgentV2ControllerTest,SessionV2ControllerTest,TurnV2ControllerTest,PlanRoutingV2ControllerTest,ConversationOrchestratorServiceTest,ChatV3ControllerTest,ChatRoutingV3ControllerTest,ChatStreamV3ControllerTest,TaskExecutorPlanBoundaryTest,TurnResultServiceTest,PlanStatusDaemonTest,ControllerArchitectureTest,SessionConversationDomainServiceTest,PlanFinalizationDomainServiceTest,ApplicationDomainBoundaryTest,PlanTransitionDomainServiceTest,TaskExecutionDomainServiceTest test`
 - 前端构建：
   - `cd frontend && npm run build`
 
