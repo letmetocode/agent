@@ -1,6 +1,5 @@
 package com.getoffer.domain.session.model.entity;
 
-import com.getoffer.types.enums.ResponseCode;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -85,6 +84,44 @@ public class AgentSessionEntity {
         if (title != null && !title.trim().isEmpty()) {
             this.title = title;
         }
+    }
+
+    public void assignAgentProfile(String agentKey, String scenario) {
+        if (agentKey == null || agentKey.trim().isEmpty()) {
+            throw new IllegalStateException("Agent key cannot be empty");
+        }
+        this.agentKey = agentKey;
+        if (scenario != null && !scenario.trim().isEmpty()) {
+            this.scenario = scenario;
+        }
+    }
+
+    public SessionTurnEntity createTurn(String userMessage) {
+        if (this.id == null) {
+            throw new IllegalStateException("Session id is required before creating turn");
+        }
+        if (userMessage == null || userMessage.trim().isEmpty()) {
+            throw new IllegalStateException("User message cannot be empty");
+        }
+        SessionTurnEntity turn = new SessionTurnEntity();
+        turn.setSessionId(this.id);
+        turn.setUserMessage(userMessage.trim());
+        turn.startPlanning();
+        return turn;
+    }
+
+    public void renameByFirstMessage(String message, int maxLength) {
+        if (message == null) {
+            return;
+        }
+        String normalized = message.replace('\n', ' ').trim();
+        if (normalized.isEmpty()) {
+            return;
+        }
+        int effectiveMax = Math.max(maxLength, 1);
+        this.title = normalized.length() <= effectiveMax
+                ? normalized
+                : normalized.substring(0, effectiveMax);
     }
 
     /**

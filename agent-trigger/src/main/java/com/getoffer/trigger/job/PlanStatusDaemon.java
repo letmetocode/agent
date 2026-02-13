@@ -7,7 +7,7 @@ import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
-import com.getoffer.trigger.service.TurnResultService;
+import com.getoffer.trigger.application.command.TurnFinalizeApplicationService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Metrics;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +32,7 @@ public class PlanStatusDaemon {
     private final IAgentPlanRepository agentPlanRepository;
     private final IAgentTaskRepository agentTaskRepository;
     private final PlanTaskEventPublisher planTaskEventPublisher;
-    private final TurnResultService turnResultService;
+    private final TurnFinalizeApplicationService turnResultService;
 
     private final int batchSize;
     private final int maxPlansPerRound;
@@ -43,7 +43,7 @@ public class PlanStatusDaemon {
     public PlanStatusDaemon(IAgentPlanRepository agentPlanRepository,
                             IAgentTaskRepository agentTaskRepository,
                             PlanTaskEventPublisher planTaskEventPublisher,
-                            TurnResultService turnResultService,
+                            TurnFinalizeApplicationService turnResultService,
                             @Value("${plan-status.batch-size:200}") int batchSize,
                             @Value("${plan-status.max-plans-per-round:1000}") int maxPlansPerRound) {
         this.agentPlanRepository = agentPlanRepository;
@@ -173,11 +173,11 @@ public class PlanStatusDaemon {
             agentPlanRepository.update(plan);
             if (targetStatus == PlanStatusEnum.COMPLETED || targetStatus == PlanStatusEnum.FAILED) {
                 finalizeAttemptCounter.increment();
-                TurnResultService.TurnFinalizeResult turnResult = turnResultService.finalizeByPlan(plan.getId(), targetStatus);
-                if (turnResult != null && turnResult.getOutcome() == TurnResultService.FinalizeOutcome.SKIPPED_NOT_TERMINAL) {
+                TurnFinalizeApplicationService.TurnFinalizeResult turnResult = turnResultService.finalizeByPlan(plan.getId(), targetStatus);
+                if (turnResult != null && turnResult.getOutcome() == TurnFinalizeApplicationService.FinalizeOutcome.SKIPPED_NOT_TERMINAL) {
                     log.info("Plan finalized skipped because turn is not terminal candidate. planId={}, status={}", plan.getId(), targetStatus);
                 }
-                if (turnResult != null && turnResult.getOutcome() == TurnResultService.FinalizeOutcome.ALREADY_FINALIZED) {
+                if (turnResult != null && turnResult.getOutcome() == TurnFinalizeApplicationService.FinalizeOutcome.ALREADY_FINALIZED) {
                     finalizeDedupCounter.increment();
                 }
                 publishPlanFinishedEvent(plan, turnResult);
@@ -201,7 +201,7 @@ public class PlanStatusDaemon {
         return message != null && message.contains("Optimistic lock");
     }
 
-    private void publishPlanFinishedEvent(AgentPlanEntity plan, TurnResultService.TurnFinalizeResult turnResult) {
+    private void publishPlanFinishedEvent(AgentPlanEntity plan, TurnFinalizeApplicationService.TurnFinalizeResult turnResult) {
         if (plan == null || plan.getId() == null) {
             return;
         }

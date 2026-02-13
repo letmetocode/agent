@@ -205,6 +205,34 @@ public class AgentPlanEntity {
         this.updatedAt = LocalDateTime.now();
     }
 
+    public boolean canTransitTo(PlanStatusEnum targetStatus) {
+        if (targetStatus == null || this.status == null || this.status == targetStatus) {
+            return false;
+        }
+        if (this.status == PlanStatusEnum.COMPLETED
+                || this.status == PlanStatusEnum.FAILED
+                || this.status == PlanStatusEnum.CANCELLED) {
+            return false;
+        }
+        return switch (targetStatus) {
+            case RUNNING -> this.status == PlanStatusEnum.READY;
+            case COMPLETED, FAILED -> this.status == PlanStatusEnum.READY || this.status == PlanStatusEnum.RUNNING;
+            case PAUSED -> this.status == PlanStatusEnum.RUNNING;
+            default -> false;
+        };
+    }
+
+    public void transitTo(PlanStatusEnum targetStatus, String reason) {
+        if (!canTransitTo(targetStatus)) {
+            throw new IllegalStateException("Invalid plan status transition: " + this.status + " -> " + targetStatus);
+        }
+        this.status = targetStatus;
+        if (targetStatus == PlanStatusEnum.FAILED) {
+            this.errorSummary = reason;
+        }
+        this.updatedAt = LocalDateTime.now();
+    }
+
     /**
      * 更新全局上下文
      */

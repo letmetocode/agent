@@ -41,4 +41,50 @@ public class SessionTurnEntity {
                 || status == TurnStatusEnum.FAILED
                 || status == TurnStatusEnum.CANCELLED;
     }
+
+    public void startPlanning() {
+        if (status != null) {
+            throw new IllegalStateException("Turn status already initialized");
+        }
+        this.status = TurnStatusEnum.PLANNING;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void markExecuting(Long planId) {
+        if (isTerminal()) {
+            throw new IllegalStateException("Terminal turn cannot enter EXECUTING");
+        }
+        this.planId = planId;
+        this.status = TurnStatusEnum.EXECUTING;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void markCompleted(String summary, Long messageId, LocalDateTime completedAt) {
+        if (isTerminal() && this.status != TurnStatusEnum.COMPLETED) {
+            throw new IllegalStateException("Terminal turn cannot become COMPLETED");
+        }
+        this.status = TurnStatusEnum.COMPLETED;
+        this.assistantSummary = summary;
+        this.finalResponseMessageId = messageId;
+        this.completedAt = completedAt == null ? LocalDateTime.now() : completedAt;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void markFailed(String summary, LocalDateTime completedAt) {
+        if (isTerminal() && this.status != TurnStatusEnum.FAILED) {
+            throw new IllegalStateException("Terminal turn cannot become FAILED");
+        }
+        this.status = TurnStatusEnum.FAILED;
+        this.assistantSummary = summary;
+        this.completedAt = completedAt == null ? LocalDateTime.now() : completedAt;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void bindFinalResponseMessage(Long messageId) {
+        if (messageId == null) {
+            throw new IllegalStateException("Final response message id cannot be null");
+        }
+        this.finalResponseMessageId = messageId;
+        this.updatedAt = LocalDateTime.now();
+    }
 }

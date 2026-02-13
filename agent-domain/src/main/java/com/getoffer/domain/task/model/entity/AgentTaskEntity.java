@@ -193,8 +193,9 @@ public class AgentTaskEntity {
      * 完成任务
      */
     public void complete(String outputResult) {
-        if (this.status != TaskStatusEnum.VALIDATING && this.status != TaskStatusEnum.REFINING) {
-            throw new IllegalStateException("Task must be in VALIDATING or REFINING status to complete");
+        if (this.status != TaskStatusEnum.VALIDATING && this.status != TaskStatusEnum.REFINING
+                && this.status != TaskStatusEnum.RUNNING) {
+            throw new IllegalStateException("Task must be in VALIDATING/REFINING/RUNNING status to complete");
         }
         this.status = TaskStatusEnum.COMPLETED;
         this.outputResult = outputResult;
@@ -219,6 +220,53 @@ public class AgentTaskEntity {
         }
         this.status = TaskStatusEnum.SKIPPED;
         this.updatedAt = LocalDateTime.now();
+    }
+
+    public void claim(String owner, int leaseSeconds, Integer nextAttempt, boolean reclaimed) {
+        if (owner == null || owner.isBlank()) {
+            throw new IllegalStateException("Claim owner cannot be empty");
+        }
+        if (!isClaimable()) {
+            throw new IllegalStateException("Task cannot be claimed from status: " + this.status);
+        }
+        this.claimOwner = owner;
+        this.claimAt = LocalDateTime.now();
+        this.leaseUntil = this.claimAt.plusSeconds(Math.max(leaseSeconds, 1));
+        this.executionAttempt = nextAttempt == null ? 0 : nextAttempt;
+        this.leaseReclaimed = reclaimed;
+        this.status = TaskStatusEnum.RUNNING;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void renewLease(String owner, Integer attempt, int leaseSeconds) {
+        if (!isClaimOwner(owner, attempt)) {
+            throw new IllegalStateException("Cannot renew lease for stale claim owner/attempt");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        this.leaseUntil = now.plusSeconds(Math.max(leaseSeconds, 1));
+        this.updatedAt = now;
+    }
+
+    public void releaseClaim() {
+        this.claimOwner = null;
+        this.claimAt = null;
+        this.leaseUntil = null;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public boolean isClaimOwner(String owner, Integer attempt) {
+        if (owner == null || attempt == null) {
+            return false;
+        }
+        return owner.equals(this.claimOwner) && attempt.equals(this.executionAttempt);
+    }
+
+    public boolean isClaimable() {
+        return this.status == TaskStatusEnum.READY || this.status == TaskStatusEnum.REFINING || isLeaseExpiredRunning();
+    }
+
+    public boolean isLeaseExpiredRunning() {
+        return this.status == TaskStatusEnum.RUNNING && this.leaseUntil != null && this.leaseUntil.isBefore(LocalDateTime.now());
     }
 
     /**
