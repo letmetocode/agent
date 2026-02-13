@@ -238,6 +238,7 @@ npm run dev
 - 回查历史：`GET /api/v3/chat/sessions/{sessionId}/history`
 - 订阅流式执行：`GET /api/v3/chat/sessions/{sessionId}/stream?planId={planId}`
 - 回查路由：`GET /api/v3/chat/plans/{planId}/routing`
+- 前端会话页具备自动收敛机制：SSE 断链最多自动重连 3 次，仍失败则自动轮询历史（30s 超时）以同步最终结果。
 
 详细回归项见：`docs/04-development-backlog.md`。
 

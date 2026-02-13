@@ -70,6 +70,7 @@
 - V3 聊天语义 SSE：`message.accepted`、`planning.started`、`task.progress`、`task.completed`、`answer.finalizing`、`answer.final`。
 - 游标回放补偿（`Last-Event-ID` 优先）。
 - 最终结果从终态消息读取，避免中间态误作为最终输出。
+- 前端消费层自动恢复：断链指数退避重连（最多 3 次）+ 历史轮询兜底（1.5s 间隔，30s 超时）。
 
 **证据**
 - 测试：`ChatStreamV3ControllerTest`、`PlanStreamControllerTest`
@@ -107,6 +108,7 @@
 - 新消息仅调用 V3 接口。
 - 中间态与最终态分离：仅 `answer.final` 作为最终结果。
 - 删除旧入口页面：`SessionListPage`。
+- 修复会话页“需手动刷新才更新”：`answer.final` 与断链场景均自动刷新历史并收敛终态。
 
 **证据**
 - 构建：`cd frontend && npm run build`

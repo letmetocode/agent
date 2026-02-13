@@ -18,7 +18,19 @@ interface ProcessEventItem {
   text: string;
 }
 
+type StreamState = 'idle' | 'connecting' | 'connected' | 'retrying' | 'polling';
+
+interface HistorySyncResult {
+  hasExecutingTurn: boolean;
+  nextPlanId?: number;
+  runningPlanId?: number;
+}
+
 const EXECUTING_TURN_STATUS = new Set(['PLANNING', 'EXECUTING']);
+const SSE_MAX_RETRIES = 3;
+const SSE_RETRY_BASE_MS = 1200;
+const HISTORY_POLL_INTERVAL_MS = 1500;
+const HISTORY_POLL_TIMEOUT_MS = 30000;
 
 const safeTime = (value?: string) => {
   if (!value) {
@@ -53,6 +65,7 @@ export const ConversationPage = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
+  const [streamState, setStreamState] = useState<StreamState>('idle');
 
   const [sessions, setSessions] = useState<SessionDetailDTO[]>([]);
   const [history, setHistory] = useState<ChatHistoryResponseV3 | null>(null);
@@ -61,6 +74,13 @@ export const ConversationPage = () => {
   const [processEvents, setProcessEvents] = useState<ProcessEventItem[]>([]);
 
   const sseRef = useRef<EventSource | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const historyPollTimerRef = useRef<number | null>(null);
+  const historyPollDeadlineRef = useRef<number>(0);
+  const retryCountRef = useRef(0);
+  const currentSubscriptionRef = useRef<string | null>(null);
+  const lastFinalEventRef = useRef<{ key: string; eventId: number }>({ key: '', eventId: 0 });
+
   const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8091';
 
   const messages = useMemo(() => {
@@ -99,6 +119,19 @@ export const ConversationPage = () => {
 
   const currentSessionTitle = history?.title || (sid ? `Session #${sid}` : '新聊天');
 
+  const streamStatusHint = useMemo(() => {
+    if (streamState === 'retrying') {
+      return '流连接中断，正在自动重连…';
+    }
+    if (streamState === 'polling') {
+      return '重连失败，正在同步最终结果…';
+    }
+    if (streamState === 'connecting' || streamState === 'connected') {
+      return '实时执行中，最终回复将自动刷新。';
+    }
+    return '仅展示流式执行状态与终态收敛，不把中间态落为最终回复。';
+  }, [streamState]);
+
   const pushProcessEvent = useCallback((event: ChatStreamEventV3) => {
     const text = event.finalAnswer || event.message || event.taskStatus || event.type;
     const row: ProcessEventItem = {
@@ -110,44 +143,70 @@ export const ConversationPage = () => {
     setProcessEvents((prev) => [row, ...prev].slice(0, 120));
   }, []);
 
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }, []);
+
+  const clearHistoryPollTimer = useCallback(() => {
+    if (historyPollTimerRef.current !== null) {
+      window.clearTimeout(historyPollTimerRef.current);
+      historyPollTimerRef.current = null;
+    }
+    historyPollDeadlineRef.current = 0;
+  }, []);
+
   const stopStream = useCallback(() => {
+    clearReconnectTimer();
+    clearHistoryPollTimer();
+    retryCountRef.current = 0;
+    currentSubscriptionRef.current = null;
+    lastFinalEventRef.current = { key: '', eventId: 0 };
     if (sseRef.current) {
       sseRef.current.close();
       sseRef.current = null;
     }
     setStreaming(false);
-  }, []);
+    setStreamState('idle');
+  }, [clearHistoryPollTimer, clearReconnectTimer]);
 
-  const connectStream = useCallback(
-    (targetSessionId: number, targetPlanId: number) => {
-      stopStream();
-      setStreaming(true);
-      sseRef.current = openChatSseV3(
-        targetSessionId,
-        targetPlanId,
-        baseUrl,
-        (event) => {
-          if (event.type !== 'stream.heartbeat') {
-            pushProcessEvent(event);
-          }
-          if (event.type === 'answer.final') {
-            setStreaming(false);
-            void agentApi
-              .getChatHistoryV3(targetSessionId)
-              .then((data) => setHistory(data))
-              .catch(() => undefined);
-          }
-          if (event.type === 'stream.error') {
-            setStreaming(false);
-          }
-        },
-        () => {
-          setStreaming(false);
-          pushProcessEvent({ type: 'stream.error', message: '流连接中断，稍后可重连。' });
-        }
-      );
+  const resolveHistoryState = useCallback(
+    (data: ChatHistoryResponseV3): HistorySyncResult => {
+      const queryPlanId = Number(searchParams.get('planId')) || undefined;
+      const runningPlanId = data.turns
+        .filter((turn) => EXECUTING_TURN_STATUS.has((turn.status || '').toUpperCase()) && turn.planId)
+        .sort((a, b) => (b.turnId || 0) - (a.turnId || 0))[0]?.planId;
+
+      const nextPlanId = runningPlanId || queryPlanId || data.latestPlanId || undefined;
+      const nextHasExecutingTurn = data.turns.some((turn) => EXECUTING_TURN_STATUS.has((turn.status || '').toUpperCase()));
+
+      return {
+        hasExecutingTurn: nextHasExecutingTurn,
+        nextPlanId,
+        runningPlanId
+      };
     },
-    [baseUrl, pushProcessEvent, stopStream]
+    [searchParams]
+  );
+
+  const syncHistorySnapshot = useCallback(
+    async (targetSessionId: number, options?: { silent?: boolean }): Promise<HistorySyncResult | null> => {
+      try {
+        const data = await agentApi.getChatHistoryV3(targetSessionId);
+        setHistory(data);
+        const state = resolveHistoryState(data);
+        setActivePlanId(state.nextPlanId);
+        return state;
+      } catch (err) {
+        if (!options?.silent) {
+          message.error(`加载会话历史失败: ${toChatMessageError(err)}`);
+        }
+        return null;
+      }
+    },
+    [resolveHistoryState]
   );
 
   const loadSessions = useCallback(async () => {
@@ -166,31 +225,157 @@ export const ConversationPage = () => {
     }
   }, [userId]);
 
+  const startHistoryPolling = useCallback(
+    (targetSessionId: number) => {
+      clearHistoryPollTimer();
+      setStreamState('polling');
+      setStreaming(false);
+      historyPollDeadlineRef.current = Date.now() + HISTORY_POLL_TIMEOUT_MS;
+
+      const poll = async () => {
+        const result = await syncHistorySnapshot(targetSessionId, { silent: true });
+        if (result && !result.hasExecutingTurn) {
+          clearHistoryPollTimer();
+          setStreamState('idle');
+          return;
+        }
+
+        if (Date.now() >= historyPollDeadlineRef.current) {
+          clearHistoryPollTimer();
+          setStreamState('idle');
+          pushProcessEvent({ type: 'stream.error', message: '自动同步超时，请手动刷新查看最新结果。' });
+          return;
+        }
+
+        historyPollTimerRef.current = window.setTimeout(poll, HISTORY_POLL_INTERVAL_MS);
+      };
+
+      void poll();
+    },
+    [clearHistoryPollTimer, pushProcessEvent, syncHistorySnapshot]
+  );
+
+  const connectStream = useCallback(
+    (targetSessionId: number, targetPlanId: number, options?: { force?: boolean; resetRetry?: boolean }) => {
+      const subscriptionKey = `${targetSessionId}-${targetPlanId}`;
+      if (!options?.force && currentSubscriptionRef.current === subscriptionKey && sseRef.current) {
+        return;
+      }
+
+      clearReconnectTimer();
+      clearHistoryPollTimer();
+      if (options?.resetRetry !== false) {
+        retryCountRef.current = 0;
+      }
+
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
+      }
+
+      currentSubscriptionRef.current = subscriptionKey;
+      if (lastFinalEventRef.current.key !== subscriptionKey) {
+        lastFinalEventRef.current = { key: subscriptionKey, eventId: 0 };
+      }
+      setStreaming(true);
+      setStreamState(options?.force ? 'retrying' : 'connecting');
+
+      const source = openChatSseV3(
+        targetSessionId,
+        targetPlanId,
+        baseUrl,
+        (event) => {
+          if (currentSubscriptionRef.current !== subscriptionKey) {
+            return;
+          }
+
+          if (event.type !== 'stream.heartbeat') {
+            setStreamState((previous) => (previous === 'connected' ? previous : 'connected'));
+            pushProcessEvent(event);
+          }
+
+          if (event.type === 'answer.final') {
+            const eventId = typeof event.eventId === 'number' ? event.eventId : 0;
+            const lastFinal = lastFinalEventRef.current;
+            if (eventId > 0 && lastFinal.key === subscriptionKey && eventId <= lastFinal.eventId) {
+              return;
+            }
+            if (eventId > 0) {
+              lastFinalEventRef.current = { key: subscriptionKey, eventId };
+            }
+
+            clearReconnectTimer();
+            clearHistoryPollTimer();
+            retryCountRef.current = 0;
+            currentSubscriptionRef.current = null;
+            if (sseRef.current) {
+              sseRef.current.close();
+              sseRef.current = null;
+            }
+            setStreaming(false);
+            setStreamState('idle');
+
+            void Promise.all([loadSessions(), syncHistorySnapshot(targetSessionId, { silent: true })]);
+          }
+        },
+        () => {
+          if (currentSubscriptionRef.current !== subscriptionKey) {
+            return;
+          }
+
+          setStreaming(false);
+
+          if (sseRef.current) {
+            sseRef.current.close();
+            sseRef.current = null;
+          }
+
+          if (retryCountRef.current >= SSE_MAX_RETRIES) {
+            currentSubscriptionRef.current = null;
+            pushProcessEvent({ type: 'stream.error', message: '流连接中断，已切换为自动同步模式。' });
+            startHistoryPolling(targetSessionId);
+            return;
+          }
+
+          retryCountRef.current += 1;
+          const delay = SSE_RETRY_BASE_MS * Math.pow(2, retryCountRef.current - 1);
+          setStreamState('retrying');
+          pushProcessEvent({
+            type: 'stream.error',
+            message: `流连接中断，正在重连（${retryCountRef.current}/${SSE_MAX_RETRIES}）...`
+          });
+
+          clearReconnectTimer();
+          reconnectTimerRef.current = window.setTimeout(() => {
+            connectStream(targetSessionId, targetPlanId, { force: true, resetRetry: false });
+          }, delay);
+        }
+      );
+
+      source.onopen = () => {
+        if (currentSubscriptionRef.current !== subscriptionKey) {
+          return;
+        }
+        retryCountRef.current = 0;
+        setStreaming(true);
+        setStreamState('connected');
+      };
+
+      sseRef.current = source;
+    },
+    [baseUrl, clearHistoryPollTimer, clearReconnectTimer, loadSessions, pushProcessEvent, startHistoryPolling, syncHistorySnapshot]
+  );
+
   const loadHistory = useCallback(
     async (targetSessionId: number) => {
       setHistoryLoading(true);
       try {
-        const data = await agentApi.getChatHistoryV3(targetSessionId);
-        setHistory(data);
-
-        const queryPlanId = Number(searchParams.get('planId')) || undefined;
-        const runningPlanId = data.turns
-          .filter((turn) => EXECUTING_TURN_STATUS.has((turn.status || '').toUpperCase()) && turn.planId)
-          .sort((a, b) => (b.turnId || 0) - (a.turnId || 0))[0]?.planId;
-
-        const nextPlanId = queryPlanId || runningPlanId || data.latestPlanId || undefined;
-        setActivePlanId(nextPlanId);
-
-        if (nextPlanId && runningPlanId && nextPlanId === runningPlanId) {
-          connectStream(targetSessionId, nextPlanId);
-        }
-      } catch (err) {
-        message.error(`加载会话历史失败: ${toChatMessageError(err)}`);
+        return await syncHistorySnapshot(targetSessionId);
       } finally {
         setHistoryLoading(false);
       }
     },
-    [connectStream, searchParams]
+    [syncHistorySnapshot]
   );
 
   useEffect(() => {
@@ -204,8 +389,29 @@ export const ConversationPage = () => {
       stopStream();
       return;
     }
+    stopStream();
     void loadHistory(sid);
   }, [loadHistory, sid, stopStream]);
+
+  useEffect(() => {
+    if (!sid || !activePlanId) {
+      return;
+    }
+    if (!hasExecutingTurn) {
+      stopStream();
+      return;
+    }
+    if (streamState === 'polling' || streamState === 'retrying') {
+      return;
+    }
+
+    const subscriptionKey = `${sid}-${activePlanId}`;
+    if (currentSubscriptionRef.current === subscriptionKey && sseRef.current) {
+      return;
+    }
+
+    connectStream(sid, activePlanId);
+  }, [activePlanId, connectStream, hasExecutingTurn, sid, stopStream, streamState]);
 
   useEffect(
     () => () => {
@@ -259,8 +465,8 @@ export const ConversationPage = () => {
         setSearchParams({ planId: String(response.planId) }, { replace: true });
       }
 
-      connectStream(response.sessionId, response.planId);
-      void Promise.all([loadSessions(), agentApi.getChatHistoryV3(response.sessionId).then(setHistory)]);
+      connectStream(response.sessionId, response.planId, { force: true, resetRetry: true });
+      void Promise.all([loadSessions(), syncHistorySnapshot(response.sessionId, { silent: true })]);
     } catch (err) {
       message.error(`发送失败: ${toChatMessageError(err)}`);
     } finally {
@@ -349,6 +555,8 @@ export const ConversationPage = () => {
                   执行中
                 </Tag>
               ) : null}
+              {streamState === 'retrying' ? <Tag color="warning">重连中</Tag> : null}
+              {streamState === 'polling' ? <Tag color="purple">自动同步中</Tag> : null}
             </Space>
           }
         >
@@ -396,7 +604,7 @@ export const ConversationPage = () => {
 
         <Card className="app-card chat-panel chat-right-panel" title="执行进度">
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            <Typography.Text type="secondary">仅展示流式执行状态与终态收敛，不把中间态落为最终回复。</Typography.Text>
+            <Typography.Text type="secondary">{streamStatusHint}</Typography.Text>
             {processEvents.length === 0 ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="发送消息后，这里会实时显示执行进度" />
             ) : (
