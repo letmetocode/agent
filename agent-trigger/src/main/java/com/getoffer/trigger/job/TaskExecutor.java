@@ -11,7 +11,9 @@ import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
 import com.getoffer.domain.task.service.TaskDispatchDomainService;
+import com.getoffer.domain.task.service.TaskEvaluationDomainService;
 import com.getoffer.domain.task.service.TaskExecutionDomainService;
+import com.getoffer.domain.task.service.TaskPromptDomainService;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
 import com.getoffer.types.enums.PlanTaskEventTypeEnum;
@@ -82,6 +84,8 @@ public class TaskExecutor {
     private final IAgentRegistryRepository agentRegistryRepository;
     private final TaskDispatchDomainService taskDispatchDomainService;
     private final TaskExecutionDomainService taskExecutionDomainService;
+    private final TaskPromptDomainService taskPromptDomainService;
+    private final TaskEvaluationDomainService taskEvaluationDomainService;
     private final ObjectMapper objectMapper;
     private final String claimOwner;
     private final int claimBatchSize;
@@ -139,6 +143,8 @@ public class TaskExecutor {
                         IAgentRegistryRepository agentRegistryRepository,
                         TaskDispatchDomainService taskDispatchDomainService,
                         TaskExecutionDomainService taskExecutionDomainService,
+                        TaskPromptDomainService taskPromptDomainService,
+                        TaskEvaluationDomainService taskEvaluationDomainService,
                         ObjectMapper objectMapper,
                         @Qualifier("taskExecutionWorker") ThreadPoolExecutor taskExecutionWorker,
                         ObjectProvider<MeterRegistry> meterRegistryProvider,
@@ -165,6 +171,8 @@ public class TaskExecutor {
         this.agentRegistryRepository = agentRegistryRepository;
         this.taskDispatchDomainService = taskDispatchDomainService;
         this.taskExecutionDomainService = taskExecutionDomainService;
+        this.taskPromptDomainService = taskPromptDomainService;
+        this.taskEvaluationDomainService = taskEvaluationDomainService;
         this.objectMapper = objectMapper;
         this.taskExecutionWorker = taskExecutionWorker;
         this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
@@ -646,34 +654,12 @@ public class TaskExecutor {
     }
 
     private boolean needsValidation(AgentTaskEntity task) {
-        if (task == null) {
-            return false;
-        }
-        Map<String, Object> config = task.getConfigSnapshot();
-        if (config == null || config.isEmpty()) {
-            return false;
-        }
-        Object validator = config.get("validator");
-        if (validator instanceof Boolean) {
-            return (Boolean) validator;
-        }
-        return config.containsKey("validator") || config.containsKey("validate") || config.containsKey("validation");
+        return taskEvaluationDomainService.needsValidation(task);
     }
 
     private ValidationResult evaluateValidation(AgentTaskEntity task, String response) {
-        String feedback = StringUtils.defaultString(response);
-        Map<String, Object> config = task.getConfigSnapshot();
-        List<String> passKeywords = getStringList(config, "passKeywords", "pass_keywords", "validKeywords", "valid_keywords");
-        List<String> failKeywords = getStringList(config, "failKeywords", "fail_keywords", "invalidKeywords", "invalid_keywords");
-
-        String lower = feedback.toLowerCase();
-        if (containsKeyword(lower, failKeywords, "fail", "failed", "error", "incorrect", "wrong", "不通过", "失败", "错误", "有问题")) {
-            return new ValidationResult(false, feedback);
-        }
-        if (containsKeyword(lower, passKeywords, "pass", "passed", "ok", "valid", "通过", "正确", "符合", "无问题")) {
-            return new ValidationResult(true, feedback);
-        }
-        return new ValidationResult(true, feedback);
+        TaskEvaluationDomainService.ValidationResult result = taskEvaluationDomainService.evaluateValidation(task, response);
+        return new ValidationResult(result.valid(), result.feedback());
     }
 
     private boolean releaseClaimForNonExecutablePlan(AgentTaskEntity task, AgentPlanEntity plan) {
@@ -697,25 +683,6 @@ public class TaskExecutor {
         }
     }
 
-    private boolean containsKeyword(String text, List<String> keywords, String... defaults) {
-        if (StringUtils.isBlank(text)) {
-            return false;
-        }
-        if (keywords != null && !keywords.isEmpty()) {
-            for (String keyword : keywords) {
-                if (StringUtils.isNotBlank(keyword) && text.contains(keyword.toLowerCase())) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        for (String keyword : defaults) {
-            if (StringUtils.isNotBlank(keyword) && text.contains(keyword.toLowerCase())) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     private ChatClient resolveTaskClient(AgentTaskEntity task, AgentPlanEntity plan) {
         return resolveTaskClient(task, plan, null);
@@ -823,86 +790,24 @@ public class TaskExecutor {
     }
 
     private String buildPrompt(AgentTaskEntity task, AgentPlanEntity plan) {
-        Map<String, Object> config = task.getConfigSnapshot();
-        Map<String, Object> context = new HashMap<>();
-        if (plan.getGlobalContext() != null) {
-            context.putAll(plan.getGlobalContext());
-        }
-        if (task.getInputContext() != null) {
-            context.putAll(task.getInputContext());
-        }
-
-        List<String> contextKeys = getStringList(config, "contextKeys", "context_keys", "inputKeys", "input_keys", "inputs");
-        Map<String, Object> filteredContext = filterContext(context, contextKeys);
-
-        Map<String, Object> variables = new HashMap<>(filteredContext);
-        variables.put("taskName", task.getName());
-        variables.put("taskNodeId", task.getNodeId());
-        variables.put("taskType", task.getTaskType());
-        variables.put("planGoal", plan.getPlanGoal());
-        variables.put("planId", plan.getId());
-        variables.put("sessionId", plan.getSessionId());
-
-        String template = getString(config, "prompt", "promptTemplate", "prompt_template", "template");
-        if (StringUtils.isBlank(template)) {
-            return defaultPrompt(task, plan, filteredContext);
-        }
-        return applyTemplate(template, variables);
+        return taskPromptDomainService.buildWorkerPrompt(task, plan, this::toJson);
     }
 
     private String buildCriticPrompt(AgentTaskEntity task, AgentPlanEntity plan) {
-        Map<String, Object> config = task.getConfigSnapshot();
-        String targetNodeId = resolveTargetNodeId(task);
+        String targetNodeId = taskPromptDomainService.resolveTargetNodeId(task);
         AgentTaskEntity targetTask = targetNodeId == null ? null
                 : agentTaskRepository.findByPlanIdAndNodeId(plan.getId(), targetNodeId);
         String targetOutput = targetTask == null ? "" : StringUtils.defaultString(targetTask.getOutputResult());
-
-        Map<String, Object> context = new HashMap<>();
-        if (plan.getGlobalContext() != null) {
-            context.putAll(plan.getGlobalContext());
-        }
-        if (task.getInputContext() != null) {
-            context.putAll(task.getInputContext());
-        }
-        context.put("targetNodeId", targetNodeId);
-        context.put("targetOutput", targetOutput);
-        context.put("planGoal", plan.getPlanGoal());
-
-        String template = getString(config, "criticPrompt", "prompt", "promptTemplate", "prompt_template", "template");
-        if (StringUtils.isNotBlank(template)) {
-            return applyTemplate(template, context);
-        }
-        return defaultCriticPrompt(task, plan, targetNodeId, targetOutput, context);
+        return taskPromptDomainService.buildCriticPrompt(task, plan, targetNodeId, targetOutput, this::toJson);
     }
 
-    private String defaultCriticPrompt(AgentTaskEntity task,
-                                       AgentPlanEntity plan,
-                                       String targetNodeId,
-                                       String targetOutput,
-                                       Map<String, Object> context) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("你是审查员，不需要生成内容。请审查目标输出是否满足要求。");
-        builder.append("仅输出 JSON：{\"pass\": true/false, \"feedback\": \"...\"}。");
-        builder.append("\n目标任务：").append(StringUtils.defaultIfBlank(targetNodeId, "未知"));
-        builder.append("\n计划目标：").append(safeText(plan.getPlanGoal()));
-        builder.append("\n目标输出：").append(StringUtils.defaultString(targetOutput));
-        builder.append("\n上下文：").append(toJson(context));
-        return builder.toString();
-    }
 
     private String buildRefinePrompt(AgentTaskEntity task, AgentPlanEntity plan) {
         TaskExecutionEntity lastExecution = loadLastExecution(task.getId());
         String lastResponse = lastExecution == null ? "" : StringUtils.defaultString(lastExecution.getLlmResponseRaw());
         String feedback = lastExecution == null ? "" : StringUtils.defaultString(lastExecution.getValidationFeedback());
         String basePrompt = buildPrompt(task, plan);
-        String reason = StringUtils.isBlank(feedback) ? "未通过验证" : feedback;
-        StringBuilder builder = new StringBuilder();
-        builder.append("你上次写错了，报错是").append(reason).append("，请重写。");
-        if (StringUtils.isNotBlank(lastResponse)) {
-            builder.append("\n上次输出：").append(lastResponse);
-        }
-        builder.append("\n\n").append(basePrompt);
-        return builder.toString();
+        return taskPromptDomainService.buildRefinePrompt(basePrompt, lastResponse, feedback);
     }
 
     private TaskExecutionEntity loadLastExecution(Long taskId) {
@@ -917,50 +822,14 @@ public class TaskExecutor {
     }
 
     private String buildRetrySystemPrompt(AgentTaskEntity task) {
-        Integer retryCount = task.getCurrentRetry();
-        if (retryCount == null || retryCount <= 0) {
-            return null;
-        }
-        String feedback = extractFeedback(task.getInputContext());
-        if (StringUtils.isBlank(feedback)) {
-            feedback = "无";
-        }
-        return "注意：这是你的第 " + retryCount + " 次尝试。上一次你失败了，反馈意见是：" + feedback + "。请根据反馈修正你的输出。";
+        return taskPromptDomainService.buildRetrySystemPrompt(task);
     }
 
-    private String extractFeedback(Map<String, Object> context) {
-        if (context == null || context.isEmpty()) {
-            return null;
-        }
-        Object value = context.get("feedback");
-        if (value == null) {
-            value = context.get("criticFeedback");
-        }
-        if (value == null) {
-            value = context.get("validationFeedback");
-        }
-        return value == null ? null : String.valueOf(value);
-    }
 
     private CriticDecision parseCriticDecision(String response) {
-        if (StringUtils.isBlank(response)) {
-            return new CriticDecision(false, "Critic输出为空");
-        }
-        String trimmed = response.trim();
-        Map<String, Object> payload = parseJsonPayload(trimmed);
-        if (payload == null) {
-            return new CriticDecision(false, "Critic输出格式错误");
-        }
-        Object passValue = payload.get("pass");
-        boolean pass = false;
-        if (passValue instanceof Boolean) {
-            pass = (Boolean) passValue;
-        } else if (passValue != null) {
-            pass = Boolean.parseBoolean(String.valueOf(passValue));
-        }
-        Object feedback = payload.get("feedback");
-        String text = feedback == null ? trimmed : String.valueOf(feedback);
-        return new CriticDecision(pass, text);
+        Map<String, Object> payload = parseJsonPayload(StringUtils.defaultString(response).trim());
+        TaskEvaluationDomainService.CriticDecision decision = taskEvaluationDomainService.parseCriticDecision(response, payload);
+        return new CriticDecision(decision.pass(), decision.feedback());
     }
 
     private Map<String, Object> parseJsonPayload(String text) {
@@ -1022,38 +891,13 @@ public class TaskExecutor {
     }
 
     private String resolveTargetNodeId(AgentTaskEntity task) {
-        Map<String, Object> config = task.getConfigSnapshot();
-        String target = getString(config, "targetNodeId", "target_node_id", "target", "criticTarget", "critic_target");
-        if (StringUtils.isNotBlank(target)) {
-            return target;
-        }
-        List<String> deps = task.getDependencyNodeIds();
-        if (deps != null && deps.size() == 1) {
-            return deps.get(0);
-        }
-        return null;
+        return taskPromptDomainService.resolveTargetNodeId(task);
     }
 
     private boolean isCriticTask(AgentTaskEntity task) {
         return task != null && task.getTaskType() == TaskTypeEnum.CRITIC;
     }
 
-    private String defaultPrompt(AgentTaskEntity task, AgentPlanEntity plan, Map<String, Object> context) {
-        return "任务：" + safeText(task.getName()) + "\n目标：" + safeText(plan.getPlanGoal())
-                + "\n上下文：" + toJson(context);
-    }
-
-    private String applyTemplate(String template, Map<String, Object> variables) {
-        String result = template;
-        for (Map.Entry<String, Object> entry : variables.entrySet()) {
-            String key = entry.getKey();
-            String value = entry.getValue() == null ? "" : String.valueOf(entry.getValue());
-            result = result.replace("{{" + key + "}}", value)
-                    .replace("${" + key + "}", value)
-                    .replace("{" + key + "}", value);
-        }
-        return result;
-    }
 
     private void syncBlackboard(AgentPlanEntity plan, AgentTaskEntity task, String output) {
         if (plan == null || plan.getId() == null || task == null) {
@@ -1097,61 +941,6 @@ public class TaskExecutor {
         }
     }
 
-    private Map<String, Object> filterContext(Map<String, Object> context, List<String> keys) {
-        if (context == null || context.isEmpty()) {
-            return Collections.emptyMap();
-        }
-        if (keys == null || keys.isEmpty()) {
-            return new HashMap<>(context);
-        }
-        Map<String, Object> filtered = new HashMap<>();
-        for (String key : keys) {
-            if (StringUtils.isBlank(key)) {
-                continue;
-            }
-            if (context.containsKey(key)) {
-                filtered.put(key, context.get(key));
-            }
-        }
-        return filtered;
-    }
-
-    private List<String> getStringList(Map<String, Object> config, String... keys) {
-        if (config == null || config.isEmpty()) {
-            return Collections.emptyList();
-        }
-        for (String key : keys) {
-            Object value = config.get(key);
-            if (value == null) {
-                continue;
-            }
-            if (value instanceof List<?>) {
-                List<?> list = (List<?>) value;
-                List<String> result = new ArrayList<>();
-                for (Object item : list) {
-                    if (item != null) {
-                        result.add(String.valueOf(item));
-                    }
-                }
-                return result;
-            }
-            if (value instanceof String) {
-                String text = ((String) value).trim();
-                if (text.isEmpty()) {
-                    continue;
-                }
-                String[] parts = text.split(",");
-                List<String> result = new ArrayList<>();
-                for (String part : parts) {
-                    if (StringUtils.isNotBlank(part)) {
-                        result.add(part.trim());
-                    }
-                }
-                return result;
-            }
-        }
-        return Collections.emptyList();
-    }
 
     private String getString(Map<String, Object> config, String... keys) {
         if (config == null || config.isEmpty()) {
@@ -1235,10 +1024,6 @@ public class TaskExecutor {
         } catch (JsonProcessingException ex) {
             return String.valueOf(value);
         }
-    }
-
-    private String safeText(String value) {
-        return value == null ? "" : value;
     }
 
     private Counter counter(String name) {
