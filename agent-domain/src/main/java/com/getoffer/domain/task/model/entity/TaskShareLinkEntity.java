@@ -33,4 +33,15 @@ public class TaskShareLinkEntity {
         }
         return expiresAt == null || expiresAt.isAfter(LocalDateTime.now());
     }
+
+    public void revoke(String reason) {
+        this.revoked = true;
+        this.revokedReason = reason;
+        this.revokedAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public boolean isExpired() {
+        return expiresAt != null && !expiresAt.isAfter(LocalDateTime.now());
+    }
 }

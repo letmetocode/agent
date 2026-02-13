@@ -2,12 +2,13 @@ package com.getoffer.trigger.job;
 
 import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
+import com.getoffer.domain.planning.service.PlanTransitionDomainService;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
-import com.getoffer.types.enums.PlanTaskEventTypeEnum;
-import com.getoffer.types.enums.PlanStatusEnum;
-import com.getoffer.trigger.event.PlanTaskEventPublisher;
 import com.getoffer.trigger.application.command.TurnFinalizeApplicationService;
+import com.getoffer.trigger.event.PlanTaskEventPublisher;
+import com.getoffer.types.enums.PlanStatusEnum;
+import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Metrics;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,7 @@ public class PlanStatusDaemon {
     private final IAgentTaskRepository agentTaskRepository;
     private final PlanTaskEventPublisher planTaskEventPublisher;
     private final TurnFinalizeApplicationService turnResultService;
+    private final PlanTransitionDomainService planTransitionDomainService;
 
     private final int batchSize;
     private final int maxPlansPerRound;
@@ -44,12 +46,14 @@ public class PlanStatusDaemon {
                             IAgentTaskRepository agentTaskRepository,
                             PlanTaskEventPublisher planTaskEventPublisher,
                             TurnFinalizeApplicationService turnResultService,
+                            PlanTransitionDomainService planTransitionDomainService,
                             @Value("${plan-status.batch-size:200}") int batchSize,
                             @Value("${plan-status.max-plans-per-round:1000}") int maxPlansPerRound) {
         this.agentPlanRepository = agentPlanRepository;
         this.agentTaskRepository = agentTaskRepository;
         this.planTaskEventPublisher = planTaskEventPublisher;
         this.turnResultService = turnResultService;
+        this.planTransitionDomainService = planTransitionDomainService;
         this.batchSize = batchSize > 0 ? batchSize : 200;
         this.maxPlansPerRound = maxPlansPerRound > 0 ? maxPlansPerRound : 1000;
         this.finalizeAttemptCounter = Counter.builder("agent.plan.finalize.attempt.total").register(Metrics.globalRegistry);
@@ -153,23 +157,15 @@ public class PlanStatusDaemon {
     }
 
     private void reconcilePlan(AgentPlanEntity plan, PlanTaskStatusStat stat) {
-        PlanAggregateStatus aggregateStatus = resolveAggregateStatus(stat);
-        PlanStatusEnum targetStatus = resolveTargetStatus(plan.getStatus(), aggregateStatus);
+        PlanTransitionDomainService.PlanAggregateStatus aggregateStatus = planTransitionDomainService.resolveAggregateStatus(stat);
+        PlanStatusEnum targetStatus = planTransitionDomainService.resolveTargetStatus(plan.getStatus(), aggregateStatus);
         if (targetStatus == null || targetStatus == plan.getStatus()) {
             return;
         }
         PlanStatusEnum beforeStatus = plan.getStatus();
 
         try {
-            if (targetStatus == PlanStatusEnum.RUNNING) {
-                plan.startExecution();
-            } else if (targetStatus == PlanStatusEnum.COMPLETED) {
-                plan.completeFromReadyOrRunning();
-            } else if (targetStatus == PlanStatusEnum.FAILED) {
-                plan.fail("Task aggregate detected FAILED");
-            } else {
-                return;
-            }
+            planTransitionDomainService.transitPlan(plan, targetStatus);
             agentPlanRepository.update(plan);
             if (targetStatus == PlanStatusEnum.COMPLETED || targetStatus == PlanStatusEnum.FAILED) {
                 finalizeAttemptCounter.increment();
@@ -219,64 +215,5 @@ public class PlanStatusDaemon {
         } catch (Exception ex) {
             log.warn("Failed to publish plan finished event. planId={}, error={}", plan.getId(), ex.getMessage());
         }
-    }
-
-    private PlanAggregateStatus resolveAggregateStatus(PlanTaskStatusStat stat) {
-        if (stat == null || valueOf(stat.getTotal()) <= 0) {
-            return PlanAggregateStatus.NONE;
-        }
-
-        long failedCount = valueOf(stat.getFailedCount());
-        if (failedCount > 0) {
-            return PlanAggregateStatus.FAILED;
-        }
-
-        long runningLikeCount = valueOf(stat.getRunningLikeCount());
-        if (runningLikeCount > 0) {
-            return PlanAggregateStatus.RUNNING;
-        }
-
-        long total = valueOf(stat.getTotal());
-        long terminalCount = valueOf(stat.getTerminalCount());
-        if (terminalCount == total) {
-            return PlanAggregateStatus.COMPLETED;
-        }
-        return PlanAggregateStatus.READY;
-    }
-
-    private long valueOf(Long value) {
-        return value == null ? 0L : value;
-    }
-
-    private PlanStatusEnum resolveTargetStatus(PlanStatusEnum currentStatus, PlanAggregateStatus aggregateStatus) {
-        if (currentStatus == null || aggregateStatus == PlanAggregateStatus.NONE) {
-            return null;
-        }
-        if (currentStatus == PlanStatusEnum.COMPLETED
-                || currentStatus == PlanStatusEnum.FAILED
-                || currentStatus == PlanStatusEnum.CANCELLED) {
-            return null;
-        }
-
-        if (aggregateStatus == PlanAggregateStatus.FAILED
-                && (currentStatus == PlanStatusEnum.READY || currentStatus == PlanStatusEnum.RUNNING)) {
-            return PlanStatusEnum.FAILED;
-        }
-        if (aggregateStatus == PlanAggregateStatus.RUNNING && currentStatus == PlanStatusEnum.READY) {
-            return PlanStatusEnum.RUNNING;
-        }
-        if (aggregateStatus == PlanAggregateStatus.COMPLETED
-                && (currentStatus == PlanStatusEnum.READY || currentStatus == PlanStatusEnum.RUNNING)) {
-            return PlanStatusEnum.COMPLETED;
-        }
-        return null;
-    }
-
-    private enum PlanAggregateStatus {
-        NONE,
-        READY,
-        RUNNING,
-        COMPLETED,
-        FAILED
     }
 }

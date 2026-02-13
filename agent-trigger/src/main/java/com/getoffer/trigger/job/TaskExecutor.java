@@ -10,6 +10,8 @@ import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
+import com.getoffer.domain.task.service.TaskDispatchDomainService;
+import com.getoffer.domain.task.service.TaskExecutionDomainService;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
 import com.getoffer.types.enums.PlanTaskEventTypeEnum;
@@ -78,6 +80,8 @@ public class TaskExecutor {
     private final ITaskExecutionRepository taskExecutionRepository;
     private final IAgentFactory agentFactory;
     private final IAgentRegistryRepository agentRegistryRepository;
+    private final TaskDispatchDomainService taskDispatchDomainService;
+    private final TaskExecutionDomainService taskExecutionDomainService;
     private final ObjectMapper objectMapper;
     private final String claimOwner;
     private final int claimBatchSize;
@@ -133,6 +137,8 @@ public class TaskExecutor {
                         ITaskExecutionRepository taskExecutionRepository,
                         IAgentFactory agentFactory,
                         IAgentRegistryRepository agentRegistryRepository,
+                        TaskDispatchDomainService taskDispatchDomainService,
+                        TaskExecutionDomainService taskExecutionDomainService,
                         ObjectMapper objectMapper,
                         @Qualifier("taskExecutionWorker") ThreadPoolExecutor taskExecutionWorker,
                         ObjectProvider<MeterRegistry> meterRegistryProvider,
@@ -157,6 +163,8 @@ public class TaskExecutor {
         this.taskExecutionRepository = taskExecutionRepository;
         this.agentFactory = agentFactory;
         this.agentRegistryRepository = agentRegistryRepository;
+        this.taskDispatchDomainService = taskDispatchDomainService;
+        this.taskExecutionDomainService = taskExecutionDomainService;
         this.objectMapper = objectMapper;
         this.taskExecutionWorker = taskExecutionWorker;
         this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
@@ -269,11 +277,11 @@ public class TaskExecutor {
     }
 
     private int resolveClaimLimit() {
-        int perTickLimit = Math.max(Math.min(claimBatchSize, claimMaxPerTick), 0);
-        if (perTickLimit <= 0) {
-            return 0;
-        }
-        return Math.min(perTickLimit, dispatchPermits.availablePermits());
+        return taskDispatchDomainService.resolveClaimLimit(
+                claimBatchSize,
+                claimMaxPerTick,
+                dispatchPermits.availablePermits()
+        );
     }
 
     private int reserveDispatchSlots(int expected) {
@@ -296,56 +304,37 @@ public class TaskExecutor {
 
     private List<AgentTaskEntity> claimTasks(int limit) {
         claimPollCounter.increment();
-        int normalizedLimit = Math.max(limit, 0);
-        if (normalizedLimit <= 0) {
+        TaskDispatchDomainService.ClaimPlan claimPlan = taskDispatchDomainService.planClaim(
+                Math.max(limit, 0),
+                claimReadyFirst,
+                refiningMaxRatio,
+                refiningMinPerTick
+        );
+        if (claimPlan.claimLimit() <= 0) {
             claimEmptyCounter.increment();
             return Collections.emptyList();
         }
 
-        int refiningQuota = resolveRefiningQuota(normalizedLimit);
-        int readyQuota = Math.max(normalizedLimit - refiningQuota, 0);
-        List<AgentTaskEntity> claimed = new ArrayList<>(normalizedLimit);
-
-        if (claimReadyFirst) {
-            claimTasksByType(claimed, readyQuota, true, false);
-            claimTasksByType(claimed, refiningQuota, false, false);
-        } else {
-            claimTasksByType(claimed, refiningQuota, false, false);
-            claimTasksByType(claimed, readyQuota, true, false);
+        List<AgentTaskEntity> claimed = new ArrayList<>(claimPlan.claimLimit());
+        for (TaskDispatchDomainService.ClaimSlot slot : claimPlan.primarySlots()) {
+            claimTasksByType(claimed, slot.limit(), slot.readyLike(), slot.fallback());
         }
 
-        int remaining = normalizedLimit - claimed.size();
+        int remaining = claimPlan.claimLimit() - claimed.size();
         if (remaining > 0) {
-            if (claimReadyFirst) {
-                claimTasksByType(claimed, remaining, true, true);
-                remaining = normalizedLimit - claimed.size();
-                if (remaining > 0) {
-                    claimTasksByType(claimed, remaining, false, true);
-                }
-            } else {
-                claimTasksByType(claimed, remaining, false, true);
-                remaining = normalizedLimit - claimed.size();
-                if (remaining > 0) {
-                    claimTasksByType(claimed, remaining, true, true);
+            for (Boolean readyLike : claimPlan.fallbackOrder()) {
+                claimTasksByType(claimed, remaining, Boolean.TRUE.equals(readyLike), true);
+                remaining = claimPlan.claimLimit() - claimed.size();
+                if (remaining <= 0) {
+                    break;
                 }
             }
         }
 
-        if (claimed.isEmpty() && normalizedLimit > 0) {
+        if (claimed.isEmpty() && claimPlan.claimLimit() > 0) {
             claimEmptyCounter.increment();
         }
         return claimed;
-    }
-
-    private int resolveRefiningQuota(int claimLimit) {
-        int normalizedLimit = Math.max(claimLimit, 0);
-        if (normalizedLimit <= 0) {
-            return 0;
-        }
-        int ratioQuota = (int) Math.floor(normalizedLimit * refiningMaxRatio);
-        int minQuota = Math.min(refiningMinPerTick, normalizedLimit);
-        int quota = Math.max(ratioQuota, minQuota);
-        return Math.min(Math.max(quota, 0), normalizedLimit);
     }
 
     private void claimTasksByType(List<AgentTaskEntity> claimed,
@@ -471,7 +460,7 @@ public class TaskExecutor {
                 outcome = "skip_null_task";
                 return;
             }
-            if (StringUtils.isBlank(task.getClaimOwner()) || task.getExecutionAttempt() == null) {
+            if (!taskDispatchDomainService.hasValidClaim(task)) {
                 outcome = "skip_invalid_claim";
                 log.warn("Skip claimed task execution because claim metadata missing. taskId={}, claimOwner={}, attempt={}",
                         task.getId(), task.getClaimOwner(), task.getExecutionAttempt());
@@ -506,7 +495,10 @@ public class TaskExecutor {
                         : (refining ? buildRefinePrompt(task, plan) : buildPrompt(task, plan));
                 execution = new TaskExecutionEntity();
                 execution.setTaskId(task.getId());
-                execution.setAttemptNumber(resolveAttemptNumber(task));
+                execution.setAttemptNumber(taskExecutionDomainService.resolveAttemptNumber(
+                        taskExecutionRepository.getMaxAttemptNumber(task.getId()),
+                        task
+                ));
                 execution.setPromptSnapshot(prompt);
 
                 String systemPromptSuffix = buildRetrySystemPrompt(task);
@@ -515,11 +507,11 @@ public class TaskExecutor {
                     chatResponse = callTaskClientWithTimeout(taskClient, prompt);
                 } catch (TaskCallTimeoutException timeoutException) {
                     persistTimeoutExecution(execution, startTime, timeoutException);
-                    boolean retrying = canTimeoutRetry(task, timeoutRetryCount);
+                    boolean retrying = taskExecutionDomainService.canTimeoutRetry(task, timeoutRetryCount, executionTimeoutRetryMax);
                     recordTimeoutMetrics(task, retrying);
                     if (retrying) {
                         timeoutRetryCount++;
-                        applyTimeoutRetry(task, timeoutException.getMessage());
+                        taskExecutionDomainService.applyTimeoutRetry(task, timeoutException.getMessage());
                         refining = true;
                         outcome = "timeout_retrying";
                         errorType = "timeout";
@@ -689,11 +681,7 @@ public class TaskExecutor {
             return false;
         }
         try {
-            if (task.getCurrentRetry() != null && task.getCurrentRetry() > 0) {
-                task.rollbackToRefining();
-            } else {
-                task.rollbackToReady();
-            }
+            task.rollbackToDispatchQueue();
             boolean updated = safeUpdateClaimedTask(task);
             if (updated) {
                 emitTaskAudit("claimed_release_non_executable_plan", task,
@@ -1253,17 +1241,6 @@ public class TaskExecutor {
         return value == null ? "" : value;
     }
 
-    private Integer resolveAttemptNumber(AgentTaskEntity task) {
-        Integer maxAttempt = taskExecutionRepository.getMaxAttemptNumber(task.getId());
-        if (maxAttempt != null && maxAttempt > 0) {
-            return maxAttempt + 1;
-        }
-        if (task.getCurrentRetry() != null && task.getCurrentRetry() > 0) {
-            return task.getCurrentRetry() + 1;
-        }
-        return 1;
-    }
-
     private Counter counter(String name) {
         return Counter.builder(name).register(meterRegistry);
     }
@@ -1310,35 +1287,6 @@ public class TaskExecutor {
         execution.setErrorType("timeout");
         execution.setExecutionTime(startTime);
         safeSaveExecution(execution);
-    }
-
-    private boolean canTimeoutRetry(AgentTaskEntity task, int timeoutRetryCount) {
-        if (timeoutRetryCount >= executionTimeoutRetryMax) {
-            return false;
-        }
-        if (task == null) {
-            return false;
-        }
-        int currentRetry = task.getCurrentRetry() == null ? 0 : Math.max(task.getCurrentRetry(), 0);
-        Integer maxRetries = task.getMaxRetries();
-        if (maxRetries == null) {
-            return true;
-        }
-        return currentRetry < Math.max(maxRetries, 0);
-    }
-
-    private void applyTimeoutRetry(AgentTaskEntity task, String timeoutMessage) {
-        if (task == null) {
-            return;
-        }
-        int currentRetry = task.getCurrentRetry() == null ? 0 : Math.max(task.getCurrentRetry(), 0);
-        task.setCurrentRetry(currentRetry + 1);
-        Map<String, Object> inputContext = task.getInputContext() == null
-                ? new HashMap<>()
-                : new HashMap<>(task.getInputContext());
-        inputContext.put("feedback", timeoutMessage);
-        inputContext.put("validationFeedback", timeoutMessage);
-        task.setInputContext(inputContext);
     }
 
     private void recordTimeoutMetrics(AgentTaskEntity task, boolean retrying) {

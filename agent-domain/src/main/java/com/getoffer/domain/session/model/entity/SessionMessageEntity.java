@@ -34,4 +34,39 @@ public class SessionMessageEntity {
             throw new IllegalStateException("Message content cannot be empty");
         }
     }
+
+    public boolean isAssistantMessage() {
+        return role == MessageRoleEnum.ASSISTANT;
+    }
+
+    public boolean isUserMessage() {
+        return role == MessageRoleEnum.USER;
+    }
+
+    public void updateContent(String content) {
+        if (content == null || content.trim().isEmpty()) {
+            throw new IllegalStateException("Message content cannot be empty");
+        }
+        this.content = content.trim();
+    }
+
+    public static SessionMessageEntity userMessage(Long sessionId, Long turnId, String content) {
+        return create(sessionId, turnId, MessageRoleEnum.USER, content);
+    }
+
+    public static SessionMessageEntity assistantMessage(Long sessionId, Long turnId, String content) {
+        return create(sessionId, turnId, MessageRoleEnum.ASSISTANT, content);
+    }
+
+    private static SessionMessageEntity create(Long sessionId,
+                                               Long turnId,
+                                               MessageRoleEnum role,
+                                               String content) {
+        SessionMessageEntity entity = new SessionMessageEntity();
+        entity.setSessionId(sessionId);
+        entity.setTurnId(turnId);
+        entity.setRole(role);
+        entity.updateContent(content);
+        return entity;
+    }
 }

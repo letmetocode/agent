@@ -27,4 +27,21 @@ public class PlanTaskEventEntity {
             throw new IllegalStateException("Event type cannot be null");
         }
     }
+
+    public boolean isPlanFinishedEvent() {
+        return eventType == PlanTaskEventTypeEnum.PLAN_FINISHED;
+    }
+
+    public static PlanTaskEventEntity create(Long planId,
+                                             Long taskId,
+                                             PlanTaskEventTypeEnum eventType,
+                                             Map<String, Object> eventData) {
+        PlanTaskEventEntity entity = new PlanTaskEventEntity();
+        entity.setPlanId(planId);
+        entity.setTaskId(taskId);
+        entity.setEventType(eventType);
+        entity.setEventData(eventData);
+        entity.validate();
+        return entity;
+    }
 }

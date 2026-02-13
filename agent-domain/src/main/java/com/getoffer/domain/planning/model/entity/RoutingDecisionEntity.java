@@ -40,5 +40,46 @@ public class RoutingDecisionEntity {
             throw new IllegalStateException("Decision type cannot be null");
         }
     }
-}
 
+    public boolean isFallbackDecision() {
+        return decisionType == RoutingDecisionTypeEnum.FALLBACK || Boolean.TRUE.equals(fallbackFlag);
+    }
+
+    public void markFallback(String sourceType, String fallbackReason, Integer plannerAttempts) {
+        this.decisionType = RoutingDecisionTypeEnum.FALLBACK;
+        this.sourceType = sourceType;
+        this.fallbackFlag = true;
+        this.fallbackReason = fallbackReason;
+        this.plannerAttempts = plannerAttempts;
+    }
+
+    public void bindDefinitionHit(Long definitionId,
+                                  String definitionKey,
+                                  Integer definitionVersion,
+                                  String strategy,
+                                  BigDecimal score,
+                                  String reason) {
+        this.decisionType = RoutingDecisionTypeEnum.HIT_PRODUCTION;
+        this.definitionId = definitionId;
+        this.definitionKey = definitionKey;
+        this.definitionVersion = definitionVersion;
+        this.strategy = strategy;
+        this.score = score;
+        this.reason = reason;
+        this.fallbackFlag = false;
+        this.fallbackReason = null;
+    }
+
+    public void bindDraftCandidate(Long draftId,
+                                   String draftKey,
+                                   String strategy,
+                                   BigDecimal score,
+                                   String reason) {
+        this.decisionType = RoutingDecisionTypeEnum.CANDIDATE;
+        this.draftId = draftId;
+        this.draftKey = draftKey;
+        this.strategy = strategy;
+        this.score = score;
+        this.reason = reason;
+    }
+}

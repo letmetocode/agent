@@ -5,6 +5,7 @@ import com.getoffer.types.enums.TaskTypeEnum;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -269,6 +270,54 @@ public class AgentTaskEntity {
         return this.status == TaskStatusEnum.RUNNING && this.leaseUntil != null && this.leaseUntil.isBefore(LocalDateTime.now());
     }
 
+    public boolean hasValidClaim() {
+        return this.claimOwner != null && !this.claimOwner.isBlank() && this.executionAttempt != null;
+    }
+
+    public int normalizedCurrentRetry() {
+        return this.currentRetry == null ? 0 : Math.max(this.currentRetry, 0);
+    }
+
+    public int normalizedMaxRetries() {
+        if (this.maxRetries == null) {
+            return Integer.MAX_VALUE;
+        }
+        return Math.max(this.maxRetries, 0);
+    }
+
+    public boolean hasRetryBudget() {
+        return this.normalizedCurrentRetry() < this.normalizedMaxRetries();
+    }
+
+    public boolean canTimeoutRetry(int timeoutRetryCount, int timeoutRetryMax) {
+        if (timeoutRetryCount < 0) {
+            timeoutRetryCount = 0;
+        }
+        if (timeoutRetryCount >= Math.max(timeoutRetryMax, 0)) {
+            return false;
+        }
+        return hasRetryBudget();
+    }
+
+    public void applyTimeoutRetry(String timeoutMessage) {
+        this.currentRetry = this.normalizedCurrentRetry() + 1;
+        Map<String, Object> nextInputContext = this.inputContext == null
+                ? new HashMap<>()
+                : new HashMap<>(this.inputContext);
+        nextInputContext.put("feedback", timeoutMessage);
+        nextInputContext.put("validationFeedback", timeoutMessage);
+        this.inputContext = nextInputContext;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void rollbackToDispatchQueue() {
+        if (this.currentRetry != null && this.currentRetry > 0) {
+            rollbackToRefining();
+        } else {
+            rollbackToReady();
+        }
+    }
+
     /**
      * 回滚为待执行。
      */
@@ -342,7 +391,7 @@ public class AgentTaskEntity {
      * 检查是否可以重试
      */
     public boolean canRetry() {
-        return this.currentRetry < this.maxRetries;
+        return hasRetryBudget();
     }
 
     /**

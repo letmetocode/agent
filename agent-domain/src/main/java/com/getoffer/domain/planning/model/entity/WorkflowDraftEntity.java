@@ -58,5 +58,36 @@ public class WorkflowDraftEntity {
             throw new IllegalStateException("Status cannot be null");
         }
     }
-}
 
+    public boolean canPublish() {
+        return status == WorkflowDraftStatusEnum.DRAFT || status == WorkflowDraftStatusEnum.REVIEWING;
+    }
+
+    public void markReviewing() {
+        if (status != WorkflowDraftStatusEnum.DRAFT) {
+            throw new IllegalStateException("Only DRAFT can transit to REVIEWING");
+        }
+        this.status = WorkflowDraftStatusEnum.REVIEWING;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void publish(String approver) {
+        if (!canPublish()) {
+            throw new IllegalStateException("Only DRAFT/REVIEWING can be published");
+        }
+        this.status = WorkflowDraftStatusEnum.PUBLISHED;
+        this.approvedBy = approver;
+        this.approvedAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void archive(String operator) {
+        if (status == WorkflowDraftStatusEnum.PUBLISHED || status == WorkflowDraftStatusEnum.REVIEWING || status == WorkflowDraftStatusEnum.DRAFT) {
+            this.status = WorkflowDraftStatusEnum.ARCHIVED;
+            this.approvedBy = operator;
+            this.updatedAt = LocalDateTime.now();
+            return;
+        }
+        throw new IllegalStateException("Draft already archived");
+    }
+}

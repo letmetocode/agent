@@ -61,5 +61,26 @@ public class WorkflowDefinitionEntity {
             throw new IllegalStateException("Status cannot be null");
         }
     }
-}
 
+    public boolean canRoute() {
+        return status == WorkflowDefinitionStatusEnum.ACTIVE && Boolean.TRUE.equals(isActive);
+    }
+
+    public void activate() {
+        this.status = WorkflowDefinitionStatusEnum.ACTIVE;
+        this.isActive = true;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void disable() {
+        this.status = WorkflowDefinitionStatusEnum.DISABLED;
+        this.isActive = false;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void archive() {
+        this.status = WorkflowDefinitionStatusEnum.ARCHIVED;
+        this.isActive = false;
+        this.updatedAt = LocalDateTime.now();
+    }
+}
