@@ -1,29 +1,26 @@
 import { CHAT_HTTP_TIMEOUT_MS, http } from './http';
 import type {
-  ActiveAgentDTO,
-  AgentCreateRequest,
-  AgentCreateResponse,
   AgentToolDTO,
   ApiResponse,
+  ChatHistoryResponseV3,
+  ChatMessageSubmitRequestV3,
+  ChatMessageSubmitResponseV3,
   DashboardOverviewDTO,
-  ObservabilityAlertCatalogItemDTO,
   KnowledgeBaseDetailDTO,
   KnowledgeDocumentDTO,
+  ObservabilityAlertCatalogItemDTO,
   PageResult,
-  PlanLogDTO,
-  PlanTaskEventDTO,
   PlanDetailDTO,
+  PlanLogDTO,
   PlanSummaryDTO,
+  PlanTaskEventDTO,
   RetrievalTestResponseDTO,
   SessionCreateRequest,
   SessionCreateResponse,
-  SessionStartRequest,
-  SessionStartResponse,
   SessionDetailDTO,
   SessionMessageDTO,
   SessionOverviewDTO,
   SessionTurnDTO,
-  RoutingDecisionDTO,
   SharedTaskReadDTO,
   TaskDetailDTO,
   TaskExecutionDetailDTO,
@@ -32,8 +29,6 @@ import type {
   TaskShareLinkItemDTO,
   TaskShareRevokeResultDTO,
   VectorStoreDTO,
-  TurnCreateRequest,
-  TurnCreateResponse,
   WorkflowDraftDetailDTO,
   WorkflowDraftSummaryDTO,
   WorkflowDraftUpdateRequestDTO,
@@ -53,14 +48,15 @@ export const agentApi = {
   createSession: async (payload: SessionCreateRequest) =>
     unwrap(await http.post<ApiResponse<SessionCreateResponse>>('/api/sessions', payload)),
 
-  createSessionV2: async (payload: SessionStartRequest) =>
-    unwrap(await http.post<ApiResponse<SessionStartResponse>>('/api/v2/sessions', payload)),
+  submitChatMessageV3: async (payload: ChatMessageSubmitRequestV3) =>
+    unwrap(
+      await http.post<ApiResponse<ChatMessageSubmitResponseV3>>('/api/v3/chat/messages', payload, {
+        timeout: CHAT_HTTP_TIMEOUT_MS
+      })
+    ),
 
-  getActiveAgentsV2: async () =>
-    unwrap(await http.get<ApiResponse<ActiveAgentDTO[]>>('/api/v2/agents/active')),
-
-  createAgentV2: async (payload: AgentCreateRequest) =>
-    unwrap(await http.post<ApiResponse<AgentCreateResponse>>('/api/v2/agents', payload)),
+  getChatHistoryV3: async (sessionId: number) =>
+    unwrap(await http.get<ApiResponse<ChatHistoryResponseV3>>(`/api/v3/chat/sessions/${sessionId}/history`)),
 
   getSessionsList: async (params: {
     userId: string;
@@ -69,13 +65,6 @@ export const agentApi = {
     page?: number;
     size?: number;
   }) => unwrap(await http.get<ApiResponse<PageResult<SessionDetailDTO>>>('/api/sessions/list', { params })),
-
-  createTurnV2: async (sessionId: number, payload: TurnCreateRequest) =>
-    unwrap(
-      await http.post<ApiResponse<TurnCreateResponse>>(`/api/v2/sessions/${sessionId}/turns`, payload, {
-        timeout: CHAT_HTTP_TIMEOUT_MS
-      })
-    ),
 
   getSession: async (sessionId: number) =>
     unwrap(await http.get<ApiResponse<SessionDetailDTO>>(`/api/sessions/${sessionId}`)),
@@ -88,9 +77,6 @@ export const agentApi = {
 
   getPlan: async (planId: number) =>
     unwrap(await http.get<ApiResponse<PlanDetailDTO>>(`/api/plans/${planId}`)),
-
-  getPlanRoutingV2: async (planId: number) =>
-    unwrap(await http.get<ApiResponse<RoutingDecisionDTO | null>>(`/api/v2/plans/${planId}/routing`)),
 
   getPlanTasks: async (planId: number) =>
     unwrap(await http.get<ApiResponse<TaskDetailDTO[]>>(`/api/plans/${planId}/tasks`)),

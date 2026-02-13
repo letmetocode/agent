@@ -12,54 +12,6 @@ export interface PageResult<T> {
   totalPages: number;
 }
 
-export interface ActiveAgentDTO {
-  agentId: number;
-  agentKey: string;
-  name: string;
-  modelProvider: string;
-  modelName: string;
-  active: boolean;
-}
-
-export interface AgentCreateRequest {
-  agentKey?: string;
-  name: string;
-  modelProvider: string;
-  modelName: string;
-  baseSystemPrompt?: string;
-  active?: boolean;
-  modelOptions?: Record<string, unknown>;
-  advisorConfig?: Record<string, unknown>;
-}
-
-export interface AgentCreateResponse {
-  agentId: number;
-  agentKey: string;
-  name: string;
-  modelProvider: string;
-  modelName: string;
-  active: boolean;
-  createdAt?: string;
-}
-
-export interface SessionStartRequest {
-  userId: string;
-  title?: string;
-  agentKey: string;
-  scenario?: string;
-  metaInfo?: Record<string, unknown>;
-}
-
-export interface SessionStartResponse {
-  sessionId: number;
-  userId: string;
-  title?: string;
-  agentKey: string;
-  scenario?: string;
-  active: boolean;
-  createdAt?: string;
-}
-
 export interface RoutingDecisionDTO {
   routingDecisionId: number;
   sessionId?: number;
@@ -81,19 +33,51 @@ export interface RoutingDecisionDTO {
   createdAt?: string;
 }
 
-export interface TurnCreateRequest {
+export interface ChatMessageSubmitRequestV3 {
+  userId: string;
+  sessionId?: number;
   message: string;
+  title?: string;
+  agentKey?: string;
+  scenario?: string;
+  metaInfo?: Record<string, unknown>;
   contextOverrides?: Record<string, unknown>;
 }
 
-export interface TurnCreateResponse {
+export interface ChatMessageSubmitResponseV3 {
   sessionId: number;
   turnId: number;
   planId: number;
-  planGoal: string;
   turnStatus: string;
+  sessionTitle?: string;
   assistantMessage?: string;
+  streamPath?: string;
+  historyPath?: string;
   routingDecision?: RoutingDecisionDTO;
+}
+
+export interface ChatStreamEventV3 {
+  type: string;
+  eventId?: number;
+  sessionId?: number;
+  planId?: number;
+  turnId?: number;
+  taskId?: number;
+  taskStatus?: string;
+  message?: string;
+  finalAnswer?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ChatHistoryResponseV3 {
+  sessionId: number;
+  userId: string;
+  title?: string;
+  agentKey?: string;
+  scenario?: string;
+  latestPlanId?: number;
+  turns: SessionTurnDTO[];
+  messages: SessionMessageDTO[];
 }
 
 export interface SessionCreateRequest {

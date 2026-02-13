@@ -6,7 +6,6 @@ import { AppShell } from '@/shared/layout/AppShell';
 const LoginPage = lazy(() => import('@/pages/LoginPage').then((module) => ({ default: module.LoginPage })));
 const ShareTaskPage = lazy(() => import('@/pages/ShareTaskPage').then((module) => ({ default: module.ShareTaskPage })));
 const WorkspacePage = lazy(() => import('@/pages/WorkspacePage').then((module) => ({ default: module.WorkspacePage })));
-const SessionListPage = lazy(() => import('@/pages/SessionListPage').then((module) => ({ default: module.SessionListPage })));
 const ConversationPage = lazy(() => import('@/pages/ConversationPage').then((module) => ({ default: module.ConversationPage })));
 const TasksPage = lazy(() => import('@/pages/TasksPage').then((module) => ({ default: module.TasksPage })));
 const TaskDetailPage = lazy(() => import('@/pages/TaskDetailPage').then((module) => ({ default: module.TaskDetailPage })));
@@ -42,7 +41,7 @@ export const router = createBrowserRouter([
     element: <AppShell />,
     children: [
       { path: '/workspace', element: withSuspense(<WorkspacePage />) },
-      { path: '/sessions', element: withSuspense(<SessionListPage />) },
+      { path: '/sessions', element: withSuspense(<ConversationPage />) },
       { path: '/sessions/:sessionId', element: withSuspense(<ConversationPage />) },
 
       { path: '/tasks', element: withSuspense(<TasksPage />) },

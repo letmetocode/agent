@@ -346,3 +346,33 @@ body,
     min-height: 560px;
   }
 }
+
+.chat-message-row {
+  width: 100%;
+  display: flex;
+}
+
+.chat-message-row.user {
+  justify-content: flex-end;
+}
+
+.chat-message-row.assistant {
+  justify-content: flex-start;
+}
+
+.chat-message-bubble {
+  max-width: 78%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+}
+
+.chat-message-bubble.user {
+  background: var(--primary-50);
+  border-color: #d7e6ff;
+}
+
+.chat-message-bubble.assistant {
+  background: var(--bg-soft);
+}
