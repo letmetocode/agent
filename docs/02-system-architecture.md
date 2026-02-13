@@ -14,7 +14,7 @@
 ### 2.1 模块职责（DDD）
 
 - `agent-app`：启动装配、配置加载、调度线程池、MyBatis 资源。
-- `agent-trigger`：HTTP/SSE 入口与守护任务（调度、执行、聚合、流推送）。
+- `agent-trigger`：HTTP/SSE 入口适配 + `trigger.application` 用例编排（命令/查询/SSE语义映射）。
 - `agent-domain`：领域实体、状态机、仓储端口、核心语义。
 - `agent-infrastructure`：DAO/Mapper、仓储实现、AI/MCP 适配、Planner 实现。
 - `agent-api`：对外 DTO 与统一响应协议。
@@ -70,7 +70,7 @@ sequenceDiagram
     autonumber
     participant UI as Frontend
     participant ChatV3 as ChatV3Controller
-    participant Orchestrator as ConversationOrchestratorService
+    participant Orchestrator as ChatConversationCommandService
     participant Planner as PlannerService
     participant DB as PostgreSQL
 
@@ -91,7 +91,7 @@ sequenceDiagram
     participant Scheduler as TaskSchedulerDaemon
     participant Executor as TaskExecutor
     participant PlanAgg as PlanStatusDaemon
-    participant Result as TurnResultService
+    participant Result as TurnFinalizeApplicationService
     participant DB as PostgreSQL
 
     Scheduler->>DB: pending->ready 推进
@@ -126,6 +126,8 @@ sequenceDiagram
 - V2 路由查询入口已下线并返回迁移提示。
 
 ## 5. 一致性与并发策略
+
+- 领域充血：`SessionTurnEntity`、`AgentPlanEntity`、`AgentTaskEntity` 新增状态迁移与 claim/lease 领域行为，应用层仅编排不写规则。
 
 ### 5.1 Plan/Task 乐观锁
 

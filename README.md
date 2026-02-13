@@ -18,7 +18,7 @@
 ## 模块结构
 
 - `agent-app`：启动与全局配置装配（Spring、调度、MyBatis 资源）
-- `agent-trigger`：HTTP/SSE 与守护任务入口（调度、执行、状态推进）
+- `agent-trigger`：HTTP/SSE 适配层 + `trigger.application` 用例编排层（入口协议与业务编排解耦）
 - `agent-domain`：领域实体、状态机、仓储端口
 - `agent-infrastructure`：DAO/Mapper、仓储实现、Planner/AI/MCP 适配
 - `agent-api`：对外 DTO 与统一响应

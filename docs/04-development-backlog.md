@@ -25,6 +25,7 @@
 - V3 历史聚合：`GET /api/v3/chat/sessions/{id}/history`。
 - V3 路由决策：`GET /api/v3/chat/plans/{id}/routing`。
 - V2 编排入口下线：`/api/v2/agents/*`、`/api/v2/sessions*`、`/api/v2/plans/{id}/routing`。
+- 会话编排迁移至 `trigger.application.command.ChatConversationCommandService`，`ChatV3Controller` 仅保留协议适配。
 
 **证据**
 - 测试：`ConversationOrchestratorServiceTest`、`ChatV3ControllerTest`、`ChatRoutingV3ControllerTest`、`AgentV2ControllerTest`、`SessionV2ControllerTest`、`TurnV2ControllerTest`、`PlanRoutingV2ControllerTest`
@@ -43,6 +44,7 @@
 - claim/lease/executionAttempt 并发语义收口。
 - 终态收敛幂等：先抢占终态，再写最终 assistant 消息。
 - finalize 去重与老代执行者回写拒绝。
+- 终态汇总迁移至 `trigger.application.command.TurnFinalizeApplicationService`，`PlanStatusDaemon` 仅调用应用用例。
 
 **证据**
 - 测试：`TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest`
@@ -125,7 +127,7 @@
 ## 5. 回归基线命令
 
 - 后端回归：
-  - `mvn -pl agent-app -am -DskipTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest=AgentV2ControllerTest,SessionV2ControllerTest,TurnV2ControllerTest,PlanRoutingV2ControllerTest,ConversationOrchestratorServiceTest,ChatV3ControllerTest,ChatRoutingV3ControllerTest,ChatStreamV3ControllerTest test`
+  - `mvn -pl agent-app -am -DskipTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest=AgentV2ControllerTest,SessionV2ControllerTest,TurnV2ControllerTest,PlanRoutingV2ControllerTest,ConversationOrchestratorServiceTest,ChatV3ControllerTest,ChatRoutingV3ControllerTest,ChatStreamV3ControllerTest,TurnResultServiceTest,PlanStatusDaemonTest,ControllerArchitectureTest test`
 - 前端构建：
   - `cd frontend && npm run build`
 
