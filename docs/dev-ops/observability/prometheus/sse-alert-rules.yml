@@ -1,0 +1,146 @@
+groups:
+  - name: agent-sse-recording-rules
+    interval: 30s
+    rules:
+      - record: agent:sse_push_attempt_total_5m
+        expr: sum by (env) (increase(agent_sse_push_attempt_total[5m]))
+      - record: agent:sse_push_fail_total_5m
+        expr: sum by (env) (increase(agent_sse_push_fail_total[5m]))
+      - record: agent:sse_push_fail_ratio_5m
+        expr: |
+          agent:sse_push_fail_total_5m
+          /
+          clamp_min(agent:sse_push_attempt_total_5m, 1)
+      - record: agent:sse_replay_batch_total_5m
+        expr: sum by (env) (increase(agent_sse_replay_batch_total[5m]))
+      - record: agent:sse_replay_hit_total_5m
+        expr: sum by (env) (increase(agent_sse_replay_hit_total[5m]))
+      - record: agent:sse_replay_hit_ratio_5m
+        expr: |
+          agent:sse_replay_hit_total_5m
+          /
+          clamp_min(agent:sse_replay_batch_total_5m, 1)
+      - record: agent:sse_replay_avg_duration_seconds_5m
+        expr: |
+          sum by (env) (increase(agent_sse_replay_duration_seconds_sum[5m]))
+          /
+          clamp_min(sum by (env) (increase(agent_sse_replay_duration_seconds_count[5m])), 1)
+
+  - name: agent-sse-alerting-rules
+    interval: 30s
+    rules:
+      - alert: SsePushFailRatioWarningStaging
+        expr: agent:sse_push_fail_ratio_5m{env="staging"} > 0.05
+        for: 10m
+        labels:
+          service: agent-app
+          module: sse
+          severity: warning
+          env: staging
+        annotations:
+          summary: "[staging] SSE 推送失败比例升高"
+          description: "5 分钟窗口 push_fail/push_attempt 比例为 {{ $value }}，超过阈值 0.05。"
+          runbook: "docs/dev-ops/observability/sse-alert-runbook.md"
+          dashboard: "TODO: replace-with-staging-dashboard-url"
+
+      - alert: SsePushFailRatioCriticalProd
+        expr: agent:sse_push_fail_ratio_5m{env="prod"} > 0.02
+        for: 5m
+        labels:
+          service: agent-app
+          module: sse
+          severity: critical
+          env: prod
+        annotations:
+          summary: "[prod] SSE 推送失败比例持续偏高"
+          description: "5 分钟窗口 push_fail/push_attempt 比例为 {{ $value }}，超过阈值 0.02。"
+          runbook: "docs/dev-ops/observability/sse-alert-runbook.md"
+          dashboard: "TODO: replace-with-prod-dashboard-url"
+
+      - alert: SseReplayHitRatioLowWarningStaging
+        expr: |
+          agent:sse_replay_hit_ratio_5m{env="staging"} < 0.20
+          and agent:sse_replay_batch_total_5m{env="staging"} > 20
+        for: 10m
+        labels:
+          service: agent-app
+          module: sse
+          severity: warning
+          env: staging
+        annotations:
+          summary: "[staging] SSE 回放命中率偏低"
+          description: "5 分钟窗口 replay hit/batch 比例为 {{ $value }}，低于阈值 0.20。"
+          runbook: "docs/dev-ops/observability/sse-alert-runbook.md"
+          dashboard: "TODO: replace-with-staging-dashboard-url"
+
+      - alert: SseReplayHitRatioLowCriticalProd
+        expr: |
+          agent:sse_replay_hit_ratio_5m{env="prod"} < 0.10
+          and agent:sse_replay_batch_total_5m{env="prod"} > 20
+        for: 5m
+        labels:
+          service: agent-app
+          module: sse
+          severity: critical
+          env: prod
+        annotations:
+          summary: "[prod] SSE 回放命中率持续偏低"
+          description: "5 分钟窗口 replay hit/batch 比例为 {{ $value }}，低于阈值 0.10。"
+          runbook: "docs/dev-ops/observability/sse-alert-runbook.md"
+          dashboard: "TODO: replace-with-prod-dashboard-url"
+
+      - alert: SseReplayAvgDurationHighWarningStaging
+        expr: agent:sse_replay_avg_duration_seconds_5m{env="staging"} > 1.50
+        for: 10m
+        labels:
+          service: agent-app
+          module: sse
+          severity: warning
+          env: staging
+        annotations:
+          summary: "[staging] SSE 回放耗时偏高"
+          description: "5 分钟窗口 replay 平均耗时为 {{ $value }} 秒，超过阈值 1.50 秒。"
+          runbook: "docs/dev-ops/observability/sse-alert-runbook.md"
+          dashboard: "TODO: replace-with-staging-dashboard-url"
+
+      - alert: SseReplayAvgDurationHighCriticalProd
+        expr: agent:sse_replay_avg_duration_seconds_5m{env="prod"} > 1.20
+        for: 5m
+        labels:
+          service: agent-app
+          module: sse
+          severity: critical
+          env: prod
+        annotations:
+          summary: "[prod] SSE 回放耗时持续偏高"
+          description: "5 分钟窗口 replay 平均耗时为 {{ $value }} 秒，超过阈值 1.20 秒。"
+          runbook: "docs/dev-ops/observability/sse-alert-runbook.md"
+          dashboard: "TODO: replace-with-prod-dashboard-url"
+
+      - alert: SseReplayMetricMissingStaging
+        expr: absent(agent_sse_replay_batch_total{env="staging"})
+        for: 15m
+        labels:
+          service: agent-app
+          module: sse
+          severity: critical
+          env: staging
+        annotations:
+          summary: "[staging] SSE 回放指标缺失"
+          description: "15 分钟内未采集到 agent_sse_replay_batch_total{env=\"staging\"}。"
+          runbook: "docs/dev-ops/observability/sse-alert-runbook.md"
+          dashboard: "TODO: replace-with-staging-dashboard-url"
+
+      - alert: SseReplayMetricMissingProd
+        expr: absent(agent_sse_replay_batch_total{env="prod"})
+        for: 15m
+        labels:
+          service: agent-app
+          module: sse
+          severity: critical
+          env: prod
+        annotations:
+          summary: "[prod] SSE 回放指标缺失"
+          description: "15 分钟内未采集到 agent_sse_replay_batch_total{env=\"prod\"}。"
+          runbook: "docs/dev-ops/observability/sse-alert-runbook.md"
+          dashboard: "TODO: replace-with-prod-dashboard-url"

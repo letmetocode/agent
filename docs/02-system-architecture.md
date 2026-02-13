@@ -172,6 +172,14 @@ sequenceDiagram
 - Planner 路由与兜底：
   - `agent.planner.route.total`（tag: `decision_type`）
   - `agent.planner.fallback.total`（tag: `reason`）
+- SSE 实时与回放：
+  - `agent.sse.push.attempt.total`
+  - `agent.sse.push.fail.total`
+  - `agent.sse.replay.batch.total`
+  - `agent.sse.replay.hit.total`
+  - `agent.sse.replay.empty.total`
+  - `agent.sse.replay.events.total`
+  - `agent.sse.replay.duration`
 
 ### 7.2 告警阈值（已固化）
 
@@ -179,16 +187,19 @@ sequenceDiagram
 
 - `docs/dev-ops/observability/prometheus/planner-alert-rules.yml`
 - `docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.yml`
+- `docs/dev-ops/observability/prometheus/sse-alert-rules.yml`
 
 分级阈值：
 
 - Planner（预发/生产）：fallback 绝对值、fallback 比例、指标断流。
 - Executor/Terminal（预发/生产）：finalize dedup 比例、claimed update guard reject 比例、timeout 最终失败比例、指标断流。
+- SSE（预发/生产）：推送失败比例、回放命中率、回放平均耗时、指标断流。
 
 处置手册：
 
 - `docs/dev-ops/observability/planner-alert-runbook.md`
 - `docs/dev-ops/observability/executor-terminal-alert-runbook.md`
+- `docs/dev-ops/observability/sse-alert-runbook.md`
 
 ### 7.3 HTTP 链路日志
 
@@ -254,5 +265,5 @@ sequenceDiagram
 
 ## 11. 下一阶段架构优化重点（P0）
 
-- SSE 指标补强：补充回放命中率、回放耗时、推送失败率指标。
+- SSE 指标与告警已固化：推送失败率、回放命中率、回放平均耗时纳入规则与 runbook。
 - 继续周期化执行并发 finalize 与 claim/lease 压测，按版本节奏校准阈值。

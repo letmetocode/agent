@@ -62,14 +62,14 @@ flowchart TD
 
 ### 3.3 SSE 实时与回放模块
 
-- 状态：`进行中`
+- 状态：`已完成（本轮收口）`
 - 已完成：
   - 事件持久化 + `pg_notify/listen` + replay sweep 三层模型。
   - 游标优先级明确：`Last-Event-ID` > query `lastEventId`。
   - 会话页可实时消费任务事件并增量展示。
-- 未完成：
-  - SSE 专项指标仍需补强（推送失败率、回放耗时、回放命中率）。
-  - 跨实例网络抖动场景的常态化回归脚本尚不完善。
+  - SSE 专项指标已补强：推送失败率、回放耗时、回放命中率。
+  - SSE 告警规则与 runbook 已固化：`sse-alert-rules.yml`。
+- 持续动作（非功能缺口）：跨实例网络抖动场景的常态化回归脚本继续完善。
 - 依赖：`plan_task_events` 数据完整性、多实例通道配置一致。
 - 验收：`SessionChatPlanSseIntegrationTest`（Docker 环境）通过。
 
@@ -82,7 +82,6 @@ flowchart TD
   - 关键审计事件与执行记录字段已落库。
 - 未完成：
   - 指标 -> 告警 -> 处置手册的统一看板闭环仍需补齐。
-  - SSE 回放异常等重点告警策略需继续补齐阈值与规则。
 - 依赖：日志采样与脱敏配置、监控系统告警规则。
 - 验收：任意失败请求可通过 `traceId` 关联入口日志与执行日志。
 
@@ -160,10 +159,13 @@ flowchart TD
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TaskExecutorPlanBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TurnResultServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlanStatusDaemonTest -Dsurefire.failIfNoSpecifiedTests=false test`
+  - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlanStreamControllerTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `promtool check rules docs/dev-ops/observability/prometheus/planner-alert-rules.yml`
   - `promtool test rules docs/dev-ops/observability/prometheus/planner-alert-rules.test.yml`
   - `promtool check rules docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.yml`
   - `promtool test rules docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.test.yml`
+  - `promtool check rules docs/dev-ops/observability/prometheus/sse-alert-rules.yml`
+  - `promtool test rules docs/dev-ops/observability/prometheus/sse-alert-rules.test.yml`
 - Docker 集成回归：
   - `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=SessionChatPlanSseIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=ExecutorTerminalConvergenceIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
@@ -173,8 +175,7 @@ flowchart TD
 
 ### P0：核心链路稳定性（当前主线）
 
-- 完成 SSE 关键指标补强与告警规则。
-- 持续观察 Planner 与 Executor 告警命中效果并按发布节奏调优阈值。
+- 持续观察 SSE/Planner/Executor 告警命中效果并按发布节奏调优阈值。
 
 ### P1：前端核心业务补齐
 

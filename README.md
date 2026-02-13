@@ -156,6 +156,13 @@ npm run dev
 - `executor.execution.timeout-ms`（单次 TaskClient 调用超时时间）
 - `executor.execution.timeout-retry-max`（超时后的额外重试次数，默认 1）
 
+### SSE 回放参数
+
+配置位置：`agent-app/src/main/resources/application.yml`
+
+- `sse.replay.batch-size`（每次回放 sweep 的单批次查询上限）
+- `sse.replay.max-batches-per-sweep`（每次 sweep 对单订阅者最多回放批次数）
+
 ### HTTP 入口日志与链路追踪
 
 配置位置：`agent-app/src/main/resources/application*.yml`
@@ -212,7 +219,7 @@ npm run dev
 详细回归项见：`docs/04-development-backlog.md`。
 
 
-## 监控告警规则（Planner + Executor/Terminal）
+## 监控告警规则（Planner + Executor/Terminal + SSE）
 
 告警阈值已固化为 Prometheus 规则文件：
 
@@ -222,6 +229,9 @@ npm run dev
 - Executor/Terminal：`docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.yml`
 - Executor/Terminal 单测样例：`docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.test.yml`
 - Executor/Terminal 处置手册：`docs/dev-ops/observability/executor-terminal-alert-runbook.md`
+- SSE：`docs/dev-ops/observability/prometheus/sse-alert-rules.yml`
+- SSE 单测样例：`docs/dev-ops/observability/prometheus/sse-alert-rules.test.yml`
+- SSE 处置手册：`docs/dev-ops/observability/sse-alert-runbook.md`
 
 常用校验命令：
 
@@ -229,6 +239,8 @@ npm run dev
 - `promtool test rules docs/dev-ops/observability/prometheus/planner-alert-rules.test.yml`
 - `promtool check rules docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.yml`
 - `promtool test rules docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.test.yml`
+- `promtool check rules docs/dev-ops/observability/prometheus/sse-alert-rules.yml`
+- `promtool test rules docs/dev-ops/observability/prometheus/sse-alert-rules.test.yml`
 
 ## 常用命令
 

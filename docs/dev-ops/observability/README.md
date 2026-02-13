@@ -8,6 +8,9 @@
 - Executor/Terminal 规则：`docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.yml`
 - Executor/Terminal 规则测试样例：`docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.test.yml`
 - Executor/Terminal 告警处置手册：`docs/dev-ops/observability/executor-terminal-alert-runbook.md`
+- SSE 规则：`docs/dev-ops/observability/prometheus/sse-alert-rules.yml`
+- SSE 规则测试样例：`docs/dev-ops/observability/prometheus/sse-alert-rules.test.yml`
+- SSE 告警处置手册：`docs/dev-ops/observability/sse-alert-runbook.md`
 
 ## 快速校验
 
@@ -16,6 +19,8 @@ promtool check rules docs/dev-ops/observability/prometheus/planner-alert-rules.y
 promtool test rules docs/dev-ops/observability/prometheus/planner-alert-rules.test.yml
 promtool check rules docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.yml
 promtool test rules docs/dev-ops/observability/prometheus/executor-terminal-alert-rules.test.yml
+promtool check rules docs/dev-ops/observability/prometheus/sse-alert-rules.yml
+promtool test rules docs/dev-ops/observability/prometheus/sse-alert-rules.test.yml
 ```
 
 ## 发布建议
