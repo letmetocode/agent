@@ -8,6 +8,7 @@ import com.getoffer.trigger.application.command.TurnFinalizeApplicationService;
 import com.getoffer.trigger.job.PlanStatusDaemon;
 import com.getoffer.trigger.job.TaskExecutor;
 import com.getoffer.domain.task.service.TaskAgentSelectionDomainService;
+import com.getoffer.domain.task.service.TaskBlackboardDomainService;
 import com.getoffer.domain.task.service.TaskDispatchDomainService;
 import com.getoffer.domain.task.service.TaskExecutionDomainService;
 import com.getoffer.domain.task.service.TaskPromptDomainService;
@@ -32,6 +33,7 @@ public class ApplicationDomainBoundaryTest {
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskPromptDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskEvaluationDomainService.class));
         Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskRecoveryDomainService.class));
+        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskBlackboardDomainService.class));
     }
 
     @Test
