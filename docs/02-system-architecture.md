@@ -90,6 +90,7 @@ sequenceDiagram
 
 - Planner 在校验 `inputSchema.required` 前会用运行时上下文补全系统字段（例如 `sessionId`、`turnId`），避免把系统字段当作用户必填。
 - `clientMessageId` 作为提交幂等键写入 `session_turns.metadata/session_messages.metadata`，用于重复提交去重与前端恢复对账。
+- 前端会话页支持可视化高级参数（`scenario/agentKey/title/contextOverrides/metaInfo`）直接映射到 `POST /api/v3/chat/messages` 请求体。
 
 ### 4.2 调度执行与终态收敛
 
@@ -173,6 +174,7 @@ sequenceDiagram
 - 连接建立先回放，再实时订阅；`cursor > 0` 的重连订阅不重复发送引导事件（`message.accepted/planning.started`）。
 - 前端对 SSE 短暂抖动采用静默恢复：`onerror` 且最近 22 秒内收到过事件时，不立刻断开重建；仅在确认失联后才触发指数退避重连与轮询兜底。
 - SSE 响应显式关闭代理缓冲（`X-Accel-Buffering: no`）并设置 `Cache-Control: no-cache, no-transform`。
+- 前端执行进度面板支持事件按类型/节点过滤、按时间/类型/节点分组，以及连续重复事件折叠。
 
 ## 6. 失败模式与降级策略
 
@@ -190,6 +192,7 @@ sequenceDiagram
 - 入口日志：`HTTP_IN / HTTP_OUT / HTTP_ERROR`
 - 关键审计事件：`ROUTING_DECIDED`、`TURN_FINALIZED`、`CHAT_V3_ACCEPTED`
 - 告警规则：Planner / Executor-Terminal / SSE 已固化至 `docs/dev-ops/observability/prometheus/*`
+- 告警目录支持按 `env` 进行 dashboard 占位符自动替换（`prod/staging`）并在启动时巡检未替换项。
 
 ## 8. 对外 API 分层策略
 

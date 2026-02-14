@@ -30,6 +30,8 @@ const severityColor: Record<string, string> = {
   warning: 'gold'
 };
 
+const isHttpLink = (value?: string) => typeof value === 'string' && /^https?:\/\//i.test(value.trim());
+
 export const ObservabilityOverviewPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -217,6 +219,20 @@ export const ObservabilityOverviewPage = () => {
                 <List.Item
                   actions={[
                     <Button
+                      key="dashboard"
+                      type="link"
+                      size="small"
+                      disabled={!isHttpLink(item.dashboard)}
+                      onClick={() => {
+                        if (!isHttpLink(item.dashboard)) {
+                          return;
+                        }
+                        window.open(item.dashboard, '_blank', 'noopener,noreferrer');
+                      }}
+                    >
+                      打开看板
+                    </Button>,
+                    <Button
                       key="drill"
                       type="link"
                       size="small"
@@ -236,6 +252,9 @@ export const ObservabilityOverviewPage = () => {
                     <Text type="secondary">{item.summary || '-'}</Text>
                     <Text type="secondary" copyable>
                       runbook: {item.runbook}
+                    </Text>
+                    <Text type="secondary" copyable={!!item.dashboard}>
+                      dashboard: {item.dashboard || '-'}
                     </Text>
                   </Space>
                 </List.Item>

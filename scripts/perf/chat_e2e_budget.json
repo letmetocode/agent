@@ -1,0 +1,6 @@
+{
+  "minSubmitOkRate": 0.98,
+  "minStreamOkRate": 0.95,
+  "maxConvergeP95Ms": 120000,
+  "maxReconnectRunRate": 0.5
+}

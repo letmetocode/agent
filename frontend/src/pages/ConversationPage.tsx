@@ -1,5 +1,5 @@
 import { PlusOutlined, SendOutlined, SyncOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Empty, Input, List, Space, Spin, Tag, Timeline, Typography, message } from 'antd';
+import { Alert, Button, Card, Collapse, Empty, Input, List, Segmented, Select, Space, Spin, Switch, Tag, Timeline, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useSessionStore } from '@/features/session/sessionStore';
@@ -15,7 +15,13 @@ interface ProcessEventItem {
   type: string;
   time: string;
   text: string;
+  nodeId?: string;
+  taskId?: number;
+  planId?: number;
+  mergedCount?: number;
 }
+
+type EventGroupMode = 'TIME' | 'TYPE' | 'NODE';
 
 interface OptimisticMessageItem {
   clientMessageId: string;
@@ -104,6 +110,42 @@ const isAbortRequestError = (err: unknown): boolean => {
   );
 };
 
+const parseObjectJson = (raw: string, fieldName: string): Record<string, unknown> | undefined => {
+  const text = raw.trim();
+  if (!text) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(`${fieldName} 必须是 JSON 对象`);
+    }
+    return parsed as Record<string, unknown>;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`${fieldName} 解析失败: ${reason}`);
+  }
+};
+
+const resolveEventNodeId = (event: ChatStreamEventV3): string | undefined => {
+  const metadata = event.metadata && typeof event.metadata === 'object' ? event.metadata : undefined;
+  const rawCandidates = [
+    metadata ? metadata.nodeId : undefined,
+    metadata ? metadata.taskNodeId : undefined,
+    metadata ? metadata.taskName : undefined
+  ];
+  for (const value of rawCandidates) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+    const text = value.trim();
+    if (text) {
+      return text;
+    }
+  }
+  return undefined;
+};
+
 const hasSubmittedMessageInHistory = (
   data: ChatHistoryResponseV3,
   expectedMessage: string,
@@ -185,6 +227,16 @@ export const ConversationPage = () => {
   const [prompt, setPrompt] = useState('');
   const [activePlanId, setActivePlanId] = useState<number | undefined>();
   const [processEvents, setProcessEvents] = useState<ProcessEventItem[]>([]);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [scenario, setScenario] = useState('CHAT_DEFAULT');
+  const [targetAgentKey, setTargetAgentKey] = useState('');
+  const [sessionTitleDraft, setSessionTitleDraft] = useState('');
+  const [contextOverridesDraft, setContextOverridesDraft] = useState('');
+  const [metaInfoDraft, setMetaInfoDraft] = useState('');
+  const [eventTypeFilter, setEventTypeFilter] = useState<string>('ALL');
+  const [eventNodeFilter, setEventNodeFilter] = useState<string>('ALL');
+  const [eventGroupMode, setEventGroupMode] = useState<EventGroupMode>('TIME');
+  const [collapseEventDuplicates, setCollapseEventDuplicates] = useState(true);
 
   const sseRef = useRef<EventSource | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -303,6 +355,77 @@ export const ConversationPage = () => {
     return '仅展示流式执行状态与终态收敛，不把中间态落为最终回复。';
   }, [streamState]);
 
+  const eventTypeOptions = useMemo(
+    () =>
+      ['ALL', ...Array.from(new Set(processEvents.map((item) => item.type).filter((item) => !!item))).sort()].map((item) => ({
+        label: item === 'ALL' ? '全部类型' : item,
+        value: item
+      })),
+    [processEvents]
+  );
+
+  const eventNodeOptions = useMemo(
+    () =>
+      ['ALL', ...Array.from(new Set(processEvents.map((item) => item.nodeId).filter((item): item is string => !!item))).sort()].map(
+        (item) => ({
+          label: item === 'ALL' ? '全部节点' : item,
+          value: item
+        })
+      ),
+    [processEvents]
+  );
+
+  const filteredProcessEvents = useMemo(() => {
+    const byFilter = processEvents.filter((item) => {
+      if (eventTypeFilter !== 'ALL' && item.type !== eventTypeFilter) {
+        return false;
+      }
+      if (eventNodeFilter !== 'ALL' && item.nodeId !== eventNodeFilter) {
+        return false;
+      }
+      return true;
+    });
+    if (!collapseEventDuplicates) {
+      return byFilter;
+    }
+    const merged: ProcessEventItem[] = [];
+    for (const item of byFilter) {
+      const previous = merged[merged.length - 1];
+      const canMerge =
+        previous &&
+        previous.type === item.type &&
+        previous.text === item.text &&
+        previous.nodeId === item.nodeId &&
+        previous.taskId === item.taskId;
+      if (canMerge) {
+        previous.mergedCount = (previous.mergedCount || 1) + 1;
+        continue;
+      }
+      merged.push({ ...item, mergedCount: item.mergedCount || 1 });
+    }
+    return merged;
+  }, [collapseEventDuplicates, eventNodeFilter, eventTypeFilter, processEvents]);
+
+  const groupedProcessEvents = useMemo(() => {
+    if (eventGroupMode === 'TIME') {
+      return [{ key: 'TIME', title: '时间序', items: filteredProcessEvents }];
+    }
+    const groups = new Map<string, ProcessEventItem[]>();
+    for (const item of filteredProcessEvents) {
+      const key = eventGroupMode === 'TYPE' ? item.type : item.nodeId || '未标注节点';
+      const current = groups.get(key) || [];
+      current.push(item);
+      groups.set(key, current);
+    }
+    return Array.from(groups.entries())
+      .map(([key, items]) => ({
+        key,
+        title: `${key}（${items.length}）`,
+        items
+      }))
+      .sort((a, b) => b.items.length - a.items.length);
+  }, [eventGroupMode, filteredProcessEvents]);
+
   const scrollChatToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     if (!autoScrollEnabledRef.current) {
       return;
@@ -328,11 +451,16 @@ export const ConversationPage = () => {
 
   const pushProcessEvent = useCallback((event: ChatStreamEventV3) => {
     const text = event.finalAnswer || event.message || event.taskStatus || event.type;
+    const nodeId = resolveEventNodeId(event);
     const row: ProcessEventItem = {
       id: `${event.type}-${event.eventId || Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
       type: event.type,
       text,
-      time: new Date().toLocaleTimeString()
+      time: new Date().toLocaleTimeString(),
+      nodeId,
+      taskId: typeof event.taskId === 'number' ? event.taskId : undefined,
+      planId: typeof event.planId === 'number' ? event.planId : undefined,
+      mergedCount: 1
     };
     setProcessEvents((prev) => [row, ...prev].slice(0, 120));
   }, []);
@@ -916,6 +1044,15 @@ export const ConversationPage = () => {
     const clientMessageId = options?.clientMessageId || buildClientMessageId();
     const localCreatedAt = new Date().toISOString();
     const submitStartedAt = Date.now();
+    let parsedContextOverrides: Record<string, unknown> | undefined;
+    let parsedMetaInfo: Record<string, unknown> | undefined;
+    try {
+      parsedContextOverrides = parseObjectJson(contextOverridesDraft, 'contextOverrides');
+      parsedMetaInfo = parseObjectJson(metaInfoDraft, 'metaInfo');
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err));
+      return;
+    }
     const controller = new AbortController();
     sendAbortControllerRef.current = controller;
     const abortTimeoutHandle = window.setTimeout(() => {
@@ -945,11 +1082,15 @@ export const ConversationPage = () => {
             userId,
             sessionId: sid,
             message: content,
-            scenario: 'CHAT_DEFAULT',
+            title: sid ? undefined : (sessionTitleDraft || '').trim() || undefined,
+            agentKey: (targetAgentKey || '').trim() || undefined,
+            scenario: (scenario || '').trim() || 'CHAT_DEFAULT',
             metaInfo: {
               source: 'conversation-page',
-              entry: sid ? 'continue-chat' : 'new-chat'
-            }
+              entry: options?.retry ? 'retry-message' : sid ? 'continue-chat' : 'new-chat',
+              ...parsedMetaInfo
+            },
+            contextOverrides: parsedContextOverrides
           },
           {
             timeoutMs: Math.min(CHAT_HTTP_TIMEOUT_MS, SEND_REQUEST_TIMEOUT_MS),
@@ -1214,6 +1355,53 @@ export const ConversationPage = () => {
                   void sendMessage();
                 }}
               />
+              <Collapse
+                className="chat-advanced-panel"
+                activeKey={advancedOpen ? ['advanced'] : []}
+                onChange={(keys) => setAdvancedOpen(Array.isArray(keys) ? keys.includes('advanced') : keys === 'advanced')}
+                items={[
+                  {
+                    key: 'advanced',
+                    label: '高级参数（可选）',
+                    children: (
+                      <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                        <Space wrap style={{ width: '100%' }}>
+                          <Input
+                            style={{ width: 220 }}
+                            value={scenario}
+                            onChange={(event) => setScenario(event.target.value)}
+                            placeholder="scenario，例如 CHAT_DEFAULT"
+                          />
+                          <Input
+                            style={{ width: 220 }}
+                            value={targetAgentKey}
+                            onChange={(event) => setTargetAgentKey(event.target.value)}
+                            placeholder="agentKey（留空自动选择）"
+                          />
+                          <Input
+                            style={{ width: 260 }}
+                            value={sessionTitleDraft}
+                            onChange={(event) => setSessionTitleDraft(event.target.value)}
+                            placeholder="会话标题（新会话时生效）"
+                          />
+                        </Space>
+                        <TextArea
+                          rows={3}
+                          value={contextOverridesDraft}
+                          onChange={(event) => setContextOverridesDraft(event.target.value)}
+                          placeholder='contextOverrides JSON（对象），例如 {"topic":"SOP","priority":"high"}'
+                        />
+                        <TextArea
+                          rows={3}
+                          value={metaInfoDraft}
+                          onChange={(event) => setMetaInfoDraft(event.target.value)}
+                          placeholder='metaInfo JSON（对象），例如 {"source":"manual","traceTag":"demo"}'
+                        />
+                      </Space>
+                    )
+                  }
+                ]}
+              />
               <Space style={{ width: '100%', justifyContent: 'space-between' }}>
                 <Typography.Text type="secondary" className="chat-composer-hint">
                   中间态仅用于展示执行进展，最终回复以 answer.final 为准。
@@ -1235,19 +1423,89 @@ export const ConversationPage = () => {
         <Card className="app-card chat-panel chat-right-panel" title="执行进度">
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Typography.Text type="secondary">{streamStatusHint}</Typography.Text>
-            {processEvents.length === 0 ? (
+            <Space direction="vertical" size={8} style={{ width: '100%' }} className="chat-events-controls">
+              <Space wrap>
+                <Select
+                  style={{ minWidth: 170 }}
+                  value={eventTypeFilter}
+                  options={eventTypeOptions}
+                  onChange={(value) => setEventTypeFilter(value)}
+                />
+                <Select
+                  style={{ minWidth: 170 }}
+                  value={eventNodeFilter}
+                  options={eventNodeOptions}
+                  onChange={(value) => setEventNodeFilter(value)}
+                />
+                <Segmented
+                  value={eventGroupMode}
+                  options={[
+                    { label: '时间序', value: 'TIME' },
+                    { label: '按类型', value: 'TYPE' },
+                    { label: '按节点', value: 'NODE' }
+                  ]}
+                  onChange={(value) => setEventGroupMode(value as EventGroupMode)}
+                />
+              </Space>
+              <Space>
+                <Switch size="small" checked={collapseEventDuplicates} onChange={setCollapseEventDuplicates} />
+                <Typography.Text type="secondary">折叠连续重复事件</Typography.Text>
+              </Space>
+            </Space>
+            {filteredProcessEvents.length === 0 ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="发送消息后，这里会实时显示执行进度" />
-            ) : (
+            ) : eventGroupMode === 'TIME' ? (
               <Timeline
-                items={processEvents.map((item) => ({
+                items={filteredProcessEvents.map((item) => ({
                   color: item.type === 'stream.error' ? 'red' : item.type === 'answer.final' ? 'green' : 'blue',
                   children: (
                     <Space direction="vertical" size={0}>
-                      <Typography.Text>{item.text}</Typography.Text>
+                      <Typography.Text>
+                        {item.text}
+                        {(item.mergedCount || 1) > 1 ? (
+                          <Tag style={{ marginInlineStart: 8 }} color="default">
+                            x{item.mergedCount}
+                          </Tag>
+                        ) : null}
+                      </Typography.Text>
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        {item.type} · {item.time}
+                        {item.type}
+                        {item.nodeId ? ` · ${item.nodeId}` : ''}
+                        {` · ${item.time}`}
                       </Typography.Text>
                     </Space>
+                  )
+                }))}
+              />
+            ) : (
+              <Collapse
+                className="chat-events-group-collapse"
+                items={groupedProcessEvents.map((group) => ({
+                  key: group.key,
+                  label: group.title,
+                  children: (
+                    <Timeline
+                      items={group.items.map((item) => ({
+                        color: item.type === 'stream.error' ? 'red' : item.type === 'answer.final' ? 'green' : 'blue',
+                        children: (
+                          <Space direction="vertical" size={0}>
+                            <Typography.Text>
+                              {item.text}
+                              {(item.mergedCount || 1) > 1 ? (
+                                <Tag style={{ marginInlineStart: 8 }} color="default">
+                                  x{item.mergedCount}
+                                </Tag>
+                              ) : null}
+                            </Typography.Text>
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              {item.type}
+                              {item.nodeId ? ` · ${item.nodeId}` : ''}
+                              {` · ${item.time}`}
+                            </Typography.Text>
+                          </Space>
+                        )
+                      }))}
+                    />
                   )
                 }))}
               />

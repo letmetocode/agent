@@ -24,12 +24,14 @@ import json
 import random
 import statistics
 import string
+import sys
 import threading
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 
@@ -75,15 +77,41 @@ def parse_api_data(body: str) -> Dict:
     raise ValueError("unexpected response body")
 
 
-def resolve_plan_id_from_history(base_url: str, session_id: int, turn_id: Optional[int], timeout_sec: float) -> int:
+def login_token(base_url: str, username: str, password: str, timeout_sec: float) -> str:
+    endpoint = f"{base_url.rstrip('/')}/api/auth/login"
+    req = Request(
+        endpoint,
+        data=json.dumps({"username": username, "password": password}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    with urlopen(req, timeout=timeout_sec) as resp:
+        body = resp.read().decode("utf-8")
+    payload = json.loads(body)
+    code = str(payload.get("code") or "")
+    if code and code != "0000":
+        raise ValueError(f"auth failed: code={code}, info={payload.get('info')}")
+    data = parse_api_data(body)
+    token = str(data.get("token") or "").strip()
+    if not token:
+        raise ValueError("auth token missing from /api/auth/login response")
+    return token
+
+
+def resolve_plan_id_from_history(
+    base_url: str,
+    session_id: int,
+    turn_id: Optional[int],
+    timeout_sec: float,
+    auth_token: str = "",
+) -> int:
     endpoint = f"{base_url.rstrip('/')}/api/v3/chat/sessions/{session_id}/history"
     deadline = time.perf_counter() + max(timeout_sec, 1.0)
     while time.perf_counter() <= deadline:
-        req = Request(
-            endpoint,
-            headers={"Accept": "application/json"},
-            method="GET",
-        )
+        headers = {"Accept": "application/json"}
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+        req = Request(endpoint, headers=headers, method="GET")
         with urlopen(req, timeout=max(timeout_sec, 1.0)) as resp:
             body = resp.read().decode("utf-8")
         data = parse_api_data(body)
@@ -104,7 +132,13 @@ def resolve_plan_id_from_history(base_url: str, session_id: int, turn_id: Option
     return 0
 
 
-def post_chat_message(base_url: str, user_id: str, message: str, timeout_sec: float) -> Tuple[int, int, Optional[int]]:
+def post_chat_message(
+    base_url: str,
+    user_id: str,
+    message: str,
+    timeout_sec: float,
+    auth_token: str = "",
+) -> Tuple[int, int, Optional[int]]:
     endpoint = f"{base_url.rstrip('/')}/api/v3/chat/messages"
     request_body = {
         "clientMessageId": f"perf-{int(time.time() * 1000)}-{random.randint(1000, 9999)}",
@@ -116,10 +150,13 @@ def post_chat_message(base_url: str, user_id: str, message: str, timeout_sec: fl
             "entry": "perf-script"
         }
     }
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
     req = Request(
         endpoint,
         data=json.dumps(request_body).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers=headers,
         method="POST",
     )
     with urlopen(req, timeout=timeout_sec) as resp:
@@ -130,7 +167,7 @@ def post_chat_message(base_url: str, user_id: str, message: str, timeout_sec: fl
     turn_id = data.get("turnId")
     turn_id = int(turn_id) if turn_id is not None else None
     if session_id > 0 and plan_id <= 0:
-        plan_id = resolve_plan_id_from_history(base_url, session_id, turn_id, timeout_sec)
+        plan_id = resolve_plan_id_from_history(base_url, session_id, turn_id, timeout_sec, auth_token)
     if session_id <= 0 or plan_id <= 0:
         raise ValueError(f"invalid response sessionId={session_id}, planId={plan_id}, raw={body}")
     return session_id, plan_id, turn_id
@@ -178,6 +215,7 @@ def stream_until_completed(
     plan_id: int,
     timeout_sec: float,
     max_reconnects: int,
+    auth_token: str = "",
 ) -> Dict:
     start_ts = time.perf_counter()
     cursor = 0
@@ -197,6 +235,8 @@ def stream_until_completed(
             f"{base_url.rstrip('/')}/api/v3/chat/sessions/{session_id}/stream"
             f"?planId={plan_id}&lastEventId={cursor}"
         )
+        if auth_token:
+            endpoint = f"{endpoint}&accessToken={quote(auth_token, safe='')}"
         req = Request(endpoint, headers={"Accept": "text/event-stream"}, method="GET")
         if cursor > 0:
             req.add_header("Last-Event-ID", str(cursor))
@@ -245,7 +285,13 @@ def run_one(index: int, args) -> RunResult:
     turn_id = None
 
     try:
-        session_id, plan_id, turn_id = post_chat_message(args.base_url, args.user_id, message, args.http_timeout_sec)
+        session_id, plan_id, turn_id = post_chat_message(
+            args.base_url,
+            args.user_id,
+            message,
+            args.http_timeout_sec,
+            args.auth_token,
+        )
         submit_latency_ms = (time.perf_counter() - submit_begin) * 1000.0
     except Exception as ex:
         return RunResult(
@@ -272,6 +318,7 @@ def run_one(index: int, args) -> RunResult:
             plan_id,
             args.stream_timeout_sec,
             args.max_reconnects,
+            args.auth_token,
         )
         answer_final_seen = bool(stream_state["answer_final_seen"])
         completed_seen = bool(stream_state["stream_completed_seen"])
@@ -382,11 +429,18 @@ def parse_args():
     parser.add_argument("--http-timeout-sec", type=float, default=20, help="提交接口超时")
     parser.add_argument("--stream-timeout-sec", type=float, default=180, help="单次 SSE 等待终态超时")
     parser.add_argument("--max-reconnects", type=int, default=6, help="SSE 最大重连次数")
+    parser.add_argument("--auth-username", default="", help="本地登录用户名（留空则不登录）")
+    parser.add_argument("--auth-password", default="", help="本地登录密码（留空则不登录）")
     parser.add_argument(
         "--message-template",
         default="请生成一段用于性能回归测试的商品文案，编号#{index}-{seed}",
         help="消息模板，可用 {index}/{seed}",
     )
+    parser.add_argument("--budget-file", default="", help="SLO 预算文件（JSON）")
+    parser.add_argument("--min-submit-ok-rate", type=float, default=0.98, help="提交成功率下限（0~1）")
+    parser.add_argument("--min-stream-ok-rate", type=float, default=0.95, help="终态收敛成功率下限（0~1）")
+    parser.add_argument("--max-converge-p95-ms", type=float, default=120000, help="终态收敛 P95 上限（毫秒）")
+    parser.add_argument("--max-reconnect-run-rate", type=float, default=0.50, help="发生重连请求占比上限（0~1）")
     parser.add_argument(
         "--output",
         default="",
@@ -395,10 +449,66 @@ def parse_args():
     return parser.parse_args()
 
 
+def load_budget(args) -> Dict[str, float]:
+    budget = {
+        "minSubmitOkRate": float(args.min_submit_ok_rate),
+        "minStreamOkRate": float(args.min_stream_ok_rate),
+        "maxConvergeP95Ms": float(args.max_converge_p95_ms),
+        "maxReconnectRunRate": float(args.max_reconnect_run_rate),
+    }
+    if not args.budget_file:
+        return budget
+    path = Path(args.budget_file)
+    if not path.exists():
+        raise FileNotFoundError(f"budget file not found: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(payload, dict):
+        budget.update({k: float(v) for k, v in payload.items() if isinstance(v, (int, float))})
+    return budget
+
+
+def evaluate_budget(summary: Dict, budget: Dict[str, float]) -> List[str]:
+    violations: List[str] = []
+    rates = summary.get("rates", {}) if isinstance(summary, dict) else {}
+    latency = summary.get("latencyMs", {}) if isinstance(summary, dict) else {}
+
+    submit_ok_rate = float(rates.get("submitOkRate") or 0.0)
+    stream_ok_rate = float(rates.get("streamOkRate") or 0.0)
+    reconnect_run_rate = float(rates.get("reconnectRunRate") or 0.0)
+    converge_p95 = latency.get("convergeP95")
+    converge_p95_value = float(converge_p95) if converge_p95 is not None else float("inf")
+
+    if submit_ok_rate < budget["minSubmitOkRate"]:
+        violations.append(
+            f"submitOkRate={submit_ok_rate:.4f} < minSubmitOkRate={budget['minSubmitOkRate']:.4f}"
+        )
+    if stream_ok_rate < budget["minStreamOkRate"]:
+        violations.append(
+            f"streamOkRate={stream_ok_rate:.4f} < minStreamOkRate={budget['minStreamOkRate']:.4f}"
+        )
+    if converge_p95_value > budget["maxConvergeP95Ms"]:
+        violations.append(
+            f"convergeP95={converge_p95_value:.2f}ms > maxConvergeP95Ms={budget['maxConvergeP95Ms']:.2f}ms"
+        )
+    if reconnect_run_rate > budget["maxReconnectRunRate"]:
+        violations.append(
+            f"reconnectRunRate={reconnect_run_rate:.4f} > maxReconnectRunRate={budget['maxReconnectRunRate']:.4f}"
+        )
+    return violations
+
+
 def main():
     args = parse_args()
     args.requests = max(1, args.requests)
     args.concurrency = max(1, min(args.concurrency, args.requests))
+    args.auth_token = ""
+    budget = load_budget(args)
+
+    if args.auth_username or args.auth_password:
+        if not args.auth_username or not args.auth_password:
+            raise ValueError("auth 参数不完整：--auth-username 与 --auth-password 必须同时提供")
+        args.auth_token = login_token(args.base_url, args.auth_username, args.auth_password, args.http_timeout_sec)
+        print(f"[AUTH] 登录成功，token 已获取（user={args.auth_username}）")
 
     begin = time.perf_counter()
     results: List[RunResult] = []
@@ -416,10 +526,13 @@ def main():
 
     elapsed_sec = time.perf_counter() - begin
     summary = build_summary(results, elapsed_sec, args)
+    violations = evaluate_budget(summary, budget)
 
     failed_runs = [asdict(item) for item in results if not item.ok]
     output_payload = {
         "summary": summary,
+        "budget": budget,
+        "budgetViolations": violations,
         "failedRuns": failed_runs,
         "runs": [asdict(item) for item in sorted(results, key=lambda it: it.index)],
     }
@@ -430,7 +543,15 @@ def main():
 
     print("\n=== PERF SUMMARY ===")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+    if violations:
+        print("\n=== SLO CHECK: FAIL ===")
+        for item in violations:
+            print(f"- {item}")
+    else:
+        print("\n=== SLO CHECK: PASS ===")
     print(f"\n结果已写入: {output_path}")
+    if violations:
+        sys.exit(2)
 
 
 if __name__ == "__main__":

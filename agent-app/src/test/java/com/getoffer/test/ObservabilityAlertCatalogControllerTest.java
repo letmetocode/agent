@@ -36,4 +36,21 @@ public class ObservabilityAlertCatalogControllerTest {
                 .andExpect(jsonPath("$.data[0].alertName").exists())
                 .andExpect(jsonPath("$.data[0].runbook").exists());
     }
+
+    @Test
+    public void shouldReplaceDashboardPlaceholderByEnvBaseUrl() throws Exception {
+        ObservabilityAlertCatalogController controller = new ObservabilityAlertCatalogController(
+                new ObjectMapper(),
+                new ClassPathResource("observability/alert-catalog.json"),
+                "https://grafana.prod.example.com/d/ops",
+                "https://grafana.staging.example.com/d/ops"
+        );
+        controller.init();
+        MockMvc customMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        customMvc.perform(get("/api/observability/alerts/catalog"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].dashboard").value("https://grafana.prod.example.com/d/ops"))
+                .andExpect(jsonPath("$.data[1].dashboard").value("https://grafana.staging.example.com/d/ops"));
+    }
 }

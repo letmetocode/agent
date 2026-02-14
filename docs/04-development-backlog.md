@@ -42,12 +42,12 @@
 - Workflow Draft 页新增图形化 SOP 编排：节点拖拽、依赖连线、策略编辑、编译预览与保存闭环。
 - 发布一致性保护：Draft 含 `sopSpec` 时，发布阶段强制校验 `compileHash` 与 Runtime Graph 一致。
 - Graph 规则单源化：新增 `GraphDslPolicyService`，治理校验、SOP 编译哈希与 Planner 节点签名统一复用同一策略实现。
+- V3 高级参数可视化：会话页支持 `scenario/agentKey/title/contextOverrides/metaInfo` 可视化编辑并直连请求体。
 
 **证据**
 - 测试：`ConversationOrchestratorServiceTest`、`ChatV3ControllerTest`、`ChatRoutingV3ControllerTest`、`SessionConversationDomainServiceTest`、`PlannerServiceRootDraftTest`
 
 **未完成 / 计划优化**
-- `P1`：V3 请求体高级参数（上下文覆写）前端可视化配置。
 - `P1`：SOP 图形化编排补齐分组批量操作与高级校验提示（如循环依赖路径可视化）。
 
 ---
@@ -69,12 +69,12 @@
 - 终态与状态推进规则下沉到 `PlanFinalizationDomainService`、`PlanTransitionDomainService`，依赖判定规则下沉到 `TaskDependencyPolicyDomainService`。
 - 计划终态收敛支持 Fail-Safe：`PlanStatusSyncApplicationService` 在 FAILED 聚合时按 `TaskFailurePolicyDomainService` 过滤可容忍失败，避免误判计划失败。
 - `trigger.service` 兼容包装类已删除（统一 `trigger.application` -> `domain`）。
+- 并发压测常态化：`scripts/chat_e2e_perf.py` 支持登录态压测、SLO 预算文件校验与失败退出码；新增基线脚本 `scripts/perf/run_chat_e2e_baseline.sh`。
 
 **证据**
 - 测试：`TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest`、`PlanFinalizationDomainServiceTest`、`PlanTransitionDomainServiceTest`、`TaskExecutionDomainServiceTest`、`TaskPromptDomainServiceTest`、`TaskEvaluationDomainServiceTest`、`TaskRecoveryDomainServiceTest`、`TaskAgentSelectionDomainServiceTest`、`TaskBlackboardDomainServiceTest`、`TaskJsonDomainServiceTest`、`TaskPersistencePolicyDomainServiceTest`、`TaskPersistenceApplicationServiceTest`、`TaskDependencyPolicyDomainServiceTest`、`TaskScheduleApplicationServiceTest`、`PlanStatusSyncApplicationServiceTest`、`ApplicationDomainBoundaryTest`
 
 **未完成 / 计划优化**
-- `P0`：并发压测常态化，校准超时与重试阈值。
 - `P1`：图治理后台补齐可视化编辑（groups/joinPolicy/quorum/failurePolicy）。
 
 ---
@@ -92,13 +92,14 @@
 - 重连提示降噪：断链先静默同步历史；仅在确认执行未结束时进入重连提示；同类 `stream.error` 10 秒去重。
 - SSE 抖动容错：`onerror` 触发时若 22 秒内有心跳/事件，则视为短暂链路波动并静默等待浏览器自动恢复，不立即重建连接。
 - SSE 服务端抗抖：响应头关闭代理缓冲 + 重连订阅仅回放漏事件（不重复引导事件），减少重连噪音与重复状态提示。
+- 执行进度可视化增强：支持流事件按类型/节点过滤、按时间/类型/节点分组、连续重复事件折叠。
 
 **证据**
 - 测试：`ChatStreamV3ControllerTest`
 - 压测脚本：`scripts/chat_e2e_perf.py`（会话发送 -> SSE 终态收敛）
 
 **未完成 / 计划优化**
-- `P1`：流事件分组视图与节点过滤。
+- `P1`：流事件中 `metadata` 字段规范化（统一 nodeId/taskName 命名），降低前端兼容分支复杂度。
 
 ---
 
@@ -111,12 +112,13 @@
 - HTTP 入口统一日志与 `traceId/requestId` 注入。
 - 总览指标支持 P95/P99、慢任务、SLA 违约。
 - 日志检索 DB 侧过滤 + 计数 + 分页。
+- 告警目录环境化：`dashboard` 占位符按 `env=prod/staging` 自动替换，并在启动时巡检未替换项。
 
 **证据**
 - 测试：`ConsoleQueryControllerPerformanceTest`、`ObservabilityAlertCatalogControllerTest`
 
 **未完成 / 计划优化**
-- `P1`：告警目录 dashboard 链接按环境自动替换与巡检。
+- `P1`：告警目录链接健康巡检作业（定时探测 dashboard/runbook 可达性）。
 
 ---
 
@@ -136,13 +138,14 @@
 - 失败可恢复：自动恢复未命中时将本地消息标记 `FAILED` 并提供重试入口，直接复用同一 `clientMessageId` 幂等提交。
 - 执行期主动同步：执行中每 2.5 秒静默同步历史快照，降低 SSE 波动下的前端停滞感。
 - 会话过期收敛：HTTP `401` 统一清理本地登录态并跳转登录页；SSE 增加 `accessToken` 参数透传以兼容统一鉴权。
+- 移动端体验优化：小屏会话页输入区 sticky、消息气泡宽度优化、滚动区高度自适配。
+- 执行时间线治理：进度栏支持过滤、分组与重复折叠，降低噪声。
 
 **证据**
 - 构建：`cd frontend && npm run build`
 
 **未完成 / 计划优化**
-- `P1`：移动端会话页体验优化。
-- `P1`：执行时间线过滤、折叠与节点分组。
+- `P1`：移动端会话页左侧历史抽屉化（当前仅保留主聊天区）。
 
 ## 4. 旧入口清理结果
 
@@ -179,6 +182,8 @@
   - `mvn -pl agent-app -am -DskipTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest=ConversationOrchestratorServiceTest,ChatV3ControllerTest,ChatRoutingV3ControllerTest,ChatStreamV3ControllerTest,TaskExecutorPlanBoundaryTest,TurnResultServiceTest,PlanStatusDaemonTest,ControllerArchitectureTest,SessionConversationDomainServiceTest,PlanFinalizationDomainServiceTest,ApplicationDomainBoundaryTest,PlanTransitionDomainServiceTest,TaskExecutionDomainServiceTest,TaskPromptDomainServiceTest,TaskEvaluationDomainServiceTest,TaskRecoveryDomainServiceTest,TaskAgentSelectionDomainServiceTest,TaskBlackboardDomainServiceTest,TaskJsonDomainServiceTest,TaskPersistencePolicyDomainServiceTest,TaskPersistenceApplicationServiceTest,TaskDependencyPolicyDomainServiceTest,TaskScheduleApplicationServiceTest,PlanStatusSyncApplicationServiceTest test`
 - 前端构建：
   - `cd frontend && npm run build`
+- 并发压测基线：
+  - `bash scripts/perf/run_chat_e2e_baseline.sh`
 
 ## 6. 当前范围声明（强约束）
 

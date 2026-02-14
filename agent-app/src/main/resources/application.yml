@@ -104,6 +104,11 @@ app:
     max-ttl-hours: ${APP_SHARE_MAX_TTL_HOURS:168}
 
 observability:
+  alert-catalog:
+    dashboard:
+      # 告警目录 dashboard 链接替换：按告警 env=prod/staging 自动注入目标看板地址
+      prod-base-url: ${OBS_ALERT_DASHBOARD_PROD_BASE_URL:}
+      staging-base-url: ${OBS_ALERT_DASHBOARD_STAGING_BASE_URL:}
   http-log:
     # 统一 HTTP 入口日志开关
     enabled: true

@@ -71,6 +71,11 @@ app:
     # 分享链接最大有效期（小时）
     max-ttl-hours: ${APP_SHARE_MAX_TTL_HOURS:168}
 observability:
+  alert-catalog:
+    dashboard:
+      # 生产环境建议显式配置 Grafana 看板地址，替换告警目录中的 TODO 占位符
+      prod-base-url: ${OBS_ALERT_DASHBOARD_PROD_BASE_URL:}
+      staging-base-url: ${OBS_ALERT_DASHBOARD_STAGING_BASE_URL:}
   http-log:
     # 生产默认开启入口日志，支持通过 sample-rate 进行降载
     enabled: true

@@ -298,8 +298,35 @@ body,
   background: var(--bg-elevated);
 }
 
+.chat-advanced-panel {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+}
+
+.chat-advanced-panel .ant-collapse-header {
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+}
+
+.chat-advanced-panel .ant-collapse-content-box {
+  padding-top: 4px !important;
+}
+
 .chat-composer-hint {
   font-size: var(--font-size-12);
+}
+
+.chat-events-controls {
+  padding: var(--space-2);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+}
+
+.chat-events-group-collapse .ant-collapse-content-box {
+  padding-top: var(--space-2) !important;
+  padding-bottom: 0 !important;
 }
 
 .conversation-plan-item {
@@ -451,6 +478,41 @@ body,
   .chat-layout .chat-panel {
     height: auto;
     min-height: 560px;
+  }
+}
+
+@media (max-width: 767px) {
+  .app-shell-content {
+    padding: var(--space-3);
+  }
+
+  .conversation-page {
+    gap: var(--space-3);
+  }
+
+  .chat-layout .chat-panel {
+    min-height: calc(100vh - 240px);
+  }
+
+  .chat-main-scrollable {
+    max-height: calc(100vh - 430px);
+  }
+
+  .chat-message-bubble {
+    max-width: 92%;
+    padding: 10px 12px;
+  }
+
+  .chat-composer {
+    position: sticky;
+    bottom: 0;
+    padding-top: var(--space-2);
+    background: linear-gradient(180deg, rgb(255 255 255 / 92%) 0%, rgb(255 255 255 / 100%) 24%);
+    backdrop-filter: blur(4px);
+  }
+
+  .chat-events-controls .ant-segmented {
+    width: 100%;
   }
 }
 

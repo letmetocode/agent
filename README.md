@@ -177,13 +177,23 @@ python3 scripts/chat_e2e_perf.py \
   --base-url http://127.0.0.1:8091 \
   --user-id perf-user \
   --requests 20 \
-  --concurrency 5
+  --concurrency 5 \
+  --auth-username admin \
+  --auth-password admin123 \
+  --budget-file scripts/perf/chat_e2e_budget.json
+```
+
+基线快捷脚本：
+
+```bash
+bash scripts/perf/run_chat_e2e_baseline.sh
 ```
 
 脚本会输出：
 - 提交成功率、终态收敛成功率（`answer.final + stream.completed`）
 - 收敛时延（平均/P95）与首事件时延
 - SSE 重连率、总重连次数、每请求平均重连次数
+- SLO 预算校验结果（`PASS/FAIL`，失败时退出码为 `2`）
 - 明细结果 JSON（默认写入 `scripts/output/perf-chat-e2e-*.json`）
 
 ## 关键配置说明
@@ -266,6 +276,17 @@ python3 scripts/chat_e2e_perf.py \
 默认行为：
 - 为 `/api/**` 请求注入并回传 `X-Trace-Id` / `X-Request-Id`。
 - 日志以 `HTTP_IN` / `HTTP_OUT` / `HTTP_ERROR` 输出，可按 `traceId` 串联排障。
+
+### 告警目录看板替换
+
+配置位置：`agent-app/src/main/resources/application*.yml`
+
+- `observability.alert-catalog.dashboard.prod-base-url`（`env=prod` 告警项 dashboard 占位符替换）
+- `observability.alert-catalog.dashboard.staging-base-url`（`env=staging` 告警项 dashboard 占位符替换）
+
+默认行为：
+- 启动时会巡检告警目录中未替换的 dashboard 占位符，并输出告警日志。
+- 监控总览页支持直接打开 dashboard 链接。
 
 ## 文档导航
 
