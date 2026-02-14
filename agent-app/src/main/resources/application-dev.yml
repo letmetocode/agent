@@ -99,6 +99,9 @@ observability:
       # 开发环境可直接配置 staging/prod 看板地址，便于总览页巡检
       prod-base-url: ${OBS_ALERT_DASHBOARD_PROD_BASE_URL:}
       staging-base-url: ${OBS_ALERT_DASHBOARD_STAGING_BASE_URL:}
+    link-check:
+      # 开发环境默认开启告警目录链接巡检
+      enabled: ${OBS_ALERT_LINK_CHECK_ENABLED:true}
   http-log:
     # 开发环境默认开启全量入口日志，便于联调
     enabled: true

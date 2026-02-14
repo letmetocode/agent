@@ -267,7 +267,8 @@ public class ChatStreamV3Controller {
     }
 
     private void sendPlanFinishedEvents(StreamSubscriber subscriber, PlanTaskEventEntity event) {
-        Map<String, Object> eventData = event.getEventData() == null ? Collections.emptyMap() : event.getEventData();
+        Map<String, Object> rawEventData = event.getEventData() == null ? Collections.emptyMap() : event.getEventData();
+        Map<String, Object> eventData = chatSseEventMapper.normalizeMetadata(rawEventData);
 
         ChatStreamEventV3DTO finalizing = new ChatStreamEventV3DTO();
         finalizing.setType("answer.finalizing");

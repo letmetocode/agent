@@ -11,6 +11,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -29,13 +30,15 @@ public class ChatSseEventMapper {
     }
 
     public ChatStreamEventV3DTO mapTaskEvent(Long sessionId, Long planId, Long fallbackTurnId, PlanTaskEventEntity event) {
-        Map<String, Object> eventData = event.getEventData() == null ? Collections.emptyMap() : event.getEventData();
+        Map<String, Object> rawEventData = event.getEventData() == null ? Collections.emptyMap() : event.getEventData();
+        Map<String, Object> eventData = normalizeMetadata(rawEventData);
         ChatStreamEventV3DTO payload = new ChatStreamEventV3DTO();
         payload.setEventId(event.getId());
         payload.setSessionId(sessionId);
         payload.setPlanId(planId);
         payload.setTurnId(resolveTurnIdFromEvent(eventData, fallbackTurnId));
-        payload.setTaskId(toLong(eventData.get("taskId")) == null ? event.getTaskId() : toLong(eventData.get("taskId")));
+        Long taskId = toLong(eventData.get("taskId"));
+        payload.setTaskId(taskId == null ? event.getTaskId() : taskId);
         payload.setTaskStatus(StringUtils.defaultIfBlank(valueOf(eventData.get("status")), null));
         payload.setMetadata(eventData);
 
@@ -99,6 +102,35 @@ public class ChatSseEventMapper {
             return "任务状态更新：" + status;
         }
         return "任务处理中...";
+    }
+
+    public Map<String, Object> normalizeMetadata(Map<String, Object> metadata) {
+        if (metadata == null || metadata.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> normalized = new LinkedHashMap<>(metadata);
+        String nodeId = firstNonBlankValue(metadata.get("nodeId"), metadata.get("taskNodeId"), metadata.get("taskName"));
+        if (StringUtils.isNotBlank(nodeId)) {
+            normalized.put("nodeId", nodeId);
+        }
+        String taskName = firstNonBlankValue(metadata.get("taskName"), metadata.get("nodeId"), metadata.get("taskNodeId"));
+        if (StringUtils.isNotBlank(taskName)) {
+            normalized.put("taskName", taskName);
+        }
+        return normalized;
+    }
+
+    private String firstNonBlankValue(Object... values) {
+        if (values == null || values.length == 0) {
+            return null;
+        }
+        for (Object value : values) {
+            String text = valueOf(value);
+            if (StringUtils.isNotBlank(text)) {
+                return text.trim();
+            }
+        }
+        return null;
     }
 
     private Long toLong(Object value) {

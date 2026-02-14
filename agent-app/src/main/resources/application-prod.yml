@@ -76,6 +76,9 @@ observability:
       # 生产环境建议显式配置 Grafana 看板地址，替换告警目录中的 TODO 占位符
       prod-base-url: ${OBS_ALERT_DASHBOARD_PROD_BASE_URL:}
       staging-base-url: ${OBS_ALERT_DASHBOARD_STAGING_BASE_URL:}
+    link-check:
+      # 生产环境默认关闭，待 dashboard/runbook 链接治理到位后可按需开启
+      enabled: ${OBS_ALERT_LINK_CHECK_ENABLED:false}
   http-log:
     # 生产默认开启入口日志，支持通过 sample-rate 进行降载
     enabled: true

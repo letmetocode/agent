@@ -3,6 +3,7 @@ package com.getoffer.trigger.http;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.getoffer.api.response.Response;
+import com.getoffer.trigger.application.observability.ObservabilityAlertCatalogProbeStateStore;
 import com.getoffer.types.enums.ResponseCode;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -37,22 +39,34 @@ public class ObservabilityAlertCatalogController {
     private final Resource catalogResource;
     private final String prodDashboardBaseUrl;
     private final String stagingDashboardBaseUrl;
+    private final ObservabilityAlertCatalogProbeStateStore probeStateStore;
     private volatile List<Map<String, Object>> cachedCatalog = Collections.emptyList();
 
     public ObservabilityAlertCatalogController(ObjectMapper objectMapper,
                                                @Value("classpath:observability/alert-catalog.json") Resource catalogResource) {
-        this(objectMapper, catalogResource, "", "");
+        this(objectMapper, catalogResource, "", "", null);
+    }
+
+    public ObservabilityAlertCatalogController(ObjectMapper objectMapper,
+                                               @Value("classpath:observability/alert-catalog.json") Resource catalogResource,
+                                               @Value("${observability.alert-catalog.dashboard.prod-base-url:}") String prodDashboardBaseUrl,
+                                               @Value("${observability.alert-catalog.dashboard.staging-base-url:}") String stagingDashboardBaseUrl) {
+        this(objectMapper, catalogResource, prodDashboardBaseUrl, stagingDashboardBaseUrl, null);
     }
 
     @Autowired
     public ObservabilityAlertCatalogController(ObjectMapper objectMapper,
                                                @Value("classpath:observability/alert-catalog.json") Resource catalogResource,
                                                @Value("${observability.alert-catalog.dashboard.prod-base-url:}") String prodDashboardBaseUrl,
-                                               @Value("${observability.alert-catalog.dashboard.staging-base-url:}") String stagingDashboardBaseUrl) {
+                                               @Value("${observability.alert-catalog.dashboard.staging-base-url:}") String stagingDashboardBaseUrl,
+                                               @Autowired(required = false) ObservabilityAlertCatalogProbeStateStore probeStateStore) {
         this.objectMapper = objectMapper;
         this.catalogResource = catalogResource;
         this.prodDashboardBaseUrl = StringUtils.trimToEmpty(prodDashboardBaseUrl);
         this.stagingDashboardBaseUrl = StringUtils.trimToEmpty(stagingDashboardBaseUrl);
+        this.probeStateStore = probeStateStore == null
+                ? new ObservabilityAlertCatalogProbeStateStore(false, null)
+                : probeStateStore;
     }
 
     @PostConstruct
@@ -63,6 +77,23 @@ public class ObservabilityAlertCatalogController {
     @GetMapping("/catalog")
     public Response<List<Map<String, Object>>> getCatalog() {
         return success(cachedCatalog);
+    }
+
+    @GetMapping("/probe-status")
+    public Response<Map<String, Object>> getProbeStatus(
+            @RequestParam(value = "window", required = false) Integer windowSize) {
+        return success(probeStateStore.toPayload(windowSize));
+    }
+
+    public List<Map<String, Object>> getCatalogSnapshot() {
+        if (cachedCatalog == null || cachedCatalog.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> snapshot = new ArrayList<>(cachedCatalog.size());
+        for (Map<String, Object> row : cachedCatalog) {
+            snapshot.add(row == null ? Collections.emptyMap() : new LinkedHashMap<>(row));
+        }
+        return snapshot;
     }
 
     private List<Map<String, Object>> loadCatalog() {

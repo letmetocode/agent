@@ -53,4 +53,19 @@ public class ObservabilityAlertCatalogControllerTest {
                 .andExpect(jsonPath("$.data[0].dashboard").value("https://grafana.prod.example.com/d/ops"))
                 .andExpect(jsonPath("$.data[1].dashboard").value("https://grafana.staging.example.com/d/ops"));
     }
+
+    @Test
+    public void shouldReturnProbeStatusSnapshot() throws Exception {
+        mockMvc.perform(get("/api/observability/alerts/probe-status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0000"))
+                .andExpect(jsonPath("$.data.enabled").value(false))
+                .andExpect(jsonPath("$.data.status").value("DISABLED"))
+                .andExpect(jsonPath("$.data.issueCount").value(0));
+
+        mockMvc.perform(get("/api/observability/alerts/probe-status").param("window", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0000"))
+                .andExpect(jsonPath("$.data.status").value("DISABLED"));
+    }
 }

@@ -109,6 +109,19 @@ observability:
       # 告警目录 dashboard 链接替换：按告警 env=prod/staging 自动注入目标看板地址
       prod-base-url: ${OBS_ALERT_DASHBOARD_PROD_BASE_URL:}
       staging-base-url: ${OBS_ALERT_DASHBOARD_STAGING_BASE_URL:}
+    link-check:
+      # 告警目录链接定时巡检（dashboard/runbook）
+      enabled: ${OBS_ALERT_LINK_CHECK_ENABLED:false}
+      # 巡检间隔（ms）
+      interval-ms: ${OBS_ALERT_LINK_CHECK_INTERVAL_MS:300000}
+      # HTTP 链接探测超时（ms）
+      http-timeout-ms: ${OBS_ALERT_LINK_CHECK_HTTP_TIMEOUT_MS:3000}
+      # 保留最近巡检快照数量（用于趋势对比）
+      history-size: ${OBS_ALERT_LINK_CHECK_HISTORY_SIZE:12}
+      # 趋势变化阈值（失败率百分点，|delta| 小于该值视为 FLAT）
+      trend-delta-threshold: ${OBS_ALERT_LINK_CHECK_TREND_DELTA_THRESHOLD:1.0}
+      # 单次日志最多打印的异常项数量
+      max-issue-log-count: ${OBS_ALERT_LINK_CHECK_MAX_ISSUE_LOG_COUNT:20}
   http-log:
     # 统一 HTTP 入口日志开关
     enabled: true
