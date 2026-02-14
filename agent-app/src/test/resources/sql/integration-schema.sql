@@ -1,3 +1,7 @@
+DROP TABLE IF EXISTS agent_registry CASCADE;
+DROP TABLE IF EXISTS vector_store_registry CASCADE;
+DROP TABLE IF EXISTS agent_tools CASCADE;
+DROP TABLE IF EXISTS agent_tool_catalog CASCADE;
 DROP TABLE IF EXISTS plan_task_events CASCADE;
 DROP TABLE IF EXISTS task_executions CASCADE;
 DROP TABLE IF EXISTS task_share_links CASCADE;
@@ -30,10 +34,61 @@ CREATE TYPE workflow_definition_status_enum AS ENUM ('ACTIVE', 'DISABLED', 'ARCH
 CREATE TYPE workflow_draft_status_enum AS ENUM ('DRAFT', 'REVIEWING', 'PUBLISHED', 'ARCHIVED');
 CREATE TYPE routing_decision_type_enum AS ENUM ('HIT_PRODUCTION', 'CANDIDATE', 'FALLBACK');
 
+CREATE TABLE agent_registry (
+    id BIGSERIAL PRIMARY KEY,
+    key VARCHAR(100) NOT NULL UNIQUE,
+    name VARCHAR(100) NOT NULL,
+    model_provider VARCHAR(50) NOT NULL DEFAULT 'openai',
+    model_name VARCHAR(100) NOT NULL,
+    model_options JSONB DEFAULT '{"temperature": 0.7}'::jsonb,
+    base_system_prompt TEXT,
+    advisor_config JSONB DEFAULT '{}'::jsonb,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE agent_tool_catalog (
+    id BIGSERIAL PRIMARY KEY,
+    tool_name VARCHAR(100) NOT NULL UNIQUE,
+    tool_type VARCHAR(50) NOT NULL,
+    description TEXT,
+    tool_config JSONB NOT NULL,
+    input_schema JSONB DEFAULT '{}'::jsonb,
+    output_schema JSONB DEFAULT '{}'::jsonb,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE agent_tools (
+    id BIGSERIAL PRIMARY KEY,
+    agent_id BIGINT NOT NULL,
+    tool_id BIGINT NOT NULL,
+    is_enabled BOOLEAN DEFAULT TRUE,
+    priority INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_agent_tool UNIQUE (agent_id, tool_id)
+);
+
+CREATE TABLE vector_store_registry (
+    id BIGSERIAL PRIMARY KEY,
+    store_name VARCHAR(100) NOT NULL UNIQUE,
+    store_type VARCHAR(50) NOT NULL,
+    connection_config JSONB NOT NULL,
+    collection_name VARCHAR(100),
+    dimension INTEGER DEFAULT 1536,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE agent_sessions (
     id BIGSERIAL PRIMARY KEY,
     user_id VARCHAR(100) NOT NULL,
     title VARCHAR(200),
+    agent_key VARCHAR(128),
+    scenario VARCHAR(64),
     is_active BOOLEAN DEFAULT TRUE,
     meta_info JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -104,6 +159,10 @@ CREATE TABLE routing_decisions (
     definition_version INTEGER,
     draft_id BIGINT,
     draft_key VARCHAR(128),
+    source_type VARCHAR(64),
+    fallback_flag BOOLEAN DEFAULT FALSE,
+    fallback_reason VARCHAR(128),
+    planner_attempts INTEGER DEFAULT 0,
     metadata JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -230,3 +289,29 @@ CREATE INDEX idx_task_share_links_revoked_expire ON task_share_links(revoked, ex
 CREATE INDEX idx_plan_task_events_plan_id_id ON plan_task_events(plan_id, id);
 CREATE INDEX idx_session_turns_session ON session_turns(session_id, id DESC);
 CREATE INDEX idx_session_messages_turn ON session_messages(turn_id, id);
+
+INSERT INTO agent_registry (
+    key, name, model_provider, model_name, model_options, base_system_prompt, advisor_config, is_active
+) VALUES (
+    'assistant',
+    '通用助手',
+    'openai',
+    'doubao-seed-1-8-251228',
+    '{"temperature": 0.1}'::jsonb,
+    '你是一个可靠的通用任务执行助手，请直接、准确地完成用户任务。',
+    '{}'::jsonb,
+    TRUE
+);
+
+INSERT INTO agent_registry (
+    key, name, model_provider, model_name, model_options, base_system_prompt, advisor_config, is_active
+) VALUES (
+    'root',
+    'Root 规划器',
+    'openai',
+    'doubao-seed-1-8-251228',
+    '{"temperature": 0.1}'::jsonb,
+    '你是系统级Workflow规划器。你的职责是将用户请求拆解为可执行Draft草案。',
+    '{}'::jsonb,
+    TRUE
+);

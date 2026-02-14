@@ -15,10 +15,11 @@ import com.getoffer.trigger.event.PlanTaskEventPublisher;
 import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import com.getoffer.types.enums.ResponseCode;
 import com.getoffer.types.exception.AppException;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.MediaType;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -47,7 +48,7 @@ import java.util.concurrent.atomic.AtomicLong;
 @RequestMapping("/api/v3/chat/sessions")
 public class ChatStreamV3Controller {
 
-    private static final int REPLAY_LIMIT = 200;
+    private static final long SSE_RECONNECT_TIME_MS = 1500L;
 
     private final IAgentSessionRepository agentSessionRepository;
     private final IAgentPlanRepository agentPlanRepository;
@@ -58,6 +59,12 @@ public class ChatStreamV3Controller {
 
     private final ConcurrentMap<String, StreamSubscriber> subscribers = new ConcurrentHashMap<>();
     private final ConcurrentMap<Long, ConcurrentMap<String, StreamSubscriber>> subscribersByPlan = new ConcurrentHashMap<>();
+
+    @Value("${sse.replay.batch-size:200}")
+    private int replayBatchSize;
+
+    @Value("${sse.replay.max-batches-per-sweep:1}")
+    private int replayMaxBatchesPerSweep;
 
     public ChatStreamV3Controller(IAgentSessionRepository agentSessionRepository,
                                   IAgentPlanRepository agentPlanRepository,
@@ -77,7 +84,8 @@ public class ChatStreamV3Controller {
     public SseEmitter stream(@PathVariable("id") Long sessionId,
                              @RequestParam(value = "planId", required = false) Long planIdParam,
                              @RequestParam(value = "lastEventId", required = false) Long lastEventIdParam,
-                             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventIdHeader) {
+                             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventIdHeader,
+                             HttpServletResponse response) {
         AgentSessionEntity session = validateSession(sessionId);
         Long planId = resolvePlanId(session.getId(), planIdParam);
         if (planId == null) {
@@ -87,24 +95,34 @@ public class ChatStreamV3Controller {
         Long turnId = resolveTurnId(planId);
         long cursor = resolveCursor(lastEventIdParam, lastEventIdHeader);
 
+        applySseResponseHeaders(response);
+
         SseEmitter emitter = new SseEmitter(30L * 60L * 1000L);
         String subscriberId = UUID.randomUUID().toString();
         StreamSubscriber subscriber = new StreamSubscriber(subscriberId, sessionId, planId, turnId, emitter, cursor);
         subscribers.put(subscriberId, subscriber);
         subscribersByPlan.computeIfAbsent(planId, key -> new ConcurrentHashMap<>()).put(subscriberId, subscriber);
+        log.info("CHAT_V3_STREAM_SUBSCRIBED sessionId={}, planId={}, subscriberId={}, cursor={}",
+                sessionId, planId, subscriberId, cursor);
 
         emitter.onCompletion(() -> removeSubscriber(subscriber));
         emitter.onTimeout(() -> removeSubscriber(subscriber));
-        emitter.onError(ex -> removeSubscriber(subscriber));
+        emitter.onError(ex -> {
+            log.debug("CHAT_V3_STREAM_EMITTER_ERROR sessionId={}, planId={}, subscriberId={}, error={}",
+                    sessionId, planId, subscriberId, ex == null ? "unknown" : ex.getMessage());
+            removeSubscriber(subscriber);
+        });
 
-        sendSystemEvent(subscriber,
-                "message.accepted",
-                "消息已接收，正在执行中",
-                Map.of("sessionId", sessionId, "planId", planId));
-        sendSystemEvent(subscriber,
-                "planning.started",
-                "已进入规划与任务编排阶段",
-                Collections.emptyMap());
+        if (cursor <= 0L) {
+            sendSystemEvent(subscriber,
+                    "message.accepted",
+                    "消息已接收，正在执行中",
+                    Map.of("sessionId", sessionId, "planId", planId));
+            sendSystemEvent(subscriber,
+                    "planning.started",
+                    "已进入规划与任务编排阶段",
+                    Collections.emptyMap());
+        }
 
         replayMissedEvents(subscriber);
         subscribeRealtime(subscriber);
@@ -123,6 +141,25 @@ public class ChatStreamV3Controller {
                     "heartbeat",
                     Map.of("planId", subscriber.planId, "sessionId", subscriber.sessionId));
         }
+    }
+
+    @Scheduled(fixedDelayString = "${sse.replay-interval-ms:3000}", scheduler = "daemonScheduler")
+    public void sweepReplayMissedEvents() {
+        if (subscribers.isEmpty()) {
+            return;
+        }
+        for (StreamSubscriber subscriber : subscribers.values()) {
+            replayMissedEvents(subscriber);
+        }
+    }
+
+    private void applySseResponseHeaders(HttpServletResponse response) {
+        if (response == null) {
+            return;
+        }
+        response.setHeader("Cache-Control", "no-cache, no-transform");
+        response.setHeader("X-Accel-Buffering", "no");
+        response.setHeader("Connection", "keep-alive");
     }
 
     private AgentSessionEntity validateSession(Long sessionId) {
@@ -164,16 +201,33 @@ public class ChatStreamV3Controller {
     }
 
     private void replayMissedEvents(StreamSubscriber subscriber) {
-        List<PlanTaskEventEntity> events = planTaskEventPublisher.replay(
-                subscriber.planId,
-                subscriber.lastEventId.get(),
-                REPLAY_LIMIT
-        );
-        if (events == null || events.isEmpty()) {
+        if (subscriber == null || !subscribers.containsKey(subscriber.subscriberId)) {
             return;
         }
-        for (PlanTaskEventEntity event : events) {
-            deliverPlanEvent(subscriber, event);
+        int batchSize = Math.max(1, replayBatchSize);
+        int maxBatches = Math.max(1, replayMaxBatchesPerSweep);
+        long cursor = Math.max(subscriber.lastEventId.get(), 0L);
+
+        for (int batchIndex = 0; batchIndex < maxBatches; batchIndex++) {
+            List<PlanTaskEventEntity> events = planTaskEventPublisher.replay(subscriber.planId, cursor, batchSize);
+            if (events == null || events.isEmpty()) {
+                return;
+            }
+            for (PlanTaskEventEntity event : events) {
+                deliverPlanEvent(subscriber, event);
+                if (!subscribers.containsKey(subscriber.subscriberId)) {
+                    return;
+                }
+            }
+
+            PlanTaskEventEntity latest = events.get(events.size() - 1);
+            if (latest == null || latest.getId() == null) {
+                return;
+            }
+            cursor = Math.max(cursor, latest.getId());
+            if (events.size() < batchSize) {
+                return;
+            }
         }
     }
 
@@ -266,22 +320,6 @@ public class ChatStreamV3Controller {
         return chatSseEventMapper.mapTaskEvent(subscriber.sessionId, subscriber.planId, subscriber.turnId, event);
     }
 
-    private String resolveTaskLogMessage(Map<String, Object> eventData) {
-        String output = valueOf(eventData.get("output"));
-        if (StringUtils.isNotBlank(output)) {
-            return output;
-        }
-        String message = valueOf(eventData.get("message"));
-        if (StringUtils.isNotBlank(message)) {
-            return message;
-        }
-        String status = valueOf(eventData.get("status"));
-        if (StringUtils.isNotBlank(status)) {
-            return "任务状态更新：" + status;
-        }
-        return "任务处理中...";
-    }
-
     private Long resolveTurnIdFromEvent(Map<String, Object> eventData, Long fallbackTurnId) {
         return chatSseEventMapper.resolveTurnIdFromEvent(eventData, fallbackTurnId);
     }
@@ -296,13 +334,23 @@ public class ChatStreamV3Controller {
         }
         payload.setMetadata(enrichMetadata(payload.getMetadata()));
         try {
-            SseEmitter.SseEventBuilder builder = SseEmitter.event().name(payload.getType()).data(payload);
+            SseEmitter.SseEventBuilder builder = SseEmitter.event()
+                    .name(payload.getType())
+                    .data(payload)
+                    .reconnectTime(SSE_RECONNECT_TIME_MS);
             if (eventId != null) {
                 builder.id(String.valueOf(eventId));
             }
             subscriber.emitter.send(builder);
             return true;
         } catch (IOException | RuntimeException ex) {
+            log.debug("CHAT_V3_STREAM_SEND_FAILED sessionId={}, planId={}, subscriberId={}, eventType={}, eventId={}, error={}",
+                    subscriber.sessionId,
+                    subscriber.planId,
+                    subscriber.subscriberId,
+                    payload.getType(),
+                    eventId,
+                    ex.getMessage());
             return false;
         }
     }
@@ -336,7 +384,7 @@ public class ChatStreamV3Controller {
         if (subscriber == null) {
             return;
         }
-        subscribers.remove(subscriber.subscriberId);
+        StreamSubscriber removed = subscribers.remove(subscriber.subscriberId);
         ConcurrentMap<String, StreamSubscriber> planSubscribers = subscribersByPlan.get(subscriber.planId);
         if (planSubscribers != null) {
             planSubscribers.remove(subscriber.subscriberId);
@@ -345,6 +393,12 @@ public class ChatStreamV3Controller {
             }
         }
         planTaskEventPublisher.unsubscribe(subscriber.planId, subscriber.subscriberId);
+        if (removed != null) {
+            log.info("CHAT_V3_STREAM_UNSUBSCRIBED sessionId={}, planId={}, subscriberId={}",
+                    subscriber.sessionId,
+                    subscriber.planId,
+                    subscriber.subscriberId);
+        }
     }
 
     private long resolveCursor(Long lastEventIdParam, String lastEventIdHeader) {
@@ -367,24 +421,6 @@ public class ChatStreamV3Controller {
         } catch (NumberFormatException ignored) {
             return 0L;
         }
-    }
-
-    private Long toLong(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number number) {
-            return number.longValue();
-        }
-        try {
-            return Long.parseLong(String.valueOf(value));
-        } catch (NumberFormatException ex) {
-            return null;
-        }
-    }
-
-    private String valueOf(Object value) {
-        return value == null ? null : String.valueOf(value);
     }
 
     private static final class StreamSubscriber {

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { agentApi } from '@/shared/api/agentApi';
 import type {
   WorkflowDraftDetailDTO,
+  WorkflowDraftUpdateRequestDTO,
   WorkflowDraftSummaryDTO,
   WorkflowPublishResultDTO
 } from '@/shared/types/api';
@@ -17,7 +18,8 @@ interface WorkflowGovernanceState {
   setStatusFilter: (status?: string) => void;
   clearSelectedCandidate: () => void;
   loadCandidates: (status?: string) => Promise<void>;
-  loadCandidateDetail: (id: number) => Promise<void>;
+  loadCandidateDetail: (id: number) => Promise<WorkflowDraftDetailDTO>;
+  updateCandidate: (id: number, payload: WorkflowDraftUpdateRequestDTO) => Promise<WorkflowDraftDetailDTO>;
   publishCandidate: (id: number, operator?: string) => Promise<WorkflowPublishResultDTO>;
 }
 
@@ -50,6 +52,20 @@ export const useWorkflowGovernanceStore = create<WorkflowGovernanceState>((set, 
     try {
       const selectedCandidate = await agentApi.getWorkflowDraftDetail(id);
       set({ selectedCandidate, detailLoading: false });
+      return selectedCandidate;
+    } catch (err) {
+      const error = toErrorMessage(err);
+      set({ detailLoading: false, error });
+      throw err;
+    }
+  },
+  updateCandidate: async (id, payload) => {
+    set({ detailLoading: true, error: undefined });
+    try {
+      const selectedCandidate = await agentApi.updateWorkflowDraft(id, payload);
+      set({ selectedCandidate, detailLoading: false });
+      await get().loadCandidates(get().statusFilter);
+      return selectedCandidate;
     } catch (err) {
       const error = toErrorMessage(err);
       set({ detailLoading: false, error });

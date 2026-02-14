@@ -18,7 +18,7 @@ spring:
     name: agent-app
   datasource:
     username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:postgres}
+    password: ${DB_PASSWORD:}
     url: jdbc:postgresql://${DB_HOST:127.0.0.1}:5432/${DB_NAME:agent_db}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
     driver-class-name: org.postgresql.Driver
     type: com.zaxxer.hikari.HikariDataSource
@@ -58,8 +58,8 @@ app:
   share:
     # 任务分享链接生成时使用的外部访问地址（建议配置为前端生产域名）
     base-url: ${APP_SHARE_BASE_URL:http://127.0.0.1:8091}
-    # 令牌哈希盐（生产环境务必覆盖）
-    token-salt: ${APP_SHARE_TOKEN_SALT:agent-share-salt}
+    # 令牌哈希盐（生产环境必填）
+    token-salt: ${APP_SHARE_TOKEN_SALT}
     # 分享链接最大有效期（小时）
     max-ttl-hours: ${APP_SHARE_MAX_TTL_HOURS:168}
 observability:

@@ -7,7 +7,7 @@ import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
- * 路由决策 DTO（V2）。
+ * 路由决策 DTO（V3 会话编排返回结构）。
  */
 @Data
 public class RoutingDecisionDTO {

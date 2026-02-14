@@ -4,7 +4,9 @@ import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.planning.service.PlanTransitionDomainService;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
+import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
+import com.getoffer.domain.task.service.TaskFailurePolicyDomainService;
 import com.getoffer.trigger.application.command.PlanStatusSyncApplicationService;
 import com.getoffer.trigger.application.command.TurnFinalizeApplicationService;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
@@ -17,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -62,7 +65,8 @@ public class PlanStatusSyncApplicationServiceTest {
                 taskRepository,
                 eventPublisher,
                 turnFinalizeService,
-                new PlanTransitionDomainService()
+                new PlanTransitionDomainService(),
+                new TaskFailurePolicyDomainService()
         );
 
         PlanStatusSyncApplicationService.SyncResult result = service.syncPlanStatuses(100, 1000);
@@ -105,7 +109,8 @@ public class PlanStatusSyncApplicationServiceTest {
                 taskRepository,
                 eventPublisher,
                 turnFinalizeService,
-                new PlanTransitionDomainService()
+                new PlanTransitionDomainService(),
+                new TaskFailurePolicyDomainService()
         );
 
         PlanStatusSyncApplicationService.SyncResult result = service.syncPlanStatuses(100, 1000);
@@ -144,7 +149,8 @@ public class PlanStatusSyncApplicationServiceTest {
                 taskRepository,
                 eventPublisher,
                 turnFinalizeService,
-                new PlanTransitionDomainService()
+                new PlanTransitionDomainService(),
+                new TaskFailurePolicyDomainService()
         );
 
         PlanStatusSyncApplicationService.SyncResult result = service.syncPlanStatuses(100, 1000);
@@ -152,6 +158,69 @@ public class PlanStatusSyncApplicationServiceTest {
         Assertions.assertEquals(1, result.processedCount());
         Assertions.assertEquals(0, result.advancedCount());
         Assertions.assertEquals(1, result.errorCount());
+    }
+
+    @Test
+    public void shouldCompleteWhenFailedTasksAreFailSafe() {
+        IAgentPlanRepository planRepository = mock(IAgentPlanRepository.class);
+        IAgentTaskRepository taskRepository = mock(IAgentTaskRepository.class);
+        PlanTaskEventPublisher eventPublisher = mock(PlanTaskEventPublisher.class);
+        TurnFinalizeApplicationService turnFinalizeService = mock(TurnFinalizeApplicationService.class);
+
+        AgentPlanEntity plan = newPlan(4L, PlanStatusEnum.RUNNING);
+        PlanTaskStatusStat stat = PlanTaskStatusStat.builder()
+                .planId(4L)
+                .total(2L)
+                .failedCount(1L)
+                .runningLikeCount(0L)
+                .terminalCount(2L)
+                .build();
+
+        AgentTaskEntity failedTask = new AgentTaskEntity();
+        failedTask.setId(41L);
+        failedTask.setPlanId(4L);
+        failedTask.setStatus(com.getoffer.types.enums.TaskStatusEnum.FAILED);
+        failedTask.setConfigSnapshot(new HashMap<>(Map.of(
+                "graphPolicy", new HashMap<>(Map.of("failurePolicy", "failSafe"))
+        )));
+
+        AgentTaskEntity completedTask = new AgentTaskEntity();
+        completedTask.setId(42L);
+        completedTask.setPlanId(4L);
+        completedTask.setStatus(com.getoffer.types.enums.TaskStatusEnum.COMPLETED);
+        completedTask.setConfigSnapshot(new HashMap<>());
+
+        when(planRepository.findByStatusPaged(eq(PlanStatusEnum.READY), eq(0), eq(100)))
+                .thenReturn(Collections.emptyList());
+        when(planRepository.findByStatusPaged(eq(PlanStatusEnum.RUNNING), eq(0), eq(100)))
+                .thenReturn(List.of(plan));
+        when(taskRepository.summarizeByPlanIds(any())).thenReturn(List.of(stat));
+        when(taskRepository.findByPlanId(4L)).thenReturn(List.of(failedTask, completedTask));
+        when(turnFinalizeService.finalizeByPlan(4L, PlanStatusEnum.COMPLETED))
+                .thenReturn(TurnFinalizeApplicationService.TurnFinalizeResult.of(
+                        44L,
+                        55L,
+                        "summary",
+                        TurnStatusEnum.COMPLETED,
+                        TurnFinalizeApplicationService.FinalizeOutcome.FINALIZED
+                ));
+
+        PlanStatusSyncApplicationService service = new PlanStatusSyncApplicationService(
+                planRepository,
+                taskRepository,
+                eventPublisher,
+                turnFinalizeService,
+                new PlanTransitionDomainService(),
+                new TaskFailurePolicyDomainService()
+        );
+
+        PlanStatusSyncApplicationService.SyncResult result = service.syncPlanStatuses(100, 1000);
+
+        Assertions.assertEquals(1, result.processedCount());
+        Assertions.assertEquals(1, result.advancedCount());
+        Assertions.assertEquals(1, result.finalizeAttemptCount());
+        Assertions.assertEquals(PlanStatusEnum.COMPLETED, plan.getStatus());
+        verify(planRepository, times(1)).update(plan);
     }
 
     private AgentPlanEntity newPlan(Long id, PlanStatusEnum status) {

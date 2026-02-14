@@ -268,6 +268,8 @@ public class PlannerServiceMilestoneTest {
         edges.add(edge("implement", "review"));
 
         Map<String, Object> graph = new HashMap<>();
+        graph.put("version", 2);
+        graph.put("groups", Collections.emptyList());
         graph.put("nodes", nodes);
         graph.put("edges", edges);
 
@@ -317,6 +319,8 @@ public class PlannerServiceMilestoneTest {
         edges.add(edge("analysis", "implement"));
 
         Map<String, Object> graph = new HashMap<>();
+        graph.put("version", 2);
+        graph.put("groups", Collections.emptyList());
         graph.put("nodes", nodes);
         graph.put("edges", edges);
         draft.setGraphDefinition(graph);

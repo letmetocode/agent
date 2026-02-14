@@ -1,25 +1,25 @@
-# PostgreSQL 数据库服务
-# 启动命令: docker-compose -f docker-compose.yml up -d
-version: '3.9'
+# PostgreSQL 单独编排（仅 DB + 可选 pgAdmin）
+# 启动命令：
+#   docker compose --env-file ../.env -f docs/dev-ops/postgresql/docker-compose.yml up -d
+name: ${COMPOSE_PROJECT_NAME:-agent-pg}
 
 services:
   postgres:
-    image: postgres:16-alpine
-    container_name: agent-postgres
-    restart: always
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
     environment:
-      TZ: Asia/Shanghai
-      POSTGRES_DB: agent_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      TZ: ${TZ:-Asia/Shanghai}
+      POSTGRES_DB: ${POSTGRES_DB:-agent_db}
+      POSTGRES_USER: ${POSTGRES_USER:-agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in docs/dev-ops/.env}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "15432:5432"
+      - "${POSTGRES_HOST_PORT:-15432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./sql:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d agent_db"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -27,17 +27,17 @@ services:
     networks:
       - agent-network
 
-  # pgAdmin 4 - PostgreSQL 管理工具
   pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: agent-pgadmin
-    restart: always
+    image: ${PGADMIN_IMAGE:-dpage/pgadmin4:8.14}
+    restart: unless-stopped
+    profiles:
+      - ops-ui
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@getoffer.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@getoffer.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:?set PGADMIN_DEFAULT_PASSWORD in docs/dev-ops/.env}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
     ports:
-      - "5050:80"
+      - "${PGADMIN_HOST_PORT:-5050}:80"
     volumes:
       - pgadmin-data:/var/lib/pgadmin
     networks:

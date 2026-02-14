@@ -55,6 +55,14 @@ build/
 /data/log/log-*.log
 /agent-app/data/
 
+# Secrets
+.env
+.env.*
+!.env.example
+docs/dev-ops/.env
+docs/dev-ops/.env.*
+!docs/dev-ops/.env.example
+
 # Frontend artifacts
 /frontend/node_modules/
 /frontend/dist/

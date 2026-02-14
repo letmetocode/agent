@@ -89,6 +89,154 @@ public class PlannerServiceRootDraftTest {
     }
 
     @Test
+    public void shouldAutoUpgradeLegacyDraftGraphVersionToV2() {
+        JsonCodec jsonCodec = new JsonCodec(new ObjectMapper());
+        InMemoryWorkflowDefinitionRepository workflowDefinitionRepository = new InMemoryWorkflowDefinitionRepository();
+        InMemoryWorkflowDraftRepository workflowDraftRepository = new InMemoryWorkflowDraftRepository();
+        InMemoryRoutingDecisionRepository routingDecisionRepository = new InMemoryRoutingDecisionRepository();
+        InMemoryAgentPlanRepository agentPlanRepository = new InMemoryAgentPlanRepository();
+        InMemoryAgentTaskRepository agentTaskRepository = new InMemoryAgentTaskRepository();
+        InMemoryAgentRegistryRepository agentRegistryRepository = new InMemoryAgentRegistryRepository();
+        agentRegistryRepository.save(agent("assistant", true));
+
+        AtomicInteger attempts = new AtomicInteger(0);
+        IRootWorkflowDraftPlanner rootPlanner = (sessionId, query, context) -> {
+            attempts.incrementAndGet();
+            return buildDraftWithLegacyGraphVersion(query);
+        };
+
+        PlannerServiceImpl plannerService = new PlannerServiceImpl(
+                workflowDefinitionRepository,
+                workflowDraftRepository,
+                routingDecisionRepository,
+                agentPlanRepository,
+                agentTaskRepository,
+                jsonCodec,
+                rootPlanner,
+                agentRegistryRepository,
+                true,
+                "root",
+                3,
+                0L,
+                true,
+                "assistant"
+        );
+
+        AgentPlanEntity plan = plannerService.createPlan(5011L, "legacy graph version");
+        Assertions.assertEquals(PlanStatusEnum.READY, plan.getStatus());
+        Assertions.assertEquals(1, attempts.get());
+
+        WorkflowDraftEntity draft = workflowDraftRepository.findAll().get(0);
+        Assertions.assertEquals("AUTO_MISS_ROOT", draft.getSourceType());
+        Assertions.assertEquals(2, ((Number) draft.getGraphDefinition().get("version")).intValue());
+
+        List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(plan.getId());
+        Assertions.assertEquals(2, tasks.size());
+    }
+
+    @Test
+    public void shouldFallbackImmediatelyWhenRootDraftStructureIsInvalid() {
+        JsonCodec jsonCodec = new JsonCodec(new ObjectMapper());
+        InMemoryWorkflowDefinitionRepository workflowDefinitionRepository = new InMemoryWorkflowDefinitionRepository();
+        InMemoryWorkflowDraftRepository workflowDraftRepository = new InMemoryWorkflowDraftRepository();
+        InMemoryRoutingDecisionRepository routingDecisionRepository = new InMemoryRoutingDecisionRepository();
+        InMemoryAgentPlanRepository agentPlanRepository = new InMemoryAgentPlanRepository();
+        InMemoryAgentTaskRepository agentTaskRepository = new InMemoryAgentTaskRepository();
+        InMemoryAgentRegistryRepository agentRegistryRepository = new InMemoryAgentRegistryRepository();
+        agentRegistryRepository.save(agent("assistant", true));
+
+        AtomicInteger attempts = new AtomicInteger(0);
+        IRootWorkflowDraftPlanner rootPlanner = (sessionId, query, context) -> {
+            attempts.incrementAndGet();
+            return buildDraftWithInvalidStructure(query);
+        };
+
+        PlannerServiceImpl plannerService = new PlannerServiceImpl(
+                workflowDefinitionRepository,
+                workflowDraftRepository,
+                routingDecisionRepository,
+                agentPlanRepository,
+                agentTaskRepository,
+                jsonCodec,
+                rootPlanner,
+                agentRegistryRepository,
+                true,
+                "root",
+                3,
+                0L,
+                true,
+                "assistant"
+        );
+
+        AgentPlanEntity plan = plannerService.createPlan(5012L, "invalid draft structure");
+        Assertions.assertEquals(PlanStatusEnum.READY, plan.getStatus());
+        Assertions.assertEquals(1, attempts.get());
+
+        WorkflowDraftEntity draft = workflowDraftRepository.findAll().get(0);
+        Assertions.assertEquals("AUTO_MISS_FALLBACK", draft.getSourceType());
+        Assertions.assertEquals(1, ((Number) draft.getConstraints().get("rootPlanningAttempts")).intValue());
+
+        List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(plan.getId());
+        Assertions.assertEquals(1, tasks.size());
+        Assertions.assertEquals("candidate-worker", tasks.get(0).getNodeId());
+    }
+
+    @Test
+    public void shouldFallbackImmediatelyWhenRootPlannerSoftTimeout() {
+        JsonCodec jsonCodec = new JsonCodec(new ObjectMapper());
+        InMemoryWorkflowDefinitionRepository workflowDefinitionRepository = new InMemoryWorkflowDefinitionRepository();
+        InMemoryWorkflowDraftRepository workflowDraftRepository = new InMemoryWorkflowDraftRepository();
+        InMemoryRoutingDecisionRepository routingDecisionRepository = new InMemoryRoutingDecisionRepository();
+        InMemoryAgentPlanRepository agentPlanRepository = new InMemoryAgentPlanRepository();
+        InMemoryAgentTaskRepository agentTaskRepository = new InMemoryAgentTaskRepository();
+        InMemoryAgentRegistryRepository agentRegistryRepository = new InMemoryAgentRegistryRepository();
+        agentRegistryRepository.save(agent("assistant", true));
+
+        AtomicInteger attempts = new AtomicInteger(0);
+        IRootWorkflowDraftPlanner rootPlanner = (sessionId, query, context) -> {
+            attempts.incrementAndGet();
+            try {
+                Thread.sleep(200L);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("planner interrupted", ex);
+            }
+            return buildDraft(query);
+        };
+
+        PlannerServiceImpl plannerService = new PlannerServiceImpl(
+                workflowDefinitionRepository,
+                workflowDraftRepository,
+                routingDecisionRepository,
+                agentPlanRepository,
+                agentTaskRepository,
+                jsonCodec,
+                rootPlanner,
+                agentRegistryRepository,
+                true,
+                "root",
+                3,
+                0L,
+                true,
+                "assistant",
+                50L
+        );
+
+        AgentPlanEntity plan = plannerService.createPlan(5013L, "slow root planning");
+        Assertions.assertEquals(PlanStatusEnum.READY, plan.getStatus());
+        Assertions.assertEquals(1, attempts.get());
+
+        WorkflowDraftEntity draft = workflowDraftRepository.findAll().get(0);
+        Assertions.assertEquals("AUTO_MISS_FALLBACK", draft.getSourceType());
+        Assertions.assertEquals("ROOT_PLANNER_SOFT_TIMEOUT", draft.getConstraints().get("fallbackReason"));
+        Assertions.assertEquals(1, ((Number) draft.getConstraints().get("rootPlanningAttempts")).intValue());
+
+        List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(plan.getId());
+        Assertions.assertEquals(1, tasks.size());
+        Assertions.assertEquals("candidate-worker", tasks.get(0).getNodeId());
+    }
+
+    @Test
     public void shouldFallbackAfterThreeRootPlannerFailures() {
         JsonCodec jsonCodec = new JsonCodec(new ObjectMapper());
         InMemoryWorkflowDefinitionRepository workflowDefinitionRepository = new InMemoryWorkflowDefinitionRepository();
@@ -335,6 +483,8 @@ public class PlannerServiceRootDraftTest {
             definition.setStatus(WorkflowDefinitionStatusEnum.ACTIVE);
             definition.setIsActive(true);
             Map<String, Object> graph = new HashMap<>();
+            graph.put("version", 2);
+            graph.put("groups", Collections.emptyList());
             graph.put("nodes", List.of(new HashMap<>(Map.of("id", "node-1", "type", "WORKER", "name", "worker-1"))));
             graph.put("edges", new ArrayList<>());
             definition.setGraphDefinition(graph);
@@ -457,8 +607,33 @@ public class PlannerServiceRootDraftTest {
         edge.put("to", "implement");
 
         Map<String, Object> graph = new HashMap<>();
+        graph.put("version", 2);
+        graph.put("groups", Collections.emptyList());
         graph.put("nodes", nodes);
         graph.put("edges", Collections.singletonList(edge));
+        draft.setGraphDefinition(graph);
+        return draft;
+    }
+
+    private RootWorkflowDraft buildDraftWithLegacyGraphVersion(String query) {
+        RootWorkflowDraft draft = buildDraft(query);
+        Map<String, Object> graph = new HashMap<>(draft.getGraphDefinition());
+        graph.put("version", 1);
+        graph.remove("groups");
+        draft.setGraphDefinition(graph);
+        return draft;
+    }
+
+    @SuppressWarnings("unchecked")
+    private RootWorkflowDraft buildDraftWithInvalidStructure(String query) {
+        RootWorkflowDraft draft = buildDraft(query);
+        Map<String, Object> graph = new HashMap<>(draft.getGraphDefinition());
+        List<Map<String, Object>> edges = new ArrayList<>((List<Map<String, Object>>) graph.get("edges"));
+        Map<String, Object> badEdge = new HashMap<>();
+        badEdge.put("from", "analysis");
+        badEdge.put("to", "missing-node");
+        edges.add(badEdge);
+        graph.put("edges", edges);
         draft.setGraphDefinition(graph);
         return draft;
     }
@@ -493,6 +668,8 @@ public class PlannerServiceRootDraftTest {
         node.put("config", new HashMap<>());
 
         Map<String, Object> graph = new HashMap<>();
+        graph.put("version", 2);
+        graph.put("groups", Collections.emptyList());
         graph.put("nodes", Collections.singletonList(node));
         graph.put("edges", Collections.emptyList());
         draft.setGraphDefinition(graph);
@@ -529,6 +706,8 @@ public class PlannerServiceRootDraftTest {
         node.put("config", new HashMap<>());
 
         Map<String, Object> graph = new HashMap<>();
+        graph.put("version", 2);
+        graph.put("groups", Collections.emptyList());
         graph.put("nodes", Collections.singletonList(node));
         graph.put("edges", Collections.emptyList());
         draft.setGraphDefinition(graph);
@@ -575,6 +754,8 @@ public class PlannerServiceRootDraftTest {
         edges.add(edge3);
 
         Map<String, Object> graph = new HashMap<>();
+        graph.put("version", 2);
+        graph.put("groups", Collections.emptyList());
         graph.put("nodes", List.of(node1, node2));
         graph.put("edges", edges);
         draft.setGraphDefinition(graph);

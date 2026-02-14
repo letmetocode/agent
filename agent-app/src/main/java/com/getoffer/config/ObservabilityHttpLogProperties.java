@@ -22,7 +22,7 @@ public class ObservabilityHttpLogProperties {
     private List<String> includePathPatterns = Arrays.asList("/api/**");
 
     /** 需要排除日志的路径模式。 */
-    private List<String> excludePathPatterns = Arrays.asList("/actuator/**", "/api/plans/*/stream");
+    private List<String> excludePathPatterns = Arrays.asList("/actuator/**", "/api/v3/chat/sessions/*/stream");
 
     /** 是否记录请求体摘要。 */
     private boolean logRequestBody = false;

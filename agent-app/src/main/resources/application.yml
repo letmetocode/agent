@@ -101,7 +101,7 @@ observability:
     # 记录路径（Ant 风格）
     include-path-patterns: /api/**
     # 排除路径（SSE 流仅记录建连，不做逐条事件日志）
-    exclude-path-patterns: /actuator/**,/api/plans/*/stream
+    exclude-path-patterns: /actuator/**,/api/v3/chat/sessions/*/stream
     # 默认不记录全量请求体，仅保留白名单字段摘要
     log-request-body: false
     request-body-whitelist: message,sessionId,turnId,planId

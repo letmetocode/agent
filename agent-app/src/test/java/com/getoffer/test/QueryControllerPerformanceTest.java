@@ -3,6 +3,7 @@ package com.getoffer.test;
 import com.getoffer.domain.agent.adapter.repository.IAgentToolCatalogRepository;
 import com.getoffer.domain.agent.adapter.repository.IVectorStoreRegistryRepository;
 import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
+import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.session.adapter.repository.IAgentSessionRepository;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.IPlanTaskEventRepository;
@@ -70,7 +71,10 @@ public class QueryControllerPerformanceTest {
     }
 
     @Test
-    public void shouldBatchResolveLatestExecutionTimeWhenListingTasks() throws Exception {
+    public void shouldBatchResolveLatestExecutionTimeWhenListingPlanTasks() throws Exception {
+        AgentPlanEntity plan = new AgentPlanEntity();
+        plan.setId(11L);
+
         AgentTaskEntity task1 = new AgentTaskEntity();
         task1.setId(101L);
         task1.setPlanId(11L);
@@ -85,17 +89,18 @@ public class QueryControllerPerformanceTest {
         task2.setStatus(TaskStatusEnum.FAILED);
         task2.setUpdatedAt(LocalDateTime.of(2026, 2, 12, 11, 0, 0));
 
-        when(agentTaskRepository.findAll()).thenReturn(Arrays.asList(task1, task2));
+        when(agentPlanRepository.findById(11L)).thenReturn(plan);
+        when(agentTaskRepository.findByPlanId(11L)).thenReturn(Arrays.asList(task1, task2));
         when(taskExecutionRepository.findLatestExecutionTimeByTaskIds(anyList()))
                 .thenReturn(Map.of(101L, 180L, 102L, 260L));
 
-        mockMvc.perform(get("/api/tasks").param("limit", "2"))
+        mockMvc.perform(get("/api/plans/11/tasks"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("0000"))
-                .andExpect(jsonPath("$.data[0].taskId").value(102L))
-                .andExpect(jsonPath("$.data[0].latestExecutionTimeMs").value(260L))
-                .andExpect(jsonPath("$.data[1].taskId").value(101L))
-                .andExpect(jsonPath("$.data[1].latestExecutionTimeMs").value(180L));
+                .andExpect(jsonPath("$.data[0].taskId").value(101L))
+                .andExpect(jsonPath("$.data[0].latestExecutionTimeMs").value(180L))
+                .andExpect(jsonPath("$.data[1].taskId").value(102L))
+                .andExpect(jsonPath("$.data[1].latestExecutionTimeMs").value(260L));
 
         ArgumentCaptor<List<Long>> captor = ArgumentCaptor.forClass(List.class);
         verify(taskExecutionRepository, times(1)).findLatestExecutionTimeByTaskIds(captor.capture());

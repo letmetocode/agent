@@ -5,6 +5,7 @@ import com.getoffer.domain.planning.adapter.repository.IWorkflowDefinitionReposi
 import com.getoffer.domain.planning.adapter.repository.IWorkflowDraftRepository;
 import com.getoffer.domain.planning.model.entity.WorkflowDefinitionEntity;
 import com.getoffer.domain.planning.model.entity.WorkflowDraftEntity;
+import com.getoffer.trigger.application.command.SopSpecCompileService;
 import com.getoffer.types.enums.ResponseCode;
 import com.getoffer.types.enums.WorkflowDefinitionStatusEnum;
 import com.getoffer.types.enums.WorkflowDraftStatusEnum;
@@ -36,14 +37,23 @@ import java.util.stream.Collectors;
 public class WorkflowGovernanceController {
 
     private static final String DEFAULT_OPERATOR = "SYSTEM";
+    private static final int GRAPH_DSL_VERSION = 2;
+    private static final String SOP_CONSTRAINT_KEY_SPEC = "sopSpec";
+    private static final String SOP_CONSTRAINT_KEY_COMPILE_HASH = "compileHash";
+    private static final String SOP_CONSTRAINT_KEY_COMPILE_STATUS = "compileStatus";
+    private static final String SOP_CONSTRAINT_KEY_COMPILE_WARNINGS = "compileWarnings";
+    private static final String SOP_COMPILE_STATUS_SUCCESS = "SUCCESS";
 
     private final IWorkflowDraftRepository workflowDraftRepository;
     private final IWorkflowDefinitionRepository workflowDefinitionRepository;
+    private final SopSpecCompileService sopSpecCompileService;
 
     public WorkflowGovernanceController(IWorkflowDraftRepository workflowDraftRepository,
-                                        IWorkflowDefinitionRepository workflowDefinitionRepository) {
+                                        IWorkflowDefinitionRepository workflowDefinitionRepository,
+                                        SopSpecCompileService sopSpecCompileService) {
         this.workflowDraftRepository = workflowDraftRepository;
         this.workflowDefinitionRepository = workflowDefinitionRepository;
+        this.sopSpecCompileService = sopSpecCompileService;
     }
 
     @GetMapping("/drafts")
@@ -68,6 +78,55 @@ public class WorkflowGovernanceController {
             return failure("Workflow Draft不存在");
         }
         return success(toDraftDetail(draft));
+    }
+
+    @PostMapping("/sop-spec/drafts/{id}/compile")
+    public Response<Map<String, Object>> compileDraftSopSpec(@PathVariable("id") Long id,
+                                                             @RequestBody(required = false) Map<String, Object> request) {
+        WorkflowDraftEntity draft = workflowDraftRepository.findById(id);
+        if (draft == null) {
+            return failure("Workflow Draft不存在");
+        }
+        try {
+            Map<String, Object> sopSpec = resolveSopSpec(request, draft);
+            SopSpecCompileService.CompileResult compileResult = sopSpecCompileService.compile(sopSpec);
+            Map<String, Object> data = new HashMap<>();
+            data.put("draftId", id);
+            data.put("sopSpec", copyMap(sopSpec));
+            data.put("sopRuntimeGraph", copyMap(compileResult.sopRuntimeGraph()));
+            data.put("compileHash", compileResult.compileHash());
+            data.put("nodeSignature", compileResult.nodeSignature());
+            data.put("warnings", compileResult.warnings());
+            return success(data);
+        } catch (IllegalArgumentException ex) {
+            return failure(ex.getMessage());
+        }
+    }
+
+    @PostMapping("/sop-spec/drafts/{id}/validate")
+    public Response<Map<String, Object>> validateDraftSopSpec(@PathVariable("id") Long id,
+                                                              @RequestBody(required = false) Map<String, Object> request) {
+        WorkflowDraftEntity draft = workflowDraftRepository.findById(id);
+        if (draft == null) {
+            return failure("Workflow Draft不存在");
+        }
+        try {
+            Map<String, Object> sopSpec = resolveSopSpec(request, draft);
+            SopSpecCompileService.ValidationResult validationResult = sopSpecCompileService.validate(sopSpec);
+            Map<String, Object> data = new HashMap<>();
+            data.put("draftId", id);
+            data.put("pass", validationResult.pass());
+            data.put("issues", validationResult.issues());
+            data.put("warnings", validationResult.warnings());
+            return success(data);
+        } catch (IllegalArgumentException ex) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("draftId", id);
+            data.put("pass", false);
+            data.put("issues", List.of(ex.getMessage()));
+            data.put("warnings", List.of());
+            return success(data);
+        }
     }
 
     @PutMapping("/drafts/{id}")
@@ -113,6 +172,8 @@ public class WorkflowGovernanceController {
                 .findLatestVersionByDefinitionKey(StringUtils.defaultIfBlank(draft.getTenantId(), "DEFAULT"), definitionKey);
         int nextVersion = latest == null || latest.getVersion() == null ? 1 : latest.getVersion() + 1;
 
+        validateSopCompileStateForPublish(draft);
+        validateGraphDslV2(draft.getGraphDefinition(), "graphDefinition");
         WorkflowDefinitionEntity definition = cloneAsDefinition(draft, definitionKey, nextVersion, operator);
         WorkflowDefinitionEntity saved = workflowDefinitionRepository.save(definition);
 
@@ -183,6 +244,14 @@ public class WorkflowGovernanceController {
     }
 
     private void applyDraftUpdates(WorkflowDraftEntity draft, Map<String, Object> request) {
+        boolean containsSopSpecUpdate = request.containsKey(SOP_CONSTRAINT_KEY_SPEC);
+
+        if (request.containsKey("graphDefinition")
+                && !containsSopSpecUpdate
+                && hasSopSpec(draft.getConstraints())) {
+            throw new IllegalArgumentException("当前Draft已启用sopSpec，请更新sopSpec后由系统编译runtime graph");
+        }
+
         if (request.containsKey("draftKey")) {
             draft.setDraftKey(readRequiredText(request.get("draftKey"), "draftKey"));
         }
@@ -202,7 +271,9 @@ public class WorkflowGovernanceController {
             draft.setInputSchemaVersion(readOptionalText(request.get("inputSchemaVersion")));
         }
         if (request.containsKey("graphDefinition")) {
-            draft.setGraphDefinition(parseObjectMap(request.get("graphDefinition"), "graphDefinition"));
+            Map<String, Object> graphDefinition = parseObjectMap(request.get("graphDefinition"), "graphDefinition");
+            validateGraphDslV2(graphDefinition, "graphDefinition");
+            draft.setGraphDefinition(graphDefinition);
         }
         if (request.containsKey("inputSchema")) {
             draft.setInputSchema(parseObjectMap(request.get("inputSchema"), "inputSchema"));
@@ -215,6 +286,22 @@ public class WorkflowGovernanceController {
         }
         if (request.containsKey("constraints")) {
             draft.setConstraints(parseObjectMap(request.get("constraints"), "constraints"));
+        }
+        if (containsSopSpecUpdate) {
+            Map<String, Object> sopSpec = parseObjectMap(request.get(SOP_CONSTRAINT_KEY_SPEC), SOP_CONSTRAINT_KEY_SPEC);
+            if (sopSpec.isEmpty()) {
+                throw new IllegalArgumentException("sopSpec不能为空");
+            }
+            SopSpecCompileService.CompileResult compileResult = sopSpecCompileService.compile(sopSpec);
+            draft.setGraphDefinition(copyMap(compileResult.sopRuntimeGraph()));
+            draft.setNodeSignature(compileResult.nodeSignature());
+
+            Map<String, Object> constraints = mergeConstraints(draft.getConstraints(), null);
+            constraints.put(SOP_CONSTRAINT_KEY_SPEC, sopSpec);
+            constraints.put(SOP_CONSTRAINT_KEY_COMPILE_HASH, compileResult.compileHash());
+            constraints.put(SOP_CONSTRAINT_KEY_COMPILE_STATUS, SOP_COMPILE_STATUS_SUCCESS);
+            constraints.put(SOP_CONSTRAINT_KEY_COMPILE_WARNINGS, compileResult.warnings());
+            draft.setConstraints(constraints);
         }
         if (request.containsKey("status")) {
             WorkflowDraftStatusEnum status = WorkflowDraftStatusEnum.fromText(String.valueOf(request.get("status")));
@@ -271,6 +358,171 @@ public class WorkflowGovernanceController {
         return parsed;
     }
 
+    private Map<String, Object> resolveSopSpec(Map<String, Object> request,
+                                               WorkflowDraftEntity draft) {
+        if (request != null && request.containsKey(SOP_CONSTRAINT_KEY_SPEC)) {
+            Map<String, Object> sopSpec = parseObjectMap(request.get(SOP_CONSTRAINT_KEY_SPEC), SOP_CONSTRAINT_KEY_SPEC);
+            if (sopSpec.isEmpty()) {
+                throw new IllegalArgumentException("sopSpec不能为空");
+            }
+            return sopSpec;
+        }
+        Map<String, Object> sopSpec = readConstraintMap(draft.getConstraints(), SOP_CONSTRAINT_KEY_SPEC);
+        if (sopSpec == null || sopSpec.isEmpty()) {
+            throw new IllegalArgumentException("sopSpec不能为空");
+        }
+        return sopSpec;
+    }
+
+    private void validateSopCompileStateForPublish(WorkflowDraftEntity draft) {
+        Map<String, Object> sopSpec = readConstraintMap(draft.getConstraints(), SOP_CONSTRAINT_KEY_SPEC);
+        if (sopSpec == null || sopSpec.isEmpty()) {
+            return;
+        }
+        String compileHash = readConstraintText(draft.getConstraints(), SOP_CONSTRAINT_KEY_COMPILE_HASH);
+        if (StringUtils.isBlank(compileHash)) {
+            throw new IllegalArgumentException("存在sopSpec但缺少compileHash，请先编译并保存");
+        }
+        String runtimeGraphHash = sopSpecCompileService.hashRuntimeGraph(draft.getGraphDefinition());
+        if (!StringUtils.equals(compileHash, runtimeGraphHash)) {
+            throw new IllegalArgumentException("sopSpec编译结果已过期，请重新编译并保存后发布");
+        }
+    }
+
+    private boolean hasSopSpec(Map<String, Object> constraints) {
+        Map<String, Object> sopSpec = readConstraintMap(constraints, SOP_CONSTRAINT_KEY_SPEC);
+        return sopSpec != null && !sopSpec.isEmpty();
+    }
+
+    private Map<String, Object> mergeConstraints(Map<String, Object> base,
+                                                 Map<String, Object> override) {
+        Map<String, Object> merged = copyMap(base);
+        if (override != null && !override.isEmpty()) {
+            merged.putAll(override);
+        }
+        return merged;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> readConstraintMap(Map<String, Object> constraints,
+                                                  String key) {
+        if (constraints == null || constraints.isEmpty() || StringUtils.isBlank(key)) {
+            return null;
+        }
+        Object value = constraints.get(key);
+        if (!(value instanceof Map<?, ?> rawMap)) {
+            return null;
+        }
+        Map<String, Object> result = new HashMap<>();
+        for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            result.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        return result;
+    }
+
+    private String readConstraintText(Map<String, Object> constraints,
+                                      String key) {
+        if (constraints == null || constraints.isEmpty() || StringUtils.isBlank(key)) {
+            return null;
+        }
+        Object value = constraints.get(key);
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
+    }
+
+    private void validateGraphDslV2(Map<String, Object> graphDefinition, String fieldName) {
+        if (graphDefinition == null || graphDefinition.isEmpty()) {
+            throw new IllegalArgumentException(fieldName + "不能为空");
+        }
+        int version = parseInt(graphDefinition.get("version"), fieldName + ".version");
+        if (version != GRAPH_DSL_VERSION) {
+            throw new IllegalArgumentException(fieldName + ".version仅支持" + GRAPH_DSL_VERSION);
+        }
+
+        Object nodesObj = graphDefinition.get("nodes");
+        if (!(nodesObj instanceof List<?> nodes) || nodes.isEmpty()) {
+            throw new IllegalArgumentException(fieldName + ".nodes不能为空");
+        }
+        for (Object nodeObj : nodes) {
+            if (!(nodeObj instanceof Map<?, ?> node)) {
+                throw new IllegalArgumentException(fieldName + ".nodes元素必须是对象");
+            }
+            String nodeId = trimToNull(node.get("id"));
+            if (nodeId == null) {
+                throw new IllegalArgumentException(fieldName + ".nodes.id不能为空");
+            }
+            String type = trimToNull(node.get("type"));
+            if (type == null) {
+                throw new IllegalArgumentException(fieldName + ".nodes.type不能为空");
+            }
+        }
+
+        Object groupsObj = graphDefinition.get("groups");
+        if (groupsObj != null) {
+            if (!(groupsObj instanceof List<?> groups)) {
+                throw new IllegalArgumentException(fieldName + ".groups必须是数组");
+            }
+            for (Object groupObj : groups) {
+                if (!(groupObj instanceof Map<?, ?> group)) {
+                    throw new IllegalArgumentException(fieldName + ".groups元素必须是对象");
+                }
+                String groupId = trimToNull(group.get("id"));
+                if (groupId == null) {
+                    throw new IllegalArgumentException(fieldName + ".groups.id不能为空");
+                }
+            }
+        }
+
+        Object edgesObj = graphDefinition.get("edges");
+        if (edgesObj != null) {
+            if (!(edgesObj instanceof List<?> edges)) {
+                throw new IllegalArgumentException(fieldName + ".edges必须是数组");
+            }
+            for (Object edgeObj : edges) {
+                if (!(edgeObj instanceof Map<?, ?> edge)) {
+                    throw new IllegalArgumentException(fieldName + ".edges元素必须是对象");
+                }
+                String from = trimToNull(edge.get("from"));
+                String to = trimToNull(edge.get("to"));
+                if (from == null || to == null) {
+                    throw new IllegalArgumentException(fieldName + ".edges.from/to不能为空");
+                }
+            }
+        }
+    }
+
+    private int parseInt(Object value, String fieldName) {
+        if (value == null) {
+            throw new IllegalArgumentException(fieldName + "不能为空");
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty()) {
+            throw new IllegalArgumentException(fieldName + "不能为空");
+        }
+        try {
+            return Integer.parseInt(text);
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException(fieldName + "必须是整数");
+        }
+    }
+
+    private String trimToNull(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
+    }
+
     private Map<String, Object> copyMap(Map<String, Object> source) {
         return source == null ? new HashMap<>() : new HashMap<>(source);
     }
@@ -324,6 +576,7 @@ public class WorkflowGovernanceController {
         summary.put("createdBy", item.getCreatedBy());
         summary.put("createdAt", item.getCreatedAt());
         summary.put("updatedAt", item.getUpdatedAt());
+        summary.put("compileStatus", readConstraintText(item.getConstraints(), SOP_CONSTRAINT_KEY_COMPILE_STATUS));
         return summary;
     }
 
@@ -336,10 +589,16 @@ public class WorkflowGovernanceController {
         detail.put("approvedBy", item.getApprovedBy());
         detail.put("approvedAt", item.getApprovedAt());
         detail.put("graphDefinition", copyMap(item.getGraphDefinition()));
+        detail.put("sopRuntimeGraph", copyMap(item.getGraphDefinition()));
         detail.put("inputSchema", copyMap(item.getInputSchema()));
         detail.put("defaultConfig", copyMap(item.getDefaultConfig()));
         detail.put("toolPolicy", copyMap(item.getToolPolicy()));
         detail.put("constraints", copyMap(item.getConstraints()));
+        detail.put("sopSpec", readConstraintMap(item.getConstraints(), SOP_CONSTRAINT_KEY_SPEC));
+        detail.put("compileStatus", readConstraintText(item.getConstraints(), SOP_CONSTRAINT_KEY_COMPILE_STATUS));
+        detail.put("compileHash", readConstraintText(item.getConstraints(), SOP_CONSTRAINT_KEY_COMPILE_HASH));
+        detail.put("compileWarnings", item.getConstraints() == null ? List.of() :
+                item.getConstraints().getOrDefault(SOP_CONSTRAINT_KEY_COMPILE_WARNINGS, List.of()));
         return detail;
     }
 

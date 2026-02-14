@@ -4,10 +4,13 @@ import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.planning.service.PlanTransitionDomainService;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
+import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
+import com.getoffer.domain.task.service.TaskFailurePolicyDomainService;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
 import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.types.enums.PlanTaskEventTypeEnum;
+import com.getoffer.types.enums.TaskStatusEnum;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -33,17 +36,20 @@ public class PlanStatusSyncApplicationService {
     private final PlanTaskEventPublisher planTaskEventPublisher;
     private final TurnFinalizeApplicationService turnFinalizeApplicationService;
     private final PlanTransitionDomainService planTransitionDomainService;
+    private final TaskFailurePolicyDomainService taskFailurePolicyDomainService;
 
     public PlanStatusSyncApplicationService(IAgentPlanRepository agentPlanRepository,
                                             IAgentTaskRepository agentTaskRepository,
                                             PlanTaskEventPublisher planTaskEventPublisher,
                                             TurnFinalizeApplicationService turnFinalizeApplicationService,
-                                            PlanTransitionDomainService planTransitionDomainService) {
+                                            PlanTransitionDomainService planTransitionDomainService,
+                                            TaskFailurePolicyDomainService taskFailurePolicyDomainService) {
         this.agentPlanRepository = agentPlanRepository;
         this.agentTaskRepository = agentTaskRepository;
         this.planTaskEventPublisher = planTaskEventPublisher;
         this.turnFinalizeApplicationService = turnFinalizeApplicationService;
         this.planTransitionDomainService = planTransitionDomainService;
+        this.taskFailurePolicyDomainService = taskFailurePolicyDomainService;
     }
 
     public SyncResult syncPlanStatuses(int batchSize, int maxPlansPerRound) {
@@ -157,7 +163,7 @@ public class PlanStatusSyncApplicationService {
                                PlanTaskStatusStat stat,
                                SyncStats syncStats) {
         PlanTransitionDomainService.PlanAggregateStatus aggregateStatus =
-                planTransitionDomainService.resolveAggregateStatus(stat);
+                resolveAggregateStatusWithFailurePolicy(plan, stat);
         PlanStatusEnum targetStatus = planTransitionDomainService.resolveTargetStatus(plan.getStatus(), aggregateStatus);
         if (targetStatus == null || targetStatus == plan.getStatus()) {
             return;
@@ -207,6 +213,64 @@ public class PlanStatusSyncApplicationService {
                     targetStatus,
                     ex.getMessage());
         }
+    }
+
+    private PlanTransitionDomainService.PlanAggregateStatus resolveAggregateStatusWithFailurePolicy(AgentPlanEntity plan,
+                                                                                                     PlanTaskStatusStat stat) {
+        PlanTransitionDomainService.PlanAggregateStatus aggregateStatus =
+                planTransitionDomainService.resolveAggregateStatus(stat);
+        if (aggregateStatus != PlanTransitionDomainService.PlanAggregateStatus.FAILED
+                || valueOf(stat == null ? null : stat.getFailedCount()) <= 0L) {
+            return aggregateStatus;
+        }
+
+        PlanTaskStatusStat adjustedStat = applyFailurePolicy(plan, stat);
+        if (adjustedStat == stat) {
+            return aggregateStatus;
+        }
+        return planTransitionDomainService.resolveAggregateStatus(adjustedStat);
+    }
+
+    private PlanTaskStatusStat applyFailurePolicy(AgentPlanEntity plan,
+                                                   PlanTaskStatusStat stat) {
+        if (plan == null || plan.getId() == null || stat == null) {
+            return stat;
+        }
+        long failedCount = valueOf(stat.getFailedCount());
+        if (failedCount <= 0L) {
+            return stat;
+        }
+
+        List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(plan.getId());
+        if (tasks == null || tasks.isEmpty()) {
+            return stat;
+        }
+
+        long nonToleratedFailedCount = 0L;
+        for (AgentTaskEntity task : tasks) {
+            if (task == null || task.getStatus() != TaskStatusEnum.FAILED) {
+                continue;
+            }
+            if (!taskFailurePolicyDomainService.isFailSafeFailure(task)) {
+                nonToleratedFailedCount++;
+            }
+        }
+
+        if (nonToleratedFailedCount == failedCount) {
+            return stat;
+        }
+
+        return PlanTaskStatusStat.builder()
+                .planId(stat.getPlanId())
+                .total(stat.getTotal())
+                .failedCount(nonToleratedFailedCount)
+                .runningLikeCount(stat.getRunningLikeCount())
+                .terminalCount(stat.getTerminalCount())
+                .build();
+    }
+
+    private long valueOf(Long value) {
+        return value == null ? 0L : value;
     }
 
     private boolean isOptimisticLock(RuntimeException ex) {

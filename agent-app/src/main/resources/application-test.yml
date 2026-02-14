@@ -17,9 +17,10 @@ spring:
   application:
     name: agent-app
   datasource:
-    username: postgres
-    password: postgres
-    url: jdbc:postgresql://127.0.0.1:5432/agent_db_test?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
+    # 支持通过环境变量覆盖，便于 CI 与本地测试复用
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    url: jdbc:postgresql://${DB_HOST:127.0.0.1}:${DB_PORT:5432}/${DB_NAME:agent_db_test}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
     driver-class-name: org.postgresql.Driver
     type: com.zaxxer.hikari.HikariDataSource
   hikari:
@@ -35,7 +36,7 @@ spring:
   # Spring AI 配置
   ai:
     openai:
-      api-key: ${OPENAI_API_KEY:sk-your-api-key}
+      api-key: ${OPENAI_API_KEY:}
       base-url: ${OPENAI_BASE_URL:https://api.openai.com}
       chat:
         options:
@@ -50,6 +51,9 @@ mybatis:
 planner:
   root:
     enabled: false
+    timeout:
+      # Root 候选规划软超时（毫秒）：测试场景默认与开发一致
+      soft-ms: 15000
 
 executor:
   execution:

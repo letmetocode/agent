@@ -58,6 +58,29 @@ public class TaskScheduleApplicationServiceTest {
     }
 
     @Test
+    public void shouldPromoteTaskWhenDependencyFailedButConfiguredFailSafe() {
+        InMemoryAgentTaskRepository repository = new InMemoryAgentTaskRepository();
+        repository.save(newTask(31L, 210L, "dep", TaskStatusEnum.FAILED, Collections.emptyList()));
+        AgentTaskEntity workTask = newTask(32L, 210L, "work", TaskStatusEnum.PENDING, List.of("dep"));
+        workTask.setConfigSnapshot(new HashMap<>(Map.of(
+                "graphPolicy", new HashMap<>(Map.of("failurePolicy", "failSafe"))
+        )));
+        repository.save(workTask);
+
+        TaskScheduleApplicationService service = new TaskScheduleApplicationService(
+                repository,
+                new TaskDependencyPolicyDomainService()
+        );
+
+        TaskScheduleApplicationService.ScheduleResult result = service.schedulePendingTasks();
+
+        Assertions.assertEquals(1, result.pendingCount());
+        Assertions.assertEquals(1, result.promotedCount());
+        Assertions.assertEquals(0, result.skippedCount());
+        Assertions.assertEquals(TaskStatusEnum.READY, repository.findById(32L).getStatus());
+    }
+
+    @Test
     public void shouldKeepTaskWaitingWhenDependencyNotCompleted() {
         InMemoryAgentTaskRepository repository = new InMemoryAgentTaskRepository();
         repository.save(newTask(5L, 300L, "dep", TaskStatusEnum.RUNNING, Collections.emptyList()));

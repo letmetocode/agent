@@ -53,6 +53,7 @@ public class RootWorkflowDraftPlannerImpl implements IRootWorkflowDraftPlanner {
         StringBuilder prompt = new StringBuilder();
         prompt.append("你是Workflow规划器。请根据用户请求生成可执行的DAG草案，并只返回JSON。");
         prompt.append("JSON必须包含字段：category,name,routeDescription,graphDefinition,inputSchema,defaultConfig,toolPolicy,constraints,inputSchemaVersion,nodeSignature。");
+        prompt.append("graphDefinition.version 必须固定为2，并显式输出 groups（可为空数组）。");
         prompt.append("其中 graphDefinition.nodes 每个节点至少包含 id,name,type,config；type 仅允许 WORKER/CRITIC。");
         prompt.append("graphDefinition.edges 必须是有向无环图，禁止自环与回路。");
         prompt.append("edges 的 from/to 必须引用 nodes 中真实存在的节点 id，不允许输出 START/END 等伪节点。");

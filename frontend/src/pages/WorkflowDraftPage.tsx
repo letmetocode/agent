@@ -1,9 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Descriptions, Drawer, Empty, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
+import {
+  Alert,
+  Button,
+  Card,
+  Descriptions,
+  Drawer,
+  Empty,
+  Input,
+  Modal,
+  Select,
+  Space,
+  Table,
+  Tabs,
+  Tag,
+  Typography,
+  message
+} from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import { useWorkflowGovernanceStore } from '@/features/workflow/workflowGovernanceStore';
-import type { WorkflowDraftSummaryDTO } from '@/shared/types/api';
+import { SopGraphEditor } from '@/features/workflow/SopGraphEditor';
+import { graphToSopSpec, normalizeSopSpec, sopSpecToPayload, type SopSpecDocument } from '@/features/workflow/sopSpecModel';
+import { agentApi } from '@/shared/api/agentApi';
+import type { SopCompileResultDTO, WorkflowDraftSummaryDTO } from '@/shared/types/api';
 import { PageHeader } from '@/shared/ui/PageHeader';
 
 const { Text } = Typography;
@@ -31,7 +50,7 @@ const statusColor = (status?: string) => {
   }
 };
 
-const stringifyJson = (value?: Record<string, unknown>) => JSON.stringify(value || {}, null, 2);
+const stringifyJson = (value?: unknown) => JSON.stringify(value || {}, null, 2);
 
 const toErrorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -49,16 +68,44 @@ export const WorkflowDraftPage = () => {
     clearSelectedCandidate,
     loadCandidates,
     loadCandidateDetail,
+    updateCandidate,
     publishCandidate
   } = useWorkflowGovernanceStore();
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [publishTarget, setPublishTarget] = useState<WorkflowDraftSummaryDTO | null>(null);
   const [operator, setOperator] = useState('SYSTEM');
+  const [editorSpec, setEditorSpec] = useState<SopSpecDocument>();
+  const [activeTab, setActiveTab] = useState<'detail' | 'visual'>('detail');
+  const [compiling, setCompiling] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [savingSpec, setSavingSpec] = useState(false);
+  const [compilePreview, setCompilePreview] = useState<SopCompileResultDTO>();
 
   useEffect(() => {
     void loadCandidates();
   }, [loadCandidates]);
+
+  useEffect(() => {
+    if (!selectedCandidate) {
+      setEditorSpec(undefined);
+      setCompilePreview(undefined);
+      return;
+    }
+
+    const spec = selectedCandidate.sopSpec
+      ? normalizeSopSpec(selectedCandidate.sopSpec)
+      : graphToSopSpec(selectedCandidate.graphDefinition, selectedCandidate.name);
+    setEditorSpec(spec);
+    setCompilePreview({
+      draftId: selectedCandidate.id,
+      sopSpec: selectedCandidate.sopSpec,
+      sopRuntimeGraph: selectedCandidate.sopRuntimeGraph || selectedCandidate.graphDefinition,
+      compileHash: selectedCandidate.compileHash,
+      nodeSignature: selectedCandidate.nodeSignature,
+      warnings: selectedCandidate.compileWarnings
+    });
+  }, [selectedCandidate]);
 
   const columns: ColumnsType<WorkflowDraftSummaryDTO> = useMemo(
     () => [
@@ -72,6 +119,12 @@ export const WorkflowDraftPage = () => {
         dataIndex: 'status',
         width: 110,
         render: (value: string) => <Tag color={statusColor(value)}>{value || 'UNKNOWN'}</Tag>
+      },
+      {
+        title: '编译状态',
+        dataIndex: 'compileStatus',
+        width: 120,
+        render: (value?: string) => (value ? <Tag color="processing">{value}</Tag> : '-')
       },
       { title: '来源', dataIndex: 'sourceType', width: 170, ellipsis: true },
       { title: '创建人', dataIndex: 'createdBy', width: 120, ellipsis: true },
@@ -93,6 +146,7 @@ export const WorkflowDraftPage = () => {
               onClick={async () => {
                 try {
                   await loadCandidateDetail(record.id);
+                  setActiveTab('detail');
                   setDetailOpen(true);
                 } catch (err) {
                   message.error(`加载详情失败: ${toErrorMessage(err)}`);
@@ -119,11 +173,71 @@ export const WorkflowDraftPage = () => {
     [loadCandidateDetail]
   );
 
+  const saveSopSpec = async () => {
+    if (!selectedCandidate || !editorSpec) {
+      return;
+    }
+    setSavingSpec(true);
+    try {
+      const updated = await updateCandidate(selectedCandidate.id, {
+        sopSpec: sopSpecToPayload(editorSpec)
+      });
+      setCompilePreview({
+        draftId: updated.id,
+        sopSpec: updated.sopSpec,
+        sopRuntimeGraph: updated.sopRuntimeGraph,
+        compileHash: updated.compileHash,
+        nodeSignature: updated.nodeSignature,
+        warnings: updated.compileWarnings
+      });
+      message.success('SOP 编排已保存并完成编译');
+    } catch (err) {
+      message.error(`保存失败: ${toErrorMessage(err)}`);
+    } finally {
+      setSavingSpec(false);
+    }
+  };
+
+  const compileSopSpec = async () => {
+    if (!selectedCandidate || !editorSpec) {
+      return;
+    }
+    setCompiling(true);
+    try {
+      const result = await agentApi.compileWorkflowDraftSopSpec(selectedCandidate.id, sopSpecToPayload(editorSpec));
+      setCompilePreview(result);
+      message.success('编译完成，可预览 Runtime Graph');
+    } catch (err) {
+      message.error(`编译失败: ${toErrorMessage(err)}`);
+    } finally {
+      setCompiling(false);
+    }
+  };
+
+  const validateSopSpec = async () => {
+    if (!selectedCandidate || !editorSpec) {
+      return;
+    }
+    setValidating(true);
+    try {
+      const result = await agentApi.validateWorkflowDraftSopSpec(selectedCandidate.id, sopSpecToPayload(editorSpec));
+      if (result.pass) {
+        message.success('校验通过');
+      } else {
+        message.warning(`校验未通过: ${(result.issues || []).join('; ') || '请检查SOP配置'}`);
+      }
+    } catch (err) {
+      message.error(`校验失败: ${toErrorMessage(err)}`);
+    } finally {
+      setValidating(false);
+    }
+  };
+
   return (
     <div className="page-container">
       <PageHeader
         title="Workflow Draft 治理"
-        description="管理候补草案并发布为生产 Definition，避免路由未命中的执行降级。"
+        description="管理候补草案并发布为生产 Definition，支持图形化 SOP 编排与编译预览。"
         primaryActionText="返回对话与执行"
         onPrimaryAction={() => navigate('/sessions')}
         extra={<Button onClick={() => void loadCandidates(statusFilter)}>刷新</Button>}
@@ -159,7 +273,7 @@ export const WorkflowDraftPage = () => {
             loading={loading}
             columns={columns}
             dataSource={list}
-            scroll={{ x: 1650 }}
+            scroll={{ x: 1720 }}
             pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50] }}
             locale={{ emptyText: <Empty description="暂无 Workflow Draft" /> }}
           />
@@ -167,7 +281,7 @@ export const WorkflowDraftPage = () => {
       </Card>
 
       <Drawer
-        width={900}
+        width={1320}
         title={selectedCandidate ? `候选详情 #${selectedCandidate.id}` : '候选详情'}
         open={detailOpen}
         onClose={() => {
@@ -180,44 +294,103 @@ export const WorkflowDraftPage = () => {
             <Text type="secondary">正在加载详情...</Text>
           </div>
         ) : selectedCandidate ? (
-          <Space direction="vertical" style={{ width: '100%' }} size="middle">
-            <Descriptions size="small" bordered column={2}>
-              <Descriptions.Item label="ID">{selectedCandidate.id}</Descriptions.Item>
-              <Descriptions.Item label="Draft Key">{selectedCandidate.draftKey}</Descriptions.Item>
-              <Descriptions.Item label="租户">{selectedCandidate.tenantId || 'DEFAULT'}</Descriptions.Item>
-              <Descriptions.Item label="分类">{selectedCandidate.category}</Descriptions.Item>
-              <Descriptions.Item label="名称">{selectedCandidate.name}</Descriptions.Item>
-              <Descriptions.Item label="状态">
-                <Tag color={statusColor(selectedCandidate.status)}>{selectedCandidate.status}</Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="来源">{selectedCandidate.sourceType || '-'}</Descriptions.Item>
-              <Descriptions.Item label="输入版本">{selectedCandidate.inputSchemaVersion || '-'}</Descriptions.Item>
-              <Descriptions.Item label="路由描述" span={2}>
-                {selectedCandidate.routeDescription || '-'}
-              </Descriptions.Item>
-            </Descriptions>
+          <Tabs
+            activeKey={activeTab}
+            onChange={(tab) => setActiveTab(tab as 'detail' | 'visual')}
+            items={[
+              {
+                key: 'detail',
+                label: '草案详情',
+                children: (
+                  <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                    <Descriptions size="small" bordered column={2}>
+                      <Descriptions.Item label="ID">{selectedCandidate.id}</Descriptions.Item>
+                      <Descriptions.Item label="Draft Key">{selectedCandidate.draftKey}</Descriptions.Item>
+                      <Descriptions.Item label="租户">{selectedCandidate.tenantId || 'DEFAULT'}</Descriptions.Item>
+                      <Descriptions.Item label="分类">{selectedCandidate.category}</Descriptions.Item>
+                      <Descriptions.Item label="名称">{selectedCandidate.name}</Descriptions.Item>
+                      <Descriptions.Item label="状态">
+                        <Tag color={statusColor(selectedCandidate.status)}>{selectedCandidate.status}</Tag>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="编译状态">{selectedCandidate.compileStatus || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="编译哈希">{selectedCandidate.compileHash || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="来源">{selectedCandidate.sourceType || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="输入版本">{selectedCandidate.inputSchemaVersion || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="路由描述" span={2}>
+                        {selectedCandidate.routeDescription || '-'}
+                      </Descriptions.Item>
+                    </Descriptions>
 
-            <div>
-              <Text strong>graphDefinition</Text>
-              <pre className="json-block">{stringifyJson(selectedCandidate.graphDefinition)}</pre>
-            </div>
-            <div>
-              <Text strong>inputSchema</Text>
-              <pre className="json-block">{stringifyJson(selectedCandidate.inputSchema)}</pre>
-            </div>
-            <div>
-              <Text strong>defaultConfig</Text>
-              <pre className="json-block">{stringifyJson(selectedCandidate.defaultConfig)}</pre>
-            </div>
-            <div>
-              <Text strong>toolPolicy</Text>
-              <pre className="json-block">{stringifyJson(selectedCandidate.toolPolicy)}</pre>
-            </div>
-            <div>
-              <Text strong>constraints</Text>
-              <pre className="json-block">{stringifyJson(selectedCandidate.constraints)}</pre>
-            </div>
-          </Space>
+                    <div>
+                      <Text strong>SOP Spec</Text>
+                      <pre className="json-block">{stringifyJson(selectedCandidate.sopSpec)}</pre>
+                    </div>
+                    <div>
+                      <Text strong>Runtime Graph</Text>
+                      <pre className="json-block">{stringifyJson(selectedCandidate.sopRuntimeGraph || selectedCandidate.graphDefinition)}</pre>
+                    </div>
+                    <div>
+                      <Text strong>inputSchema</Text>
+                      <pre className="json-block">{stringifyJson(selectedCandidate.inputSchema)}</pre>
+                    </div>
+                    <div>
+                      <Text strong>defaultConfig</Text>
+                      <pre className="json-block">{stringifyJson(selectedCandidate.defaultConfig)}</pre>
+                    </div>
+                    <div>
+                      <Text strong>toolPolicy</Text>
+                      <pre className="json-block">{stringifyJson(selectedCandidate.toolPolicy)}</pre>
+                    </div>
+                    <div>
+                      <Text strong>constraints</Text>
+                      <pre className="json-block">{stringifyJson(selectedCandidate.constraints)}</pre>
+                    </div>
+                  </Space>
+                )
+              },
+              {
+                key: 'visual',
+                label: 'SOP 可视化编排',
+                children: (
+                  <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="通过拖拽和连线维护 SOP Spec；保存时后端会编译为 Runtime Graph 并写回 Draft。"
+                    />
+
+                    <Space wrap>
+                      <Button loading={validating} onClick={() => void validateSopSpec()}>
+                        校验
+                      </Button>
+                      <Button loading={compiling} onClick={() => void compileSopSpec()}>
+                        编译预览
+                      </Button>
+                      <Button type="primary" loading={savingSpec} onClick={() => void saveSopSpec()}>
+                        保存编排
+                      </Button>
+                      <Text type="secondary">compileHash: {compilePreview?.compileHash || selectedCandidate.compileHash || '-'}</Text>
+                    </Space>
+
+                    {compilePreview?.warnings && compilePreview.warnings.length > 0 ? (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message={`编译警告：${compilePreview.warnings.join('；')}`}
+                      />
+                    ) : null}
+
+                    {editorSpec ? <SopGraphEditor value={editorSpec} onChange={setEditorSpec} /> : <Empty description="暂无可编辑 SOP" />}
+
+                    <div>
+                      <Text strong>编译预览（Runtime Graph）</Text>
+                      <pre className="json-block">{stringifyJson(compilePreview?.sopRuntimeGraph || selectedCandidate.sopRuntimeGraph)}</pre>
+                    </div>
+                  </Space>
+                )
+              }
+            ]}
+          />
         ) : (
           <Empty description="未选择 Workflow Draft" />
         )}

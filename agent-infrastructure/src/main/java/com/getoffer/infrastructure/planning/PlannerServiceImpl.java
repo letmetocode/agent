@@ -32,6 +32,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.DisposableBean;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -41,6 +42,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -48,6 +50,13 @@ import java.math.BigDecimal;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -59,7 +68,7 @@ import java.util.regex.Pattern;
  */
 @Slf4j
 @Service
-    public class PlannerServiceImpl implements PlannerService {
+public class PlannerServiceImpl implements PlannerService, DisposableBean {
 
     private static final Pattern TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}]+");
     private static final Pattern DESCRIPTION_FIXED_VALUE_PATTERN =
@@ -70,13 +79,18 @@ import java.util.regex.Pattern;
     private static final String DEFAULT_CREATOR = "SYSTEM";
     private static final String SOURCE_TYPE_AUTO_MISS_ROOT = "AUTO_MISS_ROOT";
     private static final String SOURCE_TYPE_AUTO_MISS_FALLBACK = "AUTO_MISS_FALLBACK";
+    private static final String FALLBACK_REASON_ROOT_PLANNING_FAILED = "ROOT_PLANNING_FAILED";
+    private static final String FALLBACK_REASON_ROOT_PLANNER_SOFT_TIMEOUT = "ROOT_PLANNER_SOFT_TIMEOUT";
+    private static final String FALLBACK_REASON_ROOT_PLANNER_DISABLED = "ROOT_PLANNER_DISABLED";
+    private static final String FALLBACK_REASON_ROOT_PLANNER_MISSING = "ROOT_PLANNER_MISSING";
     private static final String METRIC_PLANNER_ROUTE_TOTAL = "agent.planner.route.total";
     private static final String METRIC_PLANNER_FALLBACK_TOTAL = "agent.planner.fallback.total";
     private static final Set<String> PLANNER_FALLBACK_REASON_TAG_WHITELIST = Set.of(
             "AUTO_MISS_FALLBACK",
-            "ROOT_PLANNING_FAILED",
-            "ROOT_PLANNER_DISABLED",
-            "ROOT_PLANNER_MISSING",
+            FALLBACK_REASON_ROOT_PLANNING_FAILED,
+            FALLBACK_REASON_ROOT_PLANNER_SOFT_TIMEOUT,
+            FALLBACK_REASON_ROOT_PLANNER_DISABLED,
+            FALLBACK_REASON_ROOT_PLANNER_MISSING,
             "UNKNOWN"
     );
     private static final Set<String> VIRTUAL_ENTRY_NODE_IDS = Set.of(
@@ -85,6 +99,14 @@ import java.util.regex.Pattern;
     private static final Set<String> VIRTUAL_EXIT_NODE_IDS = Set.of(
             "END", "FINISH", "EXIT", "ROOT_END", "SINK"
     );
+    private static final int GRAPH_DSL_VERSION = 2;
+    private static final String JOIN_POLICY_ALL = "all";
+    private static final String JOIN_POLICY_ANY = "any";
+    private static final String JOIN_POLICY_QUORUM = "quorum";
+    private static final String FAILURE_POLICY_FAIL_FAST = "failFast";
+    private static final String FAILURE_POLICY_FAIL_SAFE = "failSafe";
+    private static final long DEFAULT_ROOT_SOFT_TIMEOUT_MS = 15_000L;
+    private static final AtomicInteger ROOT_PLANNER_THREAD_SEQ = new AtomicInteger(1);
 
     private final IWorkflowDefinitionRepository workflowDefinitionRepository;
     private final IWorkflowDraftRepository workflowDraftRepository;
@@ -100,6 +122,8 @@ import java.util.regex.Pattern;
     private final long rootRetryBackoffMs;
     private final boolean fallbackSingleNodeEnabled;
     private final String fallbackAgentKey;
+    private final long rootSoftTimeoutMs;
+    private final ExecutorService rootPlanningExecutor;
     private final MeterRegistry meterRegistry;
 
     public PlannerServiceImpl(IWorkflowDefinitionRepository workflowDefinitionRepository,
@@ -121,7 +145,39 @@ import java.util.regex.Pattern;
                 3,
                 300L,
                 true,
-                "assistant");
+                "assistant",
+                DEFAULT_ROOT_SOFT_TIMEOUT_MS);
+    }
+
+    public PlannerServiceImpl(IWorkflowDefinitionRepository workflowDefinitionRepository,
+                              IWorkflowDraftRepository workflowDraftRepository,
+                              IRoutingDecisionRepository routingDecisionRepository,
+                              IAgentPlanRepository agentPlanRepository,
+                              IAgentTaskRepository agentTaskRepository,
+                              JsonCodec jsonCodec,
+                              IRootWorkflowDraftPlanner rootWorkflowDraftPlanner,
+                              IAgentRegistryRepository agentRegistryRepository,
+                              boolean rootPlannerEnabled,
+                              String rootAgentKey,
+                              int rootMaxAttempts,
+                              long rootRetryBackoffMs,
+                              boolean fallbackSingleNodeEnabled,
+                              String fallbackAgentKey) {
+        this(workflowDefinitionRepository,
+                workflowDraftRepository,
+                routingDecisionRepository,
+                agentPlanRepository,
+                agentTaskRepository,
+                jsonCodec,
+                rootWorkflowDraftPlanner,
+                agentRegistryRepository,
+                rootPlannerEnabled,
+                rootAgentKey,
+                rootMaxAttempts,
+                rootRetryBackoffMs,
+                fallbackSingleNodeEnabled,
+                fallbackAgentKey,
+                DEFAULT_ROOT_SOFT_TIMEOUT_MS);
     }
 
     @Autowired
@@ -138,7 +194,8 @@ import java.util.regex.Pattern;
                               @Value("${planner.root.retry.max-attempts:3}") int rootMaxAttempts,
                               @Value("${planner.root.retry.backoff-ms:300}") long rootRetryBackoffMs,
                               @Value("${planner.root.fallback.single-node.enabled:true}") boolean fallbackSingleNodeEnabled,
-                              @Value("${planner.root.fallback.agent-key:assistant}") String fallbackAgentKey) {
+                              @Value("${planner.root.fallback.agent-key:assistant}") String fallbackAgentKey,
+                              @Value("${planner.root.timeout.soft-ms:15000}") long rootSoftTimeoutMs) {
         this.workflowDefinitionRepository = workflowDefinitionRepository;
         this.workflowDraftRepository = workflowDraftRepository;
         this.routingDecisionRepository = routingDecisionRepository;
@@ -153,6 +210,14 @@ import java.util.regex.Pattern;
         this.rootRetryBackoffMs = Math.max(rootRetryBackoffMs, 0L);
         this.fallbackSingleNodeEnabled = fallbackSingleNodeEnabled;
         this.fallbackAgentKey = StringUtils.defaultIfBlank(fallbackAgentKey, this.rootAgentKey);
+        this.rootSoftTimeoutMs = Math.max(rootSoftTimeoutMs, 0L);
+        int plannerThreadPoolSize = Math.max(2, Runtime.getRuntime().availableProcessors());
+        this.rootPlanningExecutor = Executors.newFixedThreadPool(plannerThreadPoolSize, runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("planner-root-" + ROOT_PLANNER_THREAD_SEQ.getAndIncrement());
+            thread.setDaemon(true);
+            return thread;
+        });
         this.meterRegistry = Metrics.globalRegistry;
     }
 
@@ -231,7 +296,11 @@ import java.util.regex.Pattern;
         }
 
         RoutedWorkflow routedWorkflow = routeAndResolve(sessionId, userQuery, extraContext);
-        Map<String, Object> executionGraph = deepCopyMap(routedWorkflow.graphDefinition);
+        Map<String, Object> executionGraph = normalizeAndValidateGraphDefinition(
+                deepCopyMap(routedWorkflow.graphDefinition),
+                routedWorkflow.definition != null ? "生产Definition" : "候选Draft",
+                routedWorkflow.definition == null
+        );
         if (executionGraph.isEmpty()) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "Workflow graph definition is empty");
         }
@@ -330,26 +399,39 @@ import java.util.regex.Pattern;
         if (!rootPlannerEnabled) {
             log.info("Root planner is disabled. use fallback single-node candidate. sessionId={}", sessionId);
             return persistOrReuseDraft(userQuery,
-                    buildFallbackSingleNodeDraft(userQuery, "ROOT_PLANNER_DISABLED"),
+                    buildFallbackSingleNodeDraft(userQuery, FALLBACK_REASON_ROOT_PLANNER_DISABLED, 0),
                     SOURCE_TYPE_AUTO_MISS_FALLBACK);
         }
         if (rootWorkflowDraftPlanner == null) {
             log.warn("Root planner bean not available. use fallback single-node candidate. sessionId={}", sessionId);
             return persistOrReuseDraft(userQuery,
-                    buildFallbackSingleNodeDraft(userQuery, "ROOT_PLANNER_MISSING"),
+                    buildFallbackSingleNodeDraft(userQuery, FALLBACK_REASON_ROOT_PLANNER_MISSING, 0),
                     SOURCE_TYPE_AUTO_MISS_FALLBACK);
         }
 
         Exception lastError = null;
+        int attemptsUsed = 0;
+        String fallbackReason = FALLBACK_REASON_ROOT_PLANNING_FAILED;
         for (int attempt = 1; attempt <= rootMaxAttempts; attempt++) {
+            attemptsUsed = attempt;
             try {
                 Map<String, Object> planningContext = buildRootPlanningContext(sessionId, userQuery, extraContext, attempt);
-                RootWorkflowDraft draft = rootWorkflowDraftPlanner.planDraft(sessionId, userQuery, planningContext);
+                RootWorkflowDraft draft = planDraftWithSoftTimeout(sessionId, userQuery, planningContext);
                 return persistOrReuseDraft(userQuery, draft, SOURCE_TYPE_AUTO_MISS_ROOT);
             } catch (Exception ex) {
                 lastError = ex;
-                log.warn("Root candidate planning failed. sessionId={}, attempt={}/{}, reason={}",
-                        sessionId, attempt, rootMaxAttempts, ex.getMessage());
+                boolean nonRetryable = isNonRetryableRootPlanningError(ex);
+                boolean softTimeout = isRootPlannerSoftTimeout(ex);
+                if (softTimeout) {
+                    fallbackReason = FALLBACK_REASON_ROOT_PLANNER_SOFT_TIMEOUT;
+                }
+                log.warn("Root candidate planning failed. sessionId={}, attempt={}/{}, nonRetryable={}, softTimeout={}, reason={}",
+                        sessionId, attempt, rootMaxAttempts, nonRetryable, softTimeout, ex.getMessage());
+                if (nonRetryable) {
+                    log.warn("Root candidate planning encountered non-retryable error. skip remaining retries. sessionId={}, attempt={}",
+                            sessionId, attempt);
+                    break;
+                }
                 sleepBackoff(attempt);
             }
         }
@@ -357,11 +439,12 @@ import java.util.regex.Pattern;
         if (!fallbackSingleNodeEnabled) {
             String reason = lastError == null ? "unknown" : StringUtils.defaultIfBlank(lastError.getMessage(), "unknown");
             throw new AppException(ResponseCode.UN_ERROR.getCode(),
-                    "Root规划失败且已重试" + rootMaxAttempts + "次: " + reason);
+                    "Root规划失败且已重试" + attemptsUsed + "次: " + reason);
         }
-        log.warn("Root candidate planning exhausted retries. fallback to single-node candidate. sessionId={}", sessionId);
+        log.warn("Root candidate planning exhausted retries. fallback to single-node candidate. sessionId={}, attemptsUsed={}, fallbackReason={}",
+                sessionId, attemptsUsed, fallbackReason);
         return persistOrReuseDraft(userQuery,
-                buildFallbackSingleNodeDraft(userQuery, "ROOT_PLANNING_FAILED"),
+                buildFallbackSingleNodeDraft(userQuery, fallbackReason, attemptsUsed),
                 SOURCE_TYPE_AUTO_MISS_FALLBACK);
     }
 
@@ -376,10 +459,62 @@ import java.util.regex.Pattern;
         context.put("maxAttempts", rootMaxAttempts);
         context.put("fallbackAgentKey", fallbackAgentKey);
         context.put("rootAgentKey", rootAgentKey);
+        context.put("softTimeoutMs", rootSoftTimeoutMs);
         if (extraContext != null && !extraContext.isEmpty()) {
             context.put("extraContext", extraContext);
         }
         return context;
+    }
+
+    private boolean isNonRetryableRootPlanningError(Throwable throwable) {
+        Throwable cursor = throwable;
+        while (cursor != null) {
+            if (cursor instanceof NonRetryableRootPlanningException) {
+                return true;
+            }
+            cursor = cursor.getCause();
+        }
+        return false;
+    }
+
+    private RootWorkflowDraft planDraftWithSoftTimeout(Long sessionId,
+                                                       String userQuery,
+                                                       Map<String, Object> planningContext) throws Exception {
+        if (rootSoftTimeoutMs <= 0L) {
+            return rootWorkflowDraftPlanner.planDraft(sessionId, userQuery, planningContext);
+        }
+
+        Future<RootWorkflowDraft> future = rootPlanningExecutor.submit(
+                () -> rootWorkflowDraftPlanner.planDraft(sessionId, userQuery, planningContext)
+        );
+        try {
+            return future.get(rootSoftTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException ex) {
+            future.cancel(true);
+            throw new NonRetryableRootPlanningException(
+                    "Root planning soft timeout exceeded " + rootSoftTimeoutMs + "ms", ex);
+        } catch (InterruptedException ex) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new NonRetryableRootPlanningException("Root planning interrupted", ex);
+        } catch (ExecutionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof Exception) {
+                throw (Exception) cause;
+            }
+            throw new RuntimeException(cause);
+        }
+    }
+
+    private boolean isRootPlannerSoftTimeout(Throwable throwable) {
+        Throwable cursor = throwable;
+        while (cursor != null) {
+            if (cursor instanceof TimeoutException) {
+                return true;
+            }
+            cursor = cursor.getCause();
+        }
+        return false;
     }
 
     private WorkflowDraftEntity persistOrReuseDraft(String userQuery,
@@ -437,7 +572,9 @@ import java.util.regex.Pattern;
         return policy;
     }
 
-    private RootWorkflowDraft buildFallbackSingleNodeDraft(String userQuery, String candidateReason) {
+    private RootWorkflowDraft buildFallbackSingleNodeDraft(String userQuery,
+                                                           String candidateReason,
+                                                           int plannerAttempts) {
         RootWorkflowDraft draft = new RootWorkflowDraft();
         draft.setCategory("candidate");
         draft.setName(buildCandidateName(userQuery));
@@ -448,6 +585,7 @@ import java.util.regex.Pattern;
         Map<String, Object> constraints = new HashMap<>();
         constraints.put("mode", "candidate-restricted");
         constraints.put("fallbackReason", candidateReason);
+        constraints.put("rootPlanningAttempts", Math.max(plannerAttempts, 0));
         draft.setConstraints(constraints);
         draft.setInputSchemaVersion("v1");
         draft.setNodeSignature("candidate-fallback-single-worker");
@@ -460,13 +598,17 @@ import java.util.regex.Pattern;
         node.put("id", "candidate-worker");
         node.put("name", "候选Workflow执行");
         node.put("type", "WORKER");
+        node.put("joinPolicy", JOIN_POLICY_ALL);
+        node.put("failurePolicy", FAILURE_POLICY_FAIL_SAFE);
         Map<String, Object> config = new HashMap<>();
         config.put("promptTemplate", "你将基于用户请求给出结构化执行结果，用户请求: ${userQuery}");
         config.put("agentKey", fallbackAgentKey);
         node.put("config", config);
 
         Map<String, Object> graph = new HashMap<>();
+        graph.put("version", GRAPH_DSL_VERSION);
         graph.put("nodes", Collections.singletonList(node));
+        graph.put("groups", Collections.emptyList());
         graph.put("edges", Collections.emptyList());
         graph.put("candidateReason", StringUtils.defaultIfBlank(candidateReason, "DEFINITION_NOT_MATCHED"));
         graph.put("sourceQuery", userQuery);
@@ -477,55 +619,17 @@ import java.util.regex.Pattern;
         if (draft == null) {
             throw new AppException(ResponseCode.UN_ERROR.getCode(), "Root 规划未返回草案");
         }
-        Map<String, Object> graph = deepCopyMap(draft.getGraphDefinition());
-        List<Map<String, Object>> nodes = getMapList(graph, "nodes");
-        if (nodes.isEmpty()) {
-            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "候选草案节点为空");
-        }
-        List<Map<String, Object>> normalizedNodes = new ArrayList<>();
-        Set<String> nodeIdSet = new HashSet<>();
-        for (Map<String, Object> node : nodes) {
-            if (node == null || node.isEmpty()) {
-                continue;
-            }
-            String nodeId = getString(node, "id", "nodeId", "node_id");
-            if (StringUtils.isBlank(nodeId)) {
-                throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "候选草案节点缺少id");
-            }
-            if (!nodeIdSet.add(nodeId)) {
-                throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "候选草案节点id重复: " + nodeId);
-            }
-            String rawTaskType = StringUtils.defaultIfBlank(getString(node, "type", "taskType", "task_type"), "WORKER");
-            TaskTypeEnum taskType;
-            try {
-                taskType = TaskTypeEnum.fromText(rawTaskType);
-            } catch (Exception ex) {
-                throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "候选草案节点类型非法: " + rawTaskType);
-            }
 
-            Map<String, Object> normalizedNode = new LinkedHashMap<>(node);
-            normalizedNode.put("id", nodeId);
-            normalizedNode.put("type", taskType.name());
-            Map<String, Object> config = getMap(node, "config", "configSnapshot", "config_snapshot", "options");
-            if (config == null) {
-                config = new HashMap<>();
-            } else {
-                config = new HashMap<>(config);
-            }
-            normalizeNodeAgentConfig(nodeId, config);
-            normalizedNode.put("config", config);
-            normalizedNodes.add(normalizedNode);
+        Map<String, Object> normalizedGraph;
+        try {
+            normalizedGraph = normalizeAndValidateGraphDefinition(
+                    deepCopyMap(draft.getGraphDefinition()),
+                    "候选草案",
+                    true
+            );
+        } catch (AppException ex) {
+            throw new NonRetryableRootPlanningException("候选草案结构非法: " + ex.getMessage(), ex);
         }
-        if (normalizedNodes.isEmpty()) {
-            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "候选草案没有可用节点");
-        }
-
-        List<Map<String, Object>> edges = getMapList(graph, "edges");
-        List<Map<String, Object>> normalizedEdges = normalizeAndValidateEdges(edges, nodeIdSet);
-
-        Map<String, Object> normalizedGraph = new HashMap<>(graph);
-        normalizedGraph.put("nodes", normalizedNodes);
-        normalizedGraph.put("edges", normalizedEdges);
 
         RootWorkflowDraft normalized = new RootWorkflowDraft();
         normalized.setCategory(StringUtils.defaultIfBlank(draft.getCategory(), "candidate"));
@@ -539,6 +643,235 @@ import java.util.regex.Pattern;
         normalized.setInputSchemaVersion(StringUtils.defaultIfBlank(draft.getInputSchemaVersion(), "v1"));
         normalized.setNodeSignature(StringUtils.defaultIfBlank(draft.getNodeSignature(), computeNodeSignature(normalizedGraph)));
         return normalized;
+    }
+
+    private Map<String, Object> normalizeAndValidateGraphDefinition(Map<String, Object> rawGraph,
+                                                                    String scene,
+                                                                    boolean allowCandidateVersionUpgrade) {
+        Map<String, Object> graph = rawGraph == null ? new HashMap<>() : new HashMap<>(rawGraph);
+        if (graph.isEmpty()) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), scene + "图定义为空");
+        }
+
+        Integer version = getInteger(graph, "version", "dslVersion", "graphVersion");
+        if ((version == null || version != GRAPH_DSL_VERSION)
+                && allowCandidateVersionUpgrade
+                && tryUpgradeCandidateGraphDslVersion(graph, version, scene)) {
+            version = GRAPH_DSL_VERSION;
+        }
+        if (version == null || version != GRAPH_DSL_VERSION) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(),
+                    scene + "图DSL版本非法，仅支持version=" + GRAPH_DSL_VERSION);
+        }
+
+        List<Map<String, Object>> nodes = getMapList(graph, "nodes");
+        if (nodes.isEmpty()) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), scene + "节点为空");
+        }
+
+        Map<String, Map<String, Object>> normalizedNodesById = normalizeAndValidateNodes(nodes, scene);
+        Map<String, Map<String, Object>> normalizedGroupsById = normalizeAndValidateGroups(graph, scene);
+        Map<String, Set<String>> groupMembersById = buildGroupMembers(normalizedNodesById, normalizedGroupsById, scene);
+        List<Map<String, Object>> normalizedEdges = normalizeAndValidateEdges(
+                getMapList(graph, "edges"),
+                normalizedNodesById.keySet(),
+                groupMembersById,
+                scene
+        );
+
+        Map<String, Object> normalizedGraph = new HashMap<>(graph);
+        normalizedGraph.put("version", GRAPH_DSL_VERSION);
+        normalizedGraph.put("nodes", new ArrayList<>(normalizedNodesById.values()));
+        normalizedGraph.put("groups", new ArrayList<>(normalizedGroupsById.values()));
+        normalizedGraph.put("edges", normalizedEdges);
+        return normalizedGraph;
+    }
+
+    private boolean tryUpgradeCandidateGraphDslVersion(Map<String, Object> graph,
+                                                       Integer version,
+                                                       String scene) {
+        List<Map<String, Object>> nodes = getMapList(graph, "nodes");
+        if (nodes.isEmpty()) {
+            return false;
+        }
+
+        if (!graph.containsKey("edges")) {
+            graph.put("edges", Collections.emptyList());
+        }
+        if (!graph.containsKey("groups")) {
+            graph.put("groups", Collections.emptyList());
+        }
+        graph.put("version", GRAPH_DSL_VERSION);
+        log.warn("{}图DSL版本不兼容(version={})，已自动升级为version={}", scene, version, GRAPH_DSL_VERSION);
+        return true;
+    }
+
+    private Map<String, Map<String, Object>> normalizeAndValidateNodes(List<Map<String, Object>> nodes,
+                                                                        String scene) {
+        Map<String, Map<String, Object>> normalizedNodesById = new LinkedHashMap<>();
+        for (Map<String, Object> node : nodes) {
+            if (node == null || node.isEmpty()) {
+                continue;
+            }
+
+            String nodeId = getString(node, "id", "nodeId", "node_id");
+            if (StringUtils.isBlank(nodeId)) {
+                throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), scene + "节点缺少id");
+            }
+            if (normalizedNodesById.containsKey(nodeId)) {
+                throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), scene + "节点id重复: " + nodeId);
+            }
+
+            String rawTaskType = StringUtils.defaultIfBlank(getString(node, "type", "taskType", "task_type"), "WORKER");
+            TaskTypeEnum taskType;
+            try {
+                taskType = TaskTypeEnum.fromText(rawTaskType);
+            } catch (Exception ex) {
+                throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), scene + "节点类型非法: " + rawTaskType);
+            }
+
+            Map<String, Object> config = getMap(node, "config", "configSnapshot", "config_snapshot", "options");
+            Map<String, Object> normalizedConfig = config == null ? new HashMap<>() : new HashMap<>(config);
+            normalizeNodeAgentConfig(nodeId, normalizedConfig);
+
+            Map<String, Object> normalizedNode = new LinkedHashMap<>(node);
+            normalizedNode.put("id", nodeId);
+            normalizedNode.put("type", taskType.name());
+            normalizedNode.put("config", normalizedConfig);
+
+            String groupId = getString(node, "groupId", "group_id");
+            if (StringUtils.isNotBlank(groupId)) {
+                normalizedNode.put("groupId", groupId);
+            }
+
+            if (containsAnyKey(node, "joinPolicy", "join_policy", "dependencyJoinPolicy")) {
+                normalizedNode.put("joinPolicy", normalizeJoinPolicy(getString(node,
+                        "joinPolicy", "join_policy", "dependencyJoinPolicy")));
+            }
+            if (containsAnyKey(node, "failurePolicy", "failure_policy")) {
+                normalizedNode.put("failurePolicy", normalizeFailurePolicy(getString(node,
+                        "failurePolicy", "failure_policy")));
+            }
+            if (containsAnyKey(node, "quorum", "joinQuorum")) {
+                Integer quorum = getInteger(node, "quorum", "joinQuorum");
+                if (quorum != null) {
+                    normalizedNode.put("quorum", quorum);
+                }
+            }
+            if (containsAnyKey(node, "runPolicy", "run_policy")) {
+                String runPolicy = normalizeRunPolicy(getString(node, "runPolicy", "run_policy"));
+                if (StringUtils.isNotBlank(runPolicy)) {
+                    normalizedNode.put("runPolicy", runPolicy);
+                }
+            }
+
+            normalizedNodesById.put(nodeId, normalizedNode);
+        }
+
+        if (normalizedNodesById.isEmpty()) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), scene + "没有可用节点");
+        }
+        return normalizedNodesById;
+    }
+
+    private Map<String, Map<String, Object>> normalizeAndValidateGroups(Map<String, Object> graph,
+                                                                         String scene) {
+        List<Map<String, Object>> groups = getMapList(graph, "groups");
+        if (groups.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Map<String, Map<String, Object>> normalizedGroupsById = new LinkedHashMap<>();
+        for (Map<String, Object> group : groups) {
+            if (group == null || group.isEmpty()) {
+                continue;
+            }
+            String groupId = getString(group, "id", "groupId", "group_id");
+            if (StringUtils.isBlank(groupId)) {
+                throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), scene + "分组缺少id");
+            }
+            if (normalizedGroupsById.containsKey(groupId)) {
+                throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), scene + "分组id重复: " + groupId);
+            }
+
+            Map<String, Object> normalizedGroup = new LinkedHashMap<>(group);
+            normalizedGroup.put("id", groupId);
+            normalizedGroup.put("joinPolicy", normalizeJoinPolicy(getString(group,
+                    "joinPolicy", "join_policy", "dependencyJoinPolicy")));
+            normalizedGroup.put("failurePolicy", normalizeFailurePolicy(getString(group,
+                    "failurePolicy", "failure_policy")));
+            Integer quorum = getInteger(group, "quorum", "joinQuorum");
+            if (quorum != null) {
+                normalizedGroup.put("quorum", quorum);
+            }
+            String runPolicy = normalizeRunPolicy(getString(group, "runPolicy", "run_policy"));
+            if (StringUtils.isNotBlank(runPolicy)) {
+                normalizedGroup.put("runPolicy", runPolicy);
+            }
+
+            List<String> memberNodeIds = readStringList(group, "nodes", "nodeIds", "members");
+            if (!memberNodeIds.isEmpty()) {
+                normalizedGroup.put("nodes", memberNodeIds);
+            }
+            normalizedGroupsById.put(groupId, normalizedGroup);
+        }
+
+        return normalizedGroupsById;
+    }
+
+    private Map<String, Set<String>> buildGroupMembers(Map<String, Map<String, Object>> normalizedNodesById,
+                                                        Map<String, Map<String, Object>> normalizedGroupsById,
+                                                        String scene) {
+        if (normalizedGroupsById == null || normalizedGroupsById.isEmpty()) {
+            for (Map.Entry<String, Map<String, Object>> entry : normalizedNodesById.entrySet()) {
+                String groupId = getString(entry.getValue(), "groupId", "group_id");
+                if (StringUtils.isNotBlank(groupId)) {
+                    throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(),
+                            scene + "节点引用了不存在分组: nodeId=" + entry.getKey() + ", groupId=" + groupId);
+                }
+            }
+            return Collections.emptyMap();
+        }
+
+        Map<String, Set<String>> groupMembersById = new LinkedHashMap<>();
+        for (Map.Entry<String, Map<String, Object>> entry : normalizedGroupsById.entrySet()) {
+            String groupId = entry.getKey();
+            groupMembersById.put(groupId, new LinkedHashSet<>());
+            List<String> staticMembers = readStringList(entry.getValue(), "nodes", "nodeIds", "members");
+            if (staticMembers == null || staticMembers.isEmpty()) {
+                continue;
+            }
+            for (String nodeId : staticMembers) {
+                if (!normalizedNodesById.containsKey(nodeId)) {
+                    throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(),
+                            scene + "分组引用了不存在节点: groupId=" + groupId + ", nodeId=" + nodeId);
+                }
+                groupMembersById.get(groupId).add(nodeId);
+            }
+        }
+
+        for (Map.Entry<String, Map<String, Object>> entry : normalizedNodesById.entrySet()) {
+            String nodeId = entry.getKey();
+            Map<String, Object> node = entry.getValue();
+            String groupId = getString(node, "groupId", "group_id");
+            if (StringUtils.isBlank(groupId)) {
+                continue;
+            }
+            if (!normalizedGroupsById.containsKey(groupId)) {
+                throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(),
+                        scene + "节点引用了不存在分组: nodeId=" + nodeId + ", groupId=" + groupId);
+            }
+            groupMembersById.computeIfAbsent(groupId, key -> new LinkedHashSet<>()).add(nodeId);
+        }
+
+        for (Map.Entry<String, Map<String, Object>> entry : normalizedGroupsById.entrySet()) {
+            String groupId = entry.getKey();
+            Set<String> members = groupMembersById.getOrDefault(groupId, Collections.emptySet());
+            Map<String, Object> normalizedGroup = entry.getValue();
+            normalizedGroup.put("nodes", new ArrayList<>(members));
+        }
+
+        return groupMembersById;
     }
 
     private void normalizeNodeAgentConfig(String nodeId, Map<String, Object> config) {
@@ -614,11 +947,16 @@ import java.util.regex.Pattern;
                         + ", fallbackCandidates=" + fallbackCandidates);
     }
 
-    private List<Map<String, Object>> normalizeAndValidateEdges(List<Map<String, Object>> edges, Set<String> nodeIdSet) {
+    private List<Map<String, Object>> normalizeAndValidateEdges(List<Map<String, Object>> edges,
+                                                                 Set<String> nodeIdSet,
+                                                                 Map<String, Set<String>> groupMembersById,
+                                                                 String scene) {
         if (edges == null || edges.isEmpty()) {
             return Collections.emptyList();
         }
+
         List<Map<String, Object>> normalized = new ArrayList<>();
+        Set<String> dedupEdgeSet = new HashSet<>();
         Map<String, Integer> inDegree = new HashMap<>();
         Map<String, List<String>> adjacency = new HashMap<>();
         for (String nodeId : nodeIdSet) {
@@ -635,21 +973,33 @@ import java.util.regex.Pattern;
             if (StringUtils.isBlank(from) || StringUtils.isBlank(to)) {
                 continue;
             }
-            if (isVirtualBoundaryEdge(from, to, nodeIdSet)) {
-                log.debug("候选草案边界边已忽略: {} -> {}", from, to);
+            if (isVirtualBoundaryEdge(from, to, nodeIdSet, groupMembersById)) {
+                log.debug("{}边界边已忽略: {} -> {}", scene, from, to);
                 continue;
             }
-            if (!nodeIdSet.contains(from) || !nodeIdSet.contains(to)) {
-                throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(),
-                        "候选草案边引用了不存在节点: " + from + " -> " + to);
-            }
-            Map<String, Object> normalizedEdge = new LinkedHashMap<>();
-            normalizedEdge.put("from", from);
-            normalizedEdge.put("to", to);
-            normalized.add(normalizedEdge);
 
-            adjacency.computeIfAbsent(from, key -> new ArrayList<>()).add(to);
-            inDegree.put(to, inDegree.getOrDefault(to, 0) + 1);
+            Set<String> fromNodes = resolveEdgeEndpoint(from, nodeIdSet, groupMembersById);
+            Set<String> toNodes = resolveEdgeEndpoint(to, nodeIdSet, groupMembersById);
+            if (fromNodes.isEmpty() || toNodes.isEmpty()) {
+                throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(),
+                        scene + "边引用了不存在节点或分组: " + from + " -> " + to);
+            }
+
+            for (String fromNode : fromNodes) {
+                for (String toNode : toNodes) {
+                    String key = fromNode + "->" + toNode;
+                    if (!dedupEdgeSet.add(key)) {
+                        continue;
+                    }
+                    Map<String, Object> normalizedEdge = new LinkedHashMap<>();
+                    normalizedEdge.put("from", fromNode);
+                    normalizedEdge.put("to", toNode);
+                    normalized.add(normalizedEdge);
+
+                    adjacency.computeIfAbsent(fromNode, item -> new ArrayList<>()).add(toNode);
+                    inDegree.put(toNode, inDegree.getOrDefault(toNode, 0) + 1);
+                }
+            }
         }
 
         List<String> queue = new ArrayList<>();
@@ -658,6 +1008,7 @@ import java.util.regex.Pattern;
                 queue.add(entry.getKey());
             }
         }
+
         int index = 0;
         int visited = 0;
         while (index < queue.size()) {
@@ -672,27 +1023,50 @@ import java.util.regex.Pattern;
                 }
             }
         }
+
         if (visited != nodeIdSet.size()) {
-            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "候选草案图存在环路");
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), scene + "图存在环路");
         }
         return normalized;
     }
 
-    private boolean isVirtualBoundaryEdge(String from, String to, Set<String> nodeIdSet) {
-        if (StringUtils.isBlank(from) || StringUtils.isBlank(to) || nodeIdSet == null || nodeIdSet.isEmpty()) {
+    private Set<String> resolveEdgeEndpoint(String endpoint,
+                                            Set<String> nodeIdSet,
+                                            Map<String, Set<String>> groupMembersById) {
+        if (nodeIdSet.contains(endpoint)) {
+            return Collections.singleton(endpoint);
+        }
+        if (groupMembersById != null && groupMembersById.containsKey(endpoint)) {
+            Set<String> members = groupMembersById.get(endpoint);
+            if (members == null || members.isEmpty()) {
+                return Collections.emptySet();
+            }
+            return members;
+        }
+        return Collections.emptySet();
+    }
+
+    private boolean isVirtualBoundaryEdge(String from,
+                                          String to,
+                                          Set<String> nodeIdSet,
+                                          Map<String, Set<String>> groupMembersById) {
+        if (StringUtils.isBlank(from) || StringUtils.isBlank(to)) {
             return false;
         }
-        boolean fromIsNode = nodeIdSet.contains(from);
-        boolean toIsNode = nodeIdSet.contains(to);
 
-        if (!fromIsNode && !toIsNode) {
+        boolean fromIsEndpoint = nodeIdSet.contains(from)
+                || (groupMembersById != null && groupMembersById.containsKey(from));
+        boolean toIsEndpoint = nodeIdSet.contains(to)
+                || (groupMembersById != null && groupMembersById.containsKey(to));
+
+        if (isVirtualEntryNodeId(from) && (toIsEndpoint || isVirtualExitNodeId(to))) {
+            return true;
+        }
+        if (isVirtualExitNodeId(to) && (fromIsEndpoint || isVirtualEntryNodeId(from))) {
+            return true;
+        }
+        if (!fromIsEndpoint && !toIsEndpoint) {
             return isVirtualEntryNodeId(from) || isVirtualExitNodeId(to);
-        }
-        if (!fromIsNode && toIsNode) {
-            return isVirtualEntryNodeId(from);
-        }
-        if (fromIsNode && !toIsNode) {
-            return isVirtualExitNodeId(to);
         }
         return false;
     }
@@ -714,6 +1088,67 @@ import java.util.regex.Pattern;
         return nodeId.trim().replace('-', '_').toUpperCase(Locale.ROOT);
     }
 
+    private String normalizeJoinPolicy(String joinPolicy) {
+        if (StringUtils.equalsIgnoreCase(joinPolicy, JOIN_POLICY_ANY)) {
+            return JOIN_POLICY_ANY;
+        }
+        if (StringUtils.equalsIgnoreCase(joinPolicy, JOIN_POLICY_QUORUM)) {
+            return JOIN_POLICY_QUORUM;
+        }
+        return JOIN_POLICY_ALL;
+    }
+
+    private String normalizeFailurePolicy(String failurePolicy) {
+        if (StringUtils.equalsIgnoreCase(failurePolicy, FAILURE_POLICY_FAIL_FAST)
+                || StringUtils.equalsIgnoreCase(failurePolicy, "fail_fast")) {
+            return FAILURE_POLICY_FAIL_FAST;
+        }
+        return FAILURE_POLICY_FAIL_SAFE;
+    }
+
+    private String normalizeRunPolicy(String runPolicy) {
+        if (StringUtils.isBlank(runPolicy)) {
+            return null;
+        }
+        return runPolicy.trim();
+    }
+
+    private List<String> readStringList(Map<String, Object> source, String... keys) {
+        if (source == null || source.isEmpty()) {
+            return Collections.emptyList();
+        }
+        for (String key : keys) {
+            Object value = source.get(key);
+            if (!(value instanceof List<?> list)) {
+                continue;
+            }
+            List<String> result = new ArrayList<>();
+            for (Object item : list) {
+                if (item == null) {
+                    continue;
+                }
+                String text;
+                if (item instanceof Map<?, ?> itemMap) {
+                    Object nodeId = itemMap.get("id");
+                    if (nodeId == null) {
+                        nodeId = itemMap.get("nodeId");
+                    }
+                    if (nodeId == null) {
+                        nodeId = itemMap.get("node_id");
+                    }
+                    text = nodeId == null ? null : String.valueOf(nodeId).trim();
+                } else {
+                    text = String.valueOf(item).trim();
+                }
+                if (StringUtils.isNotBlank(text)) {
+                    result.add(text);
+                }
+            }
+            return result;
+        }
+        return Collections.emptyList();
+    }
+
     private String buildDedupHash(String userQuery, RootWorkflowDraft draft) {
         String nodeSignature = StringUtils.defaultIfBlank(draft.getNodeSignature(), computeNodeSignature(draft.getGraphDefinition()));
         String payload = "intent=" + StringUtils.trimToEmpty(userQuery)
@@ -731,6 +1166,10 @@ import java.util.regex.Pattern;
     }
 
     private String computeNodeSignature(Map<String, Object> graphDefinition) {
+        int version = getInteger(graphDefinition, "version", "dslVersion", "graphVersion") == null
+                ? -1
+                : getInteger(graphDefinition, "version", "dslVersion", "graphVersion");
+
         List<Map<String, Object>> nodes = new ArrayList<>(getMapList(graphDefinition, "nodes"));
         nodes.sort(Comparator.comparing(item -> StringUtils.defaultString(getString(item, "id"))));
         List<String> nodeSignatures = new ArrayList<>();
@@ -740,8 +1179,33 @@ import java.util.regex.Pattern;
             Map<String, Object> config = getMap(node, "config", "configSnapshot", "config_snapshot", "options");
             String agentKey = getString(config, "agentKey", "agent_key");
             Long agentId = getLong(config, "agentId", "agent_id");
+            String groupId = getString(node, "groupId", "group_id");
+            String joinPolicy = getString(node, "joinPolicy", "join_policy", "dependencyJoinPolicy");
+            String failurePolicy = getString(node, "failurePolicy", "failure_policy");
+            Integer quorum = getInteger(node, "quorum", "joinQuorum");
             nodeSignatures.add(nodeId + ":" + StringUtils.defaultIfBlank(type, "WORKER") + ":"
-                    + StringUtils.defaultIfBlank(agentKey, "-") + ":" + (agentId == null ? "-" : agentId));
+                    + StringUtils.defaultIfBlank(agentKey, "-") + ":" + (agentId == null ? "-" : agentId)
+                    + ":g=" + StringUtils.defaultIfBlank(groupId, "-")
+                    + ":join=" + StringUtils.defaultIfBlank(joinPolicy, "-")
+                    + ":fail=" + StringUtils.defaultIfBlank(failurePolicy, "-")
+                    + ":q=" + (quorum == null ? "-" : quorum));
+        }
+
+        List<Map<String, Object>> groups = new ArrayList<>(getMapList(graphDefinition, "groups"));
+        groups.sort(Comparator.comparing(item -> StringUtils.defaultString(getString(item, "id", "groupId", "group_id"))));
+        List<String> groupSignatures = new ArrayList<>();
+        for (Map<String, Object> group : groups) {
+            String groupId = getString(group, "id", "groupId", "group_id");
+            String joinPolicy = getString(group, "joinPolicy", "join_policy", "dependencyJoinPolicy");
+            String failurePolicy = getString(group, "failurePolicy", "failure_policy");
+            Integer quorum = getInteger(group, "quorum", "joinQuorum");
+            List<String> members = readStringList(group, "nodes", "nodeIds", "members");
+            members.sort(String::compareTo);
+            groupSignatures.add(StringUtils.defaultIfBlank(groupId, "-")
+                    + ":join=" + StringUtils.defaultIfBlank(joinPolicy, "-")
+                    + ":fail=" + StringUtils.defaultIfBlank(failurePolicy, "-")
+                    + ":q=" + (quorum == null ? "-" : quorum)
+                    + ":members=" + String.join(";", members));
         }
 
         List<Map<String, Object>> edges = new ArrayList<>(getMapList(graphDefinition, "edges"));
@@ -752,7 +1216,10 @@ import java.util.regex.Pattern;
             edgeSignatures.add(StringUtils.defaultString(getString(edge, "from"))
                     + "->" + StringUtils.defaultString(getString(edge, "to")));
         }
-        return String.join("|", nodeSignatures) + "#edges=" + String.join(",", edgeSignatures);
+        return "v=" + version
+                + "#nodes=" + String.join("|", nodeSignatures)
+                + "#groups=" + String.join("|", groupSignatures)
+                + "#edges=" + String.join(",", edgeSignatures);
     }
 
     private String stableJson(Map<String, Object> source) {
@@ -1173,6 +1640,7 @@ import java.util.regex.Pattern;
         }
         List<Map<String, Object>> edges = getMapList(executionGraph, "edges");
         Map<String, List<String>> dependencies = buildDependencies(edges);
+        Map<String, Map<String, Object>> groupPolicyById = buildGroupPolicyById(getMapList(executionGraph, "groups"));
 
         List<AgentTaskEntity> tasks = new ArrayList<>();
         for (Map<String, Object> node : nodes) {
@@ -1206,6 +1674,7 @@ import java.util.regex.Pattern;
             task.setInputContext(globalContext == null ? new HashMap<>() : new HashMap<>(globalContext));
 
             Map<String, Object> configSnapshot = mergeConfig(defaultConfig, node);
+            configSnapshot.put("graphPolicy", resolveGraphPolicyForNode(node, groupPolicyById));
             task.setConfigSnapshot(configSnapshot);
             task.setMaxRetries(resolveMaxRetries(configSnapshot));
             task.setCurrentRetry(0);
@@ -1244,6 +1713,74 @@ import java.util.regex.Pattern;
             merged.putAll(nodeConfig);
         }
         return merged;
+    }
+
+    private Map<String, Map<String, Object>> buildGroupPolicyById(List<Map<String, Object>> groups) {
+        if (groups == null || groups.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, Map<String, Object>> groupPolicyById = new HashMap<>();
+        for (Map<String, Object> group : groups) {
+            if (group == null || group.isEmpty()) {
+                continue;
+            }
+            String groupId = getString(group, "id", "groupId", "group_id");
+            if (StringUtils.isBlank(groupId)) {
+                continue;
+            }
+            Map<String, Object> policy = new HashMap<>();
+            policy.put("joinPolicy", normalizeJoinPolicy(getString(group,
+                    "joinPolicy", "join_policy", "dependencyJoinPolicy")));
+            policy.put("failurePolicy", normalizeFailurePolicy(getString(group,
+                    "failurePolicy", "failure_policy")));
+            Integer quorum = getInteger(group, "quorum", "joinQuorum");
+            if (quorum != null) {
+                policy.put("quorum", quorum);
+            }
+            String runPolicy = normalizeRunPolicy(getString(group, "runPolicy", "run_policy"));
+            if (StringUtils.isNotBlank(runPolicy)) {
+                policy.put("runPolicy", runPolicy);
+            }
+            groupPolicyById.put(groupId, policy);
+        }
+        return groupPolicyById;
+    }
+
+    private Map<String, Object> resolveGraphPolicyForNode(Map<String, Object> node,
+                                                           Map<String, Map<String, Object>> groupPolicyById) {
+        Map<String, Object> graphPolicy = new HashMap<>();
+        graphPolicy.put("joinPolicy", JOIN_POLICY_ALL);
+        graphPolicy.put("failurePolicy", FAILURE_POLICY_FAIL_SAFE);
+
+        String groupId = getString(node, "groupId", "group_id");
+        if (StringUtils.isNotBlank(groupId)) {
+            graphPolicy.put("groupId", groupId);
+            if (groupPolicyById != null && groupPolicyById.containsKey(groupId)) {
+                graphPolicy.putAll(groupPolicyById.get(groupId));
+            }
+        }
+
+        if (containsAnyKey(node, "joinPolicy", "join_policy", "dependencyJoinPolicy")) {
+            graphPolicy.put("joinPolicy", normalizeJoinPolicy(getString(node,
+                    "joinPolicy", "join_policy", "dependencyJoinPolicy")));
+        }
+        if (containsAnyKey(node, "failurePolicy", "failure_policy")) {
+            graphPolicy.put("failurePolicy", normalizeFailurePolicy(getString(node,
+                    "failurePolicy", "failure_policy")));
+        }
+        if (containsAnyKey(node, "quorum", "joinQuorum")) {
+            Integer nodeQuorum = getInteger(node, "quorum", "joinQuorum");
+            if (nodeQuorum != null) {
+                graphPolicy.put("quorum", nodeQuorum);
+            }
+        }
+        if (containsAnyKey(node, "runPolicy", "run_policy")) {
+            String normalizedRunPolicy = normalizeRunPolicy(getString(node, "runPolicy", "run_policy"));
+            if (StringUtils.isNotBlank(normalizedRunPolicy)) {
+                graphPolicy.put("runPolicy", normalizedRunPolicy);
+            }
+        }
+        return graphPolicy;
     }
 
     private Map<String, Object> mergeSimpleMap(Map<String, Object> base, Map<String, Object> override) {
@@ -1345,6 +1882,21 @@ import java.util.regex.Pattern;
         return null;
     }
 
+    private boolean containsAnyKey(Map<String, Object> source, String... keys) {
+        if (source == null || source.isEmpty() || keys == null) {
+            return false;
+        }
+        for (String key : keys) {
+            if (StringUtils.isBlank(key)) {
+                continue;
+            }
+            if (source.containsKey(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private String getString(Map<String, Object> source, String... keys) {
         if (source == null || source.isEmpty()) {
             return null;
@@ -1384,7 +1936,12 @@ import java.util.regex.Pattern;
             return 1;
         }
         if (StringUtils.equals(SOURCE_TYPE_AUTO_MISS_FALLBACK, draft.getSourceType())
-                && StringUtils.equalsIgnoreCase(fallbackReason, "ROOT_PLANNING_FAILED")) {
+                && (StringUtils.equalsIgnoreCase(fallbackReason, FALLBACK_REASON_ROOT_PLANNING_FAILED)
+                || StringUtils.equalsIgnoreCase(fallbackReason, FALLBACK_REASON_ROOT_PLANNER_SOFT_TIMEOUT))) {
+            Integer attempts = getInteger(draft.getConstraints(), "rootPlanningAttempts", "plannerAttempts");
+            if (attempts != null && attempts > 0) {
+                return attempts;
+            }
             return rootMaxAttempts;
         }
         return 0;
@@ -1521,6 +2078,17 @@ import java.util.regex.Pattern;
             sb.append(Character.forDigit(b & 0xF, 16));
         }
         return sb.toString();
+    }
+
+    @Override
+    public void destroy() {
+        rootPlanningExecutor.shutdownNow();
+    }
+
+    private static final class NonRetryableRootPlanningException extends RuntimeException {
+        private NonRetryableRootPlanningException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 
     private static final class RoutedWorkflow {

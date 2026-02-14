@@ -2,9 +2,6 @@ package com.getoffer.trigger.http;
 
 import com.getoffer.api.dto.PlanDetailDTO;
 import com.getoffer.api.dto.PlanSummaryDTO;
-import com.getoffer.api.dto.PlanTaskStatsDTO;
-import com.getoffer.api.dto.SessionDetailDTO;
-import com.getoffer.api.dto.SessionOverviewDTO;
 import com.getoffer.api.dto.TaskDetailDTO;
 import com.getoffer.api.dto.TaskExecutionDetailDTO;
 import com.getoffer.api.response.Response;
@@ -23,7 +20,6 @@ import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
 import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
 import com.getoffer.types.enums.PlanStatusEnum;
-import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import com.getoffer.types.enums.ResponseCode;
 import com.getoffer.types.enums.TaskStatusEnum;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,7 +33,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -71,70 +66,6 @@ public class QueryController {
         this.planTaskEventRepository = planTaskEventRepository;
         this.agentToolCatalogRepository = agentToolCatalogRepository;
         this.vectorStoreRegistryRepository = vectorStoreRegistryRepository;
-    }
-
-    @GetMapping("/sessions/{id}")
-    public Response<SessionDetailDTO> getSession(@PathVariable("id") Long sessionId) {
-        if (sessionId == null) {
-            return illegal("SessionId不能为空");
-        }
-        AgentSessionEntity session = agentSessionRepository.findById(sessionId);
-        if (session == null) {
-            return illegal("会话不存在");
-        }
-        return success(toSessionDetailDTO(session));
-    }
-
-    @GetMapping("/sessions/{id}/plans")
-    public Response<List<PlanSummaryDTO>> listSessionPlans(@PathVariable("id") Long sessionId) {
-        if (sessionId == null) {
-            return illegal("SessionId不能为空");
-        }
-        AgentSessionEntity session = agentSessionRepository.findById(sessionId);
-        if (session == null) {
-            return illegal("会话不存在");
-        }
-        List<AgentPlanEntity> plans = agentPlanRepository.findBySessionId(sessionId);
-        List<PlanSummaryDTO> data = plans == null ? Collections.emptyList() : plans.stream()
-                .map(this::toPlanSummaryDTO)
-                .collect(Collectors.toList());
-        return success(data);
-    }
-
-    @GetMapping("/sessions/{id}/overview")
-    public Response<SessionOverviewDTO> getSessionOverview(@PathVariable("id") Long sessionId) {
-        if (sessionId == null) {
-            return illegal("SessionId不能为空");
-        }
-        AgentSessionEntity session = agentSessionRepository.findById(sessionId);
-        if (session == null) {
-            return illegal("会话不存在");
-        }
-
-        List<AgentPlanEntity> plans = agentPlanRepository.findBySessionId(sessionId);
-        List<PlanSummaryDTO> planDtos = plans == null ? Collections.emptyList() : plans.stream()
-                .sorted(Comparator.comparing(AgentPlanEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
-                .map(this::toPlanSummaryDTO)
-                .collect(Collectors.toList());
-
-        SessionOverviewDTO overview = new SessionOverviewDTO();
-        overview.setSession(toSessionDetailDTO(session));
-        overview.setPlans(planDtos);
-        if (!planDtos.isEmpty()) {
-            Long latestPlanId = planDtos.get(0).getPlanId();
-            overview.setLatestPlanId(latestPlanId);
-            List<AgentTaskEntity> latestPlanTasks = agentTaskRepository.findByPlanId(latestPlanId);
-            overview.setLatestPlanTaskStats(toTaskStats(latestPlanTasks));
-            Map<Long, Long> latestExecutionTimeMap = resolveLatestExecutionTimeMap(latestPlanTasks);
-            List<TaskDetailDTO> taskDtos = latestPlanTasks == null ? Collections.emptyList() : latestPlanTasks.stream()
-                    .map(task -> toTaskDetailDTO(task, latestExecutionTimeMap))
-                    .collect(Collectors.toList());
-            overview.setLatestPlanTasks(taskDtos);
-        } else {
-            overview.setLatestPlanTasks(Collections.emptyList());
-            overview.setLatestPlanTaskStats(new PlanTaskStatsDTO());
-        }
-        return success(overview);
     }
 
     @GetMapping("/plans/{id}")
@@ -194,64 +125,6 @@ public class QueryController {
         return success(toTaskDetailDTO(task));
     }
 
-    @GetMapping("/tasks")
-    public Response<List<TaskDetailDTO>> listTasks(
-            @RequestParam(value = "status", required = false) String statusText,
-            @RequestParam(value = "keyword", required = false) String keyword,
-            @RequestParam(value = "planId", required = false) Long planId,
-            @RequestParam(value = "sessionId", required = false) Long sessionId,
-            @RequestParam(value = "limit", required = false) Integer limit) {
-        int normalizedLimit = limit == null ? 200 : Math.max(1, Math.min(limit, 1000));
-
-        List<AgentTaskEntity> tasks;
-        if (planId != null) {
-            tasks = agentTaskRepository.findByPlanId(planId);
-        } else {
-            TaskStatusEnum status = parseTaskStatus(statusText);
-            tasks = status == null ? agentTaskRepository.findAll() : agentTaskRepository.findByStatus(status);
-        }
-
-        if (tasks == null || tasks.isEmpty()) {
-            return success(Collections.emptyList());
-        }
-
-        if (sessionId != null) {
-            List<AgentPlanEntity> sessionPlans = agentPlanRepository.findBySessionId(sessionId);
-            if (sessionPlans == null || sessionPlans.isEmpty()) {
-                return success(Collections.emptyList());
-            }
-            java.util.Set<Long> sessionPlanIds = sessionPlans.stream()
-                    .map(AgentPlanEntity::getId)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toSet());
-            if (sessionPlanIds.isEmpty()) {
-                return success(Collections.emptyList());
-            }
-            tasks = tasks.stream()
-                    .filter(task -> sessionPlanIds.contains(task.getPlanId()))
-                    .collect(Collectors.toList());
-        }
-
-        String normalizedKeyword = normalizeKeyword(keyword);
-        if (!normalizedKeyword.isEmpty()) {
-            tasks = tasks.stream()
-                    .filter(task -> containsTaskKeyword(task, normalizedKeyword))
-                    .collect(Collectors.toList());
-        }
-
-        List<AgentTaskEntity> limitedTasks = tasks.stream()
-                .sorted(Comparator
-                        .comparing(AgentTaskEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
-                        .thenComparing(AgentTaskEntity::getId, Comparator.nullsLast(Comparator.reverseOrder())))
-                .limit(normalizedLimit)
-                .collect(Collectors.toList());
-        Map<Long, Long> latestExecutionTimeMap = resolveLatestExecutionTimeMap(limitedTasks);
-        List<TaskDetailDTO> data = limitedTasks.stream()
-                .map(task -> toTaskDetailDTO(task, latestExecutionTimeMap))
-                .collect(Collectors.toList());
-        return success(data);
-    }
-
     @GetMapping("/plans/{id}/events")
     public Response<List<Map<String, Object>>> listPlanEvents(@PathVariable("id") Long planId,
                                                                @RequestParam(value = "afterEventId", required = false) Long afterEventId,
@@ -289,53 +162,6 @@ public class QueryController {
                 .map(this::toVectorStore)
                 .collect(Collectors.toList());
         return success(data);
-    }
-
-    @GetMapping("/logs")
-    public Response<List<Map<String, Object>>> listLogs(
-            @RequestParam(value = "planId", required = false) Long planId,
-            @RequestParam(value = "taskId", required = false) Long taskId,
-            @RequestParam(value = "level", required = false) String level,
-            @RequestParam(value = "keyword", required = false) String keyword,
-            @RequestParam(value = "limit", required = false) Integer limit) {
-        int normalizedLimit = limit == null ? 200 : Math.max(1, Math.min(limit, 1000));
-        int perPlanLimit = Math.max(20, Math.min(200, normalizedLimit));
-
-        List<AgentPlanEntity> plans;
-        if (planId != null) {
-            AgentPlanEntity plan = agentPlanRepository.findById(planId);
-            if (plan == null) {
-                return illegal("计划不存在");
-            }
-            plans = Collections.singletonList(plan);
-        } else {
-            List<AgentPlanEntity> allPlans = agentPlanRepository.findAll();
-            plans = (allPlans == null ? Collections.<AgentPlanEntity>emptyList() : allPlans).stream()
-                    .sorted(Comparator.comparing(AgentPlanEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
-                    .limit(50)
-                    .collect(Collectors.toList());
-        }
-
-        if (plans == null || plans.isEmpty()) {
-            return success(Collections.emptyList());
-        }
-
-        String normalizedLevel = normalizeKeyword(level).toUpperCase(Locale.ROOT);
-        String normalizedKeyword = normalizeKeyword(keyword);
-        List<Map<String, Object>> logs = plans.stream()
-                .flatMap(plan -> {
-                    List<PlanTaskEventEntity> events = planTaskEventRepository.findByPlanIdAfterEventId(plan.getId(), 0L, perPlanLimit);
-                    return events == null ? Stream.<PlanTaskEventEntity>empty() : events.stream();
-                })
-                .filter(event -> taskId == null || Objects.equals(taskId, event.getTaskId()))
-                .map(event -> toPlanEventWithLevel(event, normalizedLevel))
-                .filter(item -> normalizedLevel.isEmpty() || normalizedLevel.equals(String.valueOf(item.get("level")).toUpperCase(Locale.ROOT)))
-                .filter(item -> normalizedKeyword.isEmpty() || containsLogKeyword(item, normalizedKeyword))
-                .sorted(Comparator.comparing(item -> String.valueOf(item.get("createdAt")), Comparator.nullsLast(Comparator.reverseOrder())))
-                .limit(normalizedLimit)
-                .collect(Collectors.toList());
-        logs.forEach(item -> item.remove("_levelMismatch"));
-        return success(logs);
     }
 
     @GetMapping("/dashboard/overview")
@@ -403,19 +229,6 @@ public class QueryController {
         result.put("slowTaskCount", slowTaskCount);
         result.put("slaBreachCount", slaBreachCount);
         return success(result);
-    }
-
-    private SessionDetailDTO toSessionDetailDTO(AgentSessionEntity session) {
-        SessionDetailDTO dto = new SessionDetailDTO();
-        dto.setSessionId(session.getId());
-        dto.setUserId(session.getUserId());
-        dto.setTitle(session.getTitle());
-        dto.setAgentKey(session.getAgentKey());
-        dto.setScenario(session.getScenario());
-        dto.setActive(session.getIsActive());
-        dto.setMetaInfo(session.getMetaInfo());
-        dto.setCreatedAt(session.getCreatedAt());
-        return dto;
     }
 
     private PlanSummaryDTO toPlanSummaryDTO(AgentPlanEntity plan) {
@@ -529,55 +342,6 @@ public class QueryController {
         return dto;
     }
 
-    private PlanTaskStatsDTO toTaskStats(List<AgentTaskEntity> tasks) {
-        PlanTaskStatsDTO dto = new PlanTaskStatsDTO();
-        if (tasks == null || tasks.isEmpty()) {
-            dto.setTotal(0L);
-            dto.setPending(0L);
-            dto.setReady(0L);
-            dto.setRunningLike(0L);
-            dto.setCompleted(0L);
-            dto.setFailed(0L);
-            dto.setSkipped(0L);
-            return dto;
-        }
-        long pending = 0L;
-        long ready = 0L;
-        long runningLike = 0L;
-        long completed = 0L;
-        long failed = 0L;
-        long skipped = 0L;
-        for (AgentTaskEntity task : tasks) {
-            if (task == null || task.getStatus() == null) {
-                continue;
-            }
-            TaskStatusEnum status = task.getStatus();
-            if (status == TaskStatusEnum.PENDING) {
-                pending++;
-            } else if (status == TaskStatusEnum.READY) {
-                ready++;
-            } else if (status == TaskStatusEnum.RUNNING
-                    || status == TaskStatusEnum.VALIDATING
-                    || status == TaskStatusEnum.REFINING) {
-                runningLike++;
-            } else if (status == TaskStatusEnum.COMPLETED) {
-                completed++;
-            } else if (status == TaskStatusEnum.FAILED) {
-                failed++;
-            } else if (status == TaskStatusEnum.SKIPPED) {
-                skipped++;
-            }
-        }
-        dto.setTotal((long) tasks.size());
-        dto.setPending(pending);
-        dto.setReady(ready);
-        dto.setRunningLike(runningLike);
-        dto.setCompleted(completed);
-        dto.setFailed(failed);
-        dto.setSkipped(skipped);
-        return dto;
-    }
-
     private Map<String, Object> toPlanEvent(PlanTaskEventEntity event) {
         Map<String, Object> dto = new HashMap<>();
         dto.put("id", event.getId());
@@ -588,77 +352,6 @@ public class QueryController {
         dto.put("eventData", event.getEventData());
         dto.put("createdAt", event.getCreatedAt());
         return dto;
-    }
-
-    private Map<String, Object> toPlanEventWithLevel(PlanTaskEventEntity event, String normalizedLevel) {
-        Map<String, Object> dto = toPlanEvent(event);
-        String level = resolveEventLevel(event).name();
-        dto.put("level", level);
-        if (!normalizedLevel.isEmpty() && !normalizedLevel.equals(level)) {
-            dto.put("_levelMismatch", Boolean.TRUE);
-        }
-        return dto;
-    }
-
-    private boolean containsLogKeyword(Map<String, Object> logItem, String keyword) {
-        String joined = String.format("%s %s %s %s %s",
-                String.valueOf(logItem.get("eventName")),
-                String.valueOf(logItem.get("eventType")),
-                String.valueOf(logItem.get("taskId")),
-                String.valueOf(logItem.get("level")),
-                String.valueOf(logItem.get("eventData"))
-        ).toLowerCase(Locale.ROOT);
-        return joined.contains(keyword);
-    }
-
-    private EventLevel resolveEventLevel(PlanTaskEventEntity event) {
-        if (event == null || event.getEventType() == null) {
-            return EventLevel.INFO;
-        }
-        if (event.getEventType() == PlanTaskEventTypeEnum.TASK_LOG) {
-            return EventLevel.WARN;
-        }
-        if (event.getEventType() == PlanTaskEventTypeEnum.PLAN_FINISHED) {
-            return EventLevel.ERROR;
-        }
-        if (event.getEventType() == PlanTaskEventTypeEnum.TASK_COMPLETED) {
-            String status = event.getEventData() == null ? "" : String.valueOf(event.getEventData().getOrDefault("status", "")).toUpperCase(Locale.ROOT);
-            return "FAILED".equals(status) ? EventLevel.ERROR : EventLevel.INFO;
-        }
-        return EventLevel.INFO;
-    }
-
-    private boolean containsTaskKeyword(AgentTaskEntity task, String keyword) {
-        String joined = String.format("%s %s %s %s %s %s",
-                safeText(task.getName()),
-                safeText(task.getNodeId()),
-                task.getTaskType() == null ? "" : task.getTaskType().name(),
-                safeText(task.getOutputResult()),
-                safeText(task.getClaimOwner()),
-                task.getStatus() == null ? "" : task.getStatus().name())
-                .toLowerCase(Locale.ROOT);
-        return joined.contains(keyword);
-    }
-
-    private TaskStatusEnum parseTaskStatus(String statusText) {
-        String normalized = normalizeKeyword(statusText).toUpperCase(Locale.ROOT);
-        if (normalized.isEmpty()) {
-            return null;
-        }
-        for (TaskStatusEnum item : TaskStatusEnum.values()) {
-            if (item.name().equals(normalized) || item.getCode().equalsIgnoreCase(normalized)) {
-                return item;
-            }
-        }
-        return null;
-    }
-
-    private String normalizeKeyword(String text) {
-        return text == null ? "" : text.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private String safeText(String value) {
-        return value == null ? "" : value;
     }
 
     private Map<String, Object> buildTaskStats(List<AgentTaskEntity> tasks) {
@@ -741,12 +434,6 @@ public class QueryController {
         int index = (int) Math.ceil(percentile * size) - 1;
         int normalizedIndex = Math.max(0, Math.min(size - 1, index));
         return sortedValues.get(normalizedIndex);
-    }
-
-    private enum EventLevel {
-        INFO,
-        WARN,
-        ERROR
     }
 
     private Map<String, Object> toAgentTool(AgentToolCatalogEntity tool) {

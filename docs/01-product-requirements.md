@@ -1,91 +1,153 @@
 # 产品需求文档（PRD）
 
-## 1) 产品定位
+## 1) 文档目标与适用范围
 
-构建一个面向“复杂任务分解与可追踪执行”的 Agent 控制台，支持从目标输入、规划执行、过程观测到结果沉淀的全链路闭环。
+本文件用于指导当前“瘦身阶段”的产品改进决策，作为需求评审、方案设计、迭代验收的统一纲领。
+本文件描述目标态，不以当前实现为约束；当前实现仅作为 test 草稿参考。
 
-## 2) 目标用户
+## 2) 产品定位与目标
 
-- 平台开发者：关注执行链路稳定性、可观测性、故障定位效率。
-- 运营与业务同学：关注任务完成率、过程可解释性、结果可复用。
-- 平台维护者：关注运行基线、告警阈值、发布与回滚可控性。
+构建一个面向“复杂任务分解与可追踪执行”的 Agent 服务，覆盖从目标输入、规划执行、过程观测到结果沉淀的全链路闭环。
+核心目标：通过 SOP 模板的创建与复用，使复杂任务输出稳定、一致、可控，并形成可持续优化的产品机制。
+产品形态从“对话式问答”升级为“可执行任务产品”，支持分步执行、工具调用、结构化输出、失败归因与续跑。
 
-## 3) 核心用户路径（P0）
+## 3) 角色模型与责任边界（单机）
 
-1. 点击“新聊天”并输入目标
-2. 系统自动创建/复用会话并触发执行
-3. 执行中查看实时状态（流式）
-4. 输出最终结果与引用
-5. 导出或分享结果
-6. 历史回溯与复盘
+当前部署模型为单机模式。
+本阶段“使用者”和“治理者”为同一人（同一账号承担双角色职责），不区分组织成员与权限分层。
 
-## 4) 当前版本范围（In Scope）
+- 使用者职责：发起会话与任务、查看执行进度、查看最终结果、执行重试与复盘。
+- 治理者职责：维护 Workflow Draft/Definition、维护工具与知识资产、调整关键策略参数。
 
-- 会话-回合-消息模型（`session -> turn -> message`）
-- V3 会话编排聚合接口（后端统一编排，前端不再拼接旧接口）
-- Workflow 路由与 Root 候选 Draft 兜底
-- Task 调度执行（claim + lease + execution attempt）
-- Plan 终态自动收敛与最终回复汇总
-- SSE 实时推送与断线回放（含聊天语义流映射）
-- 前端控制台主路径：工作台/对话执行/任务中心/资产中心/观测日志/设置（仅个人偏好）
-- 分享能力保持可用（低优先级维护）
+## 4) 版本范围
 
-## 5) 当前版本范围外（Out of Scope）
+### 4.1 In Scope（本轮必须完成）
 
-- 登录体系接入（SSO/OAuth）
-- RBAC 成员权限与系统配置治理后台
-- 多租户隔离策略的全量产品化
-- 复杂 BI 报表与经营分析系统
+- 单机产品闭环：会话发起 -> 规划 -> 执行 -> 结果沉淀 -> 复盘。
+- 简单登录能力：本地账号密码登录、登出、登录态校验。
+- 对话执行主链路：支持实时进度反馈、终态收敛、失败重试。
+- Workflow 治理主流程：草案查询、编辑、发布。
+- 观测与回溯：关键链路可追踪、失败可定位。
+- 文档驱动迭代：需求、验收、偏差收敛形成闭环。
 
-## 6) 质量与成功指标
+### 4.2 Out of Scope（本轮明确不做）
 
-- 稳定性：核心链路“会话触发到结果落地”成功率持续提升。
-- 一致性：重复 finalize 不重复写最终 assistant 消息。
-- 可观测性：失败请求可通过 `traceId` 快速串联入口与执行日志。
-- 效率：主路径关键操作可在 3 次点击内进入执行态。
-- 性能：列表与日志检索优先 DB 侧过滤与分页，避免内存全量扫描。
+- 多租户隔离与组织级权限体系。
+- 外部 SSO/OAuth 对接。
+- 复杂 RBAC（角色矩阵、资源级权限控制）。
+- SOP/DRG 最终运行时实现细节与引擎选型定稿。
 
-## 7) 已完成功能摘要（2026-02）
+## 5) 核心用户旅程（P0）
 
-- 会话编排 V3 主链路闭环：`POST /api/v3/chat/messages` 统一处理会话创建/复用 + Turn 创建 + Plan 触发。
-- 对话历史聚合：`GET /api/v3/chat/sessions/{id}/history` 一次返回会话、回合、消息与 `latestPlanId`。
-- 聊天语义流：`GET /api/v3/chat/sessions/{id}/stream` 输出 `message.accepted/task.progress/answer.final` 等事件。
-- 路由决策 V3：`GET /api/v3/chat/plans/{id}/routing`。
-- 会话编排 V2 入口全量下线（`/api/v2/agents/*`、`/api/v2/sessions*`、`/api/v2/plans/{id}/routing`）。
-- 终态幂等收敛：先抢占终态，再写最终消息；重复 finalize 去重。
-- DDD 充血收口：会话策略/终态汇总/Plan 聚合迁移/Task 执行策略与提示词/判定/回滚/Agent 选择/黑板写回/JSON 解析/持久化策略下沉至 domain service，并由 trigger.application 写用例统一承接持久化重试。
-- 观测能力收口：日志分页 SQL 化、告警目录接口、总览页下钻链路可用。
+1. 用户输入账号密码完成登录并进入工作台。
+2. 用户发起新会话并输入目标，系统创建会话与执行计划。
+3. 用户在同一界面查看执行进度与中间状态。
+4. 系统输出最终结果并沉淀为可回溯记录。
+5. 用户在治理入口调整 Workflow 草案并发布新版本。
+6. “任务失败时，系统应明确告知失败节点、失败原因与可执行的下一步操作（如重试、调整参数、联系支持），降低用户使用门槛。
 
-### 7.1 证据索引（接口 / 测试 / 提交）
+## 6) 功能需求（目标态）
 
-| 领域 | 关键接口 | 关键测试 | 关键提交 |
-| --- | --- | --- | --- |
-| 会话编排 V3 | `POST /api/v3/chat/messages`、`GET /api/v3/chat/sessions/{id}/history`、`GET /api/v3/chat/sessions/{id}/stream` | `ConversationOrchestratorServiceTest`、`ChatV3ControllerTest`、`ChatStreamV3ControllerTest`、`SessionConversationDomainServiceTest` | 本次重构 |
-| 路由决策 V3 | `GET /api/v3/chat/plans/{id}/routing` | `ChatRoutingV3ControllerTest` | 本次重构 |
-| V2 兼容入口下线 | `GET/POST /api/v2/agents/*`、`POST /api/v2/sessions`、`POST /api/v2/sessions/{id}/turns`、`GET /api/v2/plans/{id}/routing` | `AgentV2ControllerTest`、`SessionV2ControllerTest`、`TurnV2ControllerTest`、`PlanRoutingV2ControllerTest` | 本次重构 |
-| 执行与终态 | `POST /api/tasks/{id}/pause`、`/resume`、`/cancel`、`/retry-from-failed` | `TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest`、`PlanFinalizationDomainServiceTest`、`PlanTransitionDomainServiceTest`、`TaskExecutionDomainServiceTest`、`TaskPromptDomainServiceTest`、`TaskEvaluationDomainServiceTest`、`TaskRecoveryDomainServiceTest`、`TaskAgentSelectionDomainServiceTest`、`TaskBlackboardDomainServiceTest`、`TaskJsonDomainServiceTest`、`TaskPersistencePolicyDomainServiceTest`、`TaskPersistenceApplicationServiceTest`、`TaskDependencyPolicyDomainServiceTest`、`TaskScheduleApplicationServiceTest`、`PlanStatusSyncApplicationServiceTest` | `b8acdde`、`50b15c5` |
-| SSE（底层） | `GET /api/plans/{id}/stream` | `PlanStreamControllerTest` | `246e8f9`、`8ff4231` |
-| 观测与日志 | `GET /api/dashboard/overview`、`GET /api/logs/paged`、`GET /api/observability/alerts/catalog` | `ConsoleQueryControllerPerformanceTest`、`ObservabilityAlertCatalogControllerTest` | `924ee1e`、`6e43b60` |
-| 前端主路径 | `/workspace`、`/sessions`、`/tasks`、`/observability/*` | 前端构建校验 `npm run build` | 本次重构 |
+### 6.1 登录与身份会话
 
-## 8) 需求验收标准（P0）
+新增最小登录契约：
 
-- 前端发送消息仅调用 V3 聚合接口，不再依赖前端拼装旧链路。
-- 流式状态可实时展示执行进度，中间态不作为最终回复落地。
-- `answer.final` 到达后，聊天区最终消息与 `session_messages` 保持一致。
-- 含 Critic 节点的执行计划完成后，用户最终回复不出现 Critic JSON。
-- 同一 turn 在并发 finalize 下终态不反复、最终 assistant 消息不重复。
-- SSE 断线重连后可基于游标完成回放，不丢关键状态事件。
-- V2 编排接口调用返回明确迁移提示，且文档同步替换为 V3。
+- `POST /api/auth/login`
+  - 请求：`username`, `password`
+  - 响应：`userId`, `displayName`, `token`, `expiresAt`
+- `POST /api/auth/logout`
+  - 请求：从登录态识别当前用户
+  - 响应：`success`, `message`
+- `GET /api/auth/me`
+  - 响应：`userId`, `displayName`, `isOperator`, `lastLoginAt`
 
-## 9) 下一阶段优化目标（仅核心业务）
+前端登录状态：
 
-- P0：会话/规划/执行/SSE/观测五条主链路稳定性与性能持续压测和阈值调优。
-- P1：前端执行视图信息密度优化（不改变业务边界）。
-- P2：分享能力小步安全增强，不挤占 P0/P1 资源。
+- `UNAUTHENTICATED`
+- `AUTHENTICATED`
+- `EXPIRED`
 
-## 10) 文档关联
+### 6.2 对话与执行主链路
+
+- 支持从消息提交到计划创建、任务执行、终态收敛的完整闭环。
+- 支持执行过程可视化，区分中间态与最终态输出。
+- 支持失败任务重试与最终结果复盘。
+
+### 6.3 Workflow 治理主流程
+
+- 支持 Draft 列表查询、详情查看、编辑更新、发布为 Definition。
+- 治理动作需具备明确成功/失败反馈。
+- 本轮不要求完成 Workflow 导入/导出/分享能力。
+
+### 6.4 观测与问题定位
+
+- 关键链路具备统一追踪标识。
+- 错误场景可关联请求入口、执行过程与终态结果。
+
+## 7) 非功能性需求
+
+- 性能：核心请求具备稳定响应，关键链路支持并发执行。
+- 稳定性：执行链路具备超时、重试、降级与补偿策略。
+- 一致性：终态写入幂等，避免重复落地最终结果。
+- 可观测性：可按统一追踪标识完成链路排障。
+- 安全性：登录凭证与会话令牌需具备基础防护与过期机制。
+- 可演进性：SOP/DRG 方案可在后续评审中替换，不阻断本阶段迭代。
+
+## 8) 验收标准（P0，场景 + 量化阈值）
+
+### 场景 A：登录可用
+
+- 正确凭证可登录并进入工作台。
+- 错误凭证返回明确错误，不暴露敏感信息。
+- 阈值：登录成功率 >= 99%，登录接口 P95 < 500ms（单机基线）。
+
+### 场景 B：对话执行闭环
+
+- 用户提交消息后可获得最终结果并完成终态收敛。
+- 中间态不作为最终结果落地。
+- 阈值：闭环成功率 >= 95%，首个进度事件 P95 < 3s。
+
+### 场景 C：治理动作可执行
+
+- 同一用户可完成 Draft 查询、编辑、发布。
+- 阈值：关键治理动作成功率 >= 99%，失败均可见原因说明。
+
+### 场景 D：失败可定位
+
+- 任一核心失败场景均可追踪到请求入口与执行节点。
+- 阈值：核心失败样本 100% 可定位到根因类别。
+
+## 9) 成功指标（上线后持续评估）
+
+- 用户侧：任务完成率、重试成功率、平均完成时长。
+- 系统侧：终态收敛成功率、执行超时率、回放补偿命中率。
+- 治理侧：Draft 发布频次、发布后回退率、问题修复时长。
+
+## 10) 现状偏差（目标态 vs 当前 test 草稿）
+
+| 需求条目 | 目标态定义 | 当前 test 草稿现状 | 偏差等级 | 收敛计划 |
+| --- | --- | --- | --- | --- |
+| 登录能力 | 本地账号密码登录闭环（login/logout/me） | 当前为开发态 userId 直入 | 高 | 第一阶段补齐最小登录接口与登录页 |
+| 角色模型 | 单账号承担使用+治理双职责 | 界面与接口已混合存在，但未做统一登录态治理 | 中 | 与登录能力一并收口 |
+| 验收体系 | P0 场景 + 量化阈值 | 现有偏实现验收，阈值体系不完整 | 中 | 建立统一验收模板并纳入回归 |
+| SOP/DRG | 仅冻结边界，后续专题定稿 | 当前存在草稿实现，不作为最终方案 | 中 | 专题评审后回填设计文档并更新 PRD |
+
+## 11) SOP/DRG 未决议题（后续专题）
+
+当前只确定产品边界与目标，不在本文件内确定最终执行图实现细节。
+后续将单独评审并确定最终 DRG 方案，完成后同步更新：
+
+- `docs/design/*` 对应设计文档
+- 本 PRD 的“功能需求”与“验收标准”相关条目
+
+## 12) 文档关联与变更记录
+
+关联文档：
 
 - 系统架构：`docs/02-system-architecture.md`
 - UI/UX 规范：`docs/03-ui-ux-spec.md`
 - 开发任务清单：`docs/04-development-backlog.md`
+
+变更记录：
+
+- 2026-02-14：重构为“目标态优先”的可执行 PRD，补齐范围、登录需求、量化验收与现状偏差章节。

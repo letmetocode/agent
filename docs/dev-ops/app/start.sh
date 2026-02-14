@@ -1,20 +1,7 @@
-CONTAINER_NAME=agent
-IMAGE_NAME=system/agent:1.0
-PORT=8091
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "容器部署开始 ${CONTAINER_NAME}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
-# 停止容器
-docker stop ${CONTAINER_NAME}
-
-# 删除容器
-docker rm ${CONTAINER_NAME}
-
-# 启动容器
-docker run --name ${CONTAINER_NAME} \
--p ${PORT}:${PORT} \
--d ${IMAGE_NAME}
-
-echo "容器部署成功 ${CONTAINER_NAME}"
-
-docker logs -f ${CONTAINER_NAME}
+exec "${ROOT_DIR}/scripts/devops/local-up.sh" --with-app "$@"

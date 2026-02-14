@@ -21,11 +21,17 @@ public abstract class PostgresIntegrationTestSupport {
             .withPassword("postgres")
             .withInitScript("sql/integration-schema.sql");
 
+    static {
+        bridgeDockerApiVersionFromEnv();
+        ensurePostgresStarted();
+    }
+
     @Autowired
     protected JdbcTemplate jdbcTemplate;
 
     @DynamicPropertySource
     static void registerDataSource(DynamicPropertyRegistry registry) {
+        ensurePostgresStarted();
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
@@ -34,6 +40,26 @@ public abstract class PostgresIntegrationTestSupport {
         registry.add("spring.ai.openai.api-key", () -> "test-key");
         registry.add("event.publisher.instance-id", () -> "it-instance");
         registry.add("event.notify.channel", () -> "plan_task_events_channel");
+    }
+
+    private static synchronized void ensurePostgresStarted() {
+        if (!POSTGRES.isRunning()) {
+            POSTGRES.start();
+        }
+    }
+
+    private static void bridgeDockerApiVersionFromEnv() {
+        if (System.getProperty("api.version") != null) {
+            return;
+        }
+        String dockerApiVersion = System.getenv("DOCKER_API_VERSION");
+        if (dockerApiVersion == null) {
+            return;
+        }
+        String trimmed = dockerApiVersion.trim();
+        if (!trimmed.isEmpty()) {
+            System.setProperty("api.version", trimmed);
+        }
     }
 
     @BeforeEach

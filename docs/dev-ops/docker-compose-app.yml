@@ -1,27 +1,50 @@
-# /usr/local/bin/docker-compose -f /docs/dev-ops/environment/environment-docker-compose-2.4.yml up -d
-version: '3.8'
-# docker-compose -f docker-compose-app.yml up -d
-# 你需要修改system为你自身系统的仓库名
+# 应用容器编排（建议与 docker-compose-environment.yml 组合使用）
+# 启动命令：
+#   docker compose --env-file docs/dev-ops/.env -f docs/dev-ops/docker-compose-environment.yml -f docs/dev-ops/docker-compose-app.yml up -d --build agent
+name: ${COMPOSE_PROJECT_NAME:-agent-local}
+
 services:
   agent:
-    image: system/agent:1.0
-    container_name: agent
-    restart: on-failure
+    image: ${APP_IMAGE:-agent-app:local}
+    build:
+      context: ../..
+      dockerfile: agent-app/Dockerfile
+    restart: unless-stopped
+    init: true
     ports:
-      - "8091:8091"
+      - "${APP_HOST_PORT:-8091}:8091"
     environment:
-      - TZ=PRC
-      - SERVER_PORT=8091
+      TZ: ${TZ:-Asia/Shanghai}
+      SERVER_PORT: ${SERVER_PORT:-8091}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_NAME: ${DB_NAME:-agent_db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USERNAME: ${DB_USERNAME:-agent}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in docs/dev-ops/.env}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_CHAT_COMPLETIONS_PATH: ${OPENAI_CHAT_COMPLETIONS_PATH:-/v1/chat/completions}
+      APP_SHARE_BASE_URL: ${APP_SHARE_BASE_URL:-http://127.0.0.1:8091}
+      APP_SHARE_TOKEN_SALT: ${APP_SHARE_TOKEN_SALT:?set APP_SHARE_TOKEN_SALT in docs/dev-ops/.env}
+      JAVA_OPTS: ${JAVA_OPTS:--XX:MaxRAMPercentage=75 -XX:+UseG1GC -Dfile.encoding=UTF-8}
     volumes:
-      - ./log:/data/log
+      - ../../data/log:/app/data/log
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8091/actuator/health > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
     logging:
-      driver: "json-file"
+      driver: json-file
       options:
-        max-size: "10m"
+        max-size: 10m
         max-file: "3"
     networks:
-      - my-network
+      - agent-network
 
 networks:
-  my-network:
+  agent-network:
     driver: bridge

@@ -53,7 +53,7 @@ public class RequestTraceLoggingFilterTest {
 
     @Test
     public void shouldSkipExcludedSsePath() throws Exception {
-        mockMvc.perform(get("/api/plans/1/stream"))
+        mockMvc.perform(get("/api/v3/chat/sessions/1/stream"))
                 .andExpect(status().isOk())
                 .andExpect(header().doesNotExist("X-Trace-Id"))
                 .andExpect(header().doesNotExist("X-Request-Id"))
@@ -72,7 +72,7 @@ public class RequestTraceLoggingFilterTest {
                     .build();
         }
 
-        @GetMapping("/api/plans/{id}/stream")
+        @GetMapping("/api/v3/chat/sessions/{id}/stream")
         public Response<String> stream(@PathVariable("id") Long planId) {
             return Response.<String>builder()
                     .code("0000")

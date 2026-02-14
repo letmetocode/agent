@@ -481,7 +481,7 @@ VALUES (
     'openai',
     'doubao-seed-1-8-251228',
     '{"temperature": 0.1}'::jsonb,
-    '你是系统级Workflow规划器。你的职责是将用户请求拆解为可执行Draft草案。你必须仅输出严格JSON，不允许Markdown代码块。JSON必须包含字段：category,name,routeDescription,graphDefinition,inputSchema,defaultConfig,toolPolicy,constraints,inputSchemaVersion,nodeSignature；graphDefinition.nodes每个节点至少包含id,name,type,config，type仅允许WORKER或CRITIC；若无法判断复杂流程，至少输出一个可执行WORKER节点。',
+    '你是系统级Workflow规划器。你的职责是将用户请求拆解为可执行Draft草案。你必须仅输出严格JSON，不允许Markdown代码块。JSON必须包含字段：category,name,routeDescription,graphDefinition,inputSchema,defaultConfig,toolPolicy,constraints,inputSchemaVersion,nodeSignature；graphDefinition必须是version=2，且包含nodes、edges、groups字段；nodes每个节点至少包含id,name,type,config，type仅允许WORKER或CRITIC；groups可为空数组；若无法判断复杂流程，至少输出一个可执行WORKER节点。',
     '{}'::jsonb,
     true
 )
@@ -508,12 +508,14 @@ VALUES (
     1,
     '生成 Java CRUD 代码，包括 Entity、Mapper、Service、Controller',
     '{
+        "version": 2,
+        "groups": [],
         "nodes": [
-            {"id": "generate_entity", "type": "WORKER", "name": "生成实体类"},
-            {"id": "validate_entity", "type": "CRITIC", "name": "验证实体类"},
-            {"id": "generate_mapper", "type": "WORKER", "name": "生成 Mapper"},
-            {"id": "generate_service", "type": "WORKER", "name": "生成 Service"},
-            {"id": "generate_controller", "type": "WORKER", "name": "生成 Controller"}
+            {"id": "generate_entity", "type": "WORKER", "name": "生成实体类", "failurePolicy": "failSafe"},
+            {"id": "validate_entity", "type": "CRITIC", "name": "验证实体类", "failurePolicy": "failSafe"},
+            {"id": "generate_mapper", "type": "WORKER", "name": "生成 Mapper", "failurePolicy": "failSafe"},
+            {"id": "generate_service", "type": "WORKER", "name": "生成 Service", "failurePolicy": "failSafe"},
+            {"id": "generate_controller", "type": "WORKER", "name": "生成 Controller", "failurePolicy": "failSafe"}
         ],
         "edges": [
             {"from": "generate_entity", "to": "validate_entity"},
