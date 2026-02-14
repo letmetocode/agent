@@ -12,16 +12,12 @@ import type {
   PageResult,
   PlanDetailDTO,
   PlanLogDTO,
-  PlanSummaryDTO,
   PlanTaskEventDTO,
   RetrievalTestResponseDTO,
-  SessionCreateRequest,
-  SessionCreateResponse,
   SessionDetailDTO,
-  SessionMessageDTO,
-  SessionOverviewDTO,
-  SessionTurnDTO,
   SharedTaskReadDTO,
+  SopCompileResultDTO,
+  SopValidateResultDTO,
   TaskDetailDTO,
   TaskExecutionDetailDTO,
   TaskExportDTO,
@@ -45,18 +41,19 @@ const unwrapWithCodeCheck = <T>(res: { data: ApiResponse<T> }): T => {
 };
 
 export const agentApi = {
-  createSession: async (payload: SessionCreateRequest) =>
-    unwrap(await http.post<ApiResponse<SessionCreateResponse>>('/api/sessions', payload)),
-
-  submitChatMessageV3: async (payload: ChatMessageSubmitRequestV3) =>
-    unwrap(
+  submitChatMessageV3: async (
+    payload: ChatMessageSubmitRequestV3,
+    options?: { timeoutMs?: number; signal?: AbortSignal }
+  ) =>
+    unwrapWithCodeCheck(
       await http.post<ApiResponse<ChatMessageSubmitResponseV3>>('/api/v3/chat/messages', payload, {
-        timeout: CHAT_HTTP_TIMEOUT_MS
+        timeout: options?.timeoutMs ?? CHAT_HTTP_TIMEOUT_MS,
+        signal: options?.signal
       })
     ),
 
   getChatHistoryV3: async (sessionId: number) =>
-    unwrap(await http.get<ApiResponse<ChatHistoryResponseV3>>(`/api/v3/chat/sessions/${sessionId}/history`)),
+    unwrapWithCodeCheck(await http.get<ApiResponse<ChatHistoryResponseV3>>(`/api/v3/chat/sessions/${sessionId}/history`)),
 
   getSessionsList: async (params: {
     userId: string;
@@ -65,15 +62,6 @@ export const agentApi = {
     page?: number;
     size?: number;
   }) => unwrap(await http.get<ApiResponse<PageResult<SessionDetailDTO>>>('/api/sessions/list', { params })),
-
-  getSession: async (sessionId: number) =>
-    unwrap(await http.get<ApiResponse<SessionDetailDTO>>(`/api/sessions/${sessionId}`)),
-
-  getSessionPlans: async (sessionId: number) =>
-    unwrap(await http.get<ApiResponse<PlanSummaryDTO[]>>(`/api/sessions/${sessionId}/plans`)),
-
-  getSessionOverview: async (sessionId: number) =>
-    unwrap(await http.get<ApiResponse<SessionOverviewDTO>>(`/api/sessions/${sessionId}/overview`)),
 
   getPlan: async (planId: number) =>
     unwrap(await http.get<ApiResponse<PlanDetailDTO>>(`/api/plans/${planId}`)),
@@ -128,14 +116,6 @@ export const agentApi = {
   readSharedTask: async (taskId: number, params: { code: string; token: string }) =>
     unwrap(await http.get<ApiResponse<SharedTaskReadDTO>>(`/api/share/tasks/${taskId}`, { params })),
 
-  getTasks: async (params?: {
-    status?: string;
-    keyword?: string;
-    planId?: number;
-    sessionId?: number;
-    limit?: number;
-  }) => unwrap(await http.get<ApiResponse<TaskDetailDTO[]>>('/api/tasks', { params })),
-
   getTasksPaged: async (params?: {
     status?: string;
     keyword?: string;
@@ -151,12 +131,6 @@ export const agentApi = {
         params
       })
     ),
-
-  getSessionTurns: async (sessionId: number) =>
-    unwrap(await http.get<ApiResponse<SessionTurnDTO[]>>(`/api/sessions/${sessionId}/turns`)),
-
-  getSessionMessages: async (sessionId: number) =>
-    unwrap(await http.get<ApiResponse<SessionMessageDTO[]>>(`/api/sessions/${sessionId}/messages`)),
 
   getWorkflowDrafts: async (status?: string) =>
     unwrapWithCodeCheck(
@@ -174,6 +148,16 @@ export const agentApi = {
   publishWorkflowDraft: async (id: number, payload?: WorkflowPublishRequestDTO) =>
     unwrapWithCodeCheck(await http.post<ApiResponse<WorkflowPublishResultDTO>>(`/api/workflows/drafts/${id}/publish`, payload || {})),
 
+  compileWorkflowDraftSopSpec: async (id: number, sopSpec?: Record<string, unknown>) =>
+    unwrapWithCodeCheck(
+      await http.post<ApiResponse<SopCompileResultDTO>>(`/api/workflows/sop-spec/drafts/${id}/compile`, sopSpec ? { sopSpec } : {})
+    ),
+
+  validateWorkflowDraftSopSpec: async (id: number, sopSpec?: Record<string, unknown>) =>
+    unwrapWithCodeCheck(
+      await http.post<ApiResponse<SopValidateResultDTO>>(`/api/workflows/sop-spec/drafts/${id}/validate`, sopSpec ? { sopSpec } : {})
+    ),
+
   getAgentTools: async () => unwrap(await http.get<ApiResponse<AgentToolDTO[]>>('/api/agents/tools')),
 
   getVectorStores: async () => unwrap(await http.get<ApiResponse<VectorStoreDTO[]>>('/api/agents/vector-stores')),
@@ -186,14 +170,6 @@ export const agentApi = {
 
   testKnowledgeRetrieval: async (kbId: number, query: string) =>
     unwrap(await http.post<ApiResponse<RetrievalTestResponseDTO>>(`/api/knowledge-bases/${kbId}/retrieval-tests`, { query })),
-
-  getLogs: async (params?: {
-    planId?: number;
-    taskId?: number;
-    level?: string;
-    keyword?: string;
-    limit?: number;
-  }) => unwrap(await http.get<ApiResponse<PlanLogDTO[]>>('/api/logs', { params })),
 
   getLogsPaged: async (params?: {
     planId?: number;

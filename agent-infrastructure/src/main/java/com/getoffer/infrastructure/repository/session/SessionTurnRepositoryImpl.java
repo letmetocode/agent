@@ -56,6 +56,15 @@ public class SessionTurnRepositoryImpl implements ISessionTurnRepository {
     }
 
     @Override
+    public SessionTurnEntity findBySessionIdAndClientMessageId(Long sessionId, String clientMessageId) {
+        if (sessionId == null || clientMessageId == null || clientMessageId.trim().isEmpty()) {
+            return null;
+        }
+        SessionTurnPO po = sessionTurnDao.selectLatestBySessionIdAndClientMessageId(sessionId, clientMessageId.trim());
+        return po == null ? null : toEntity(po);
+    }
+
+    @Override
     public boolean markTerminalIfNotTerminal(Long turnId,
                                              TurnStatusEnum status,
                                              String assistantSummary,

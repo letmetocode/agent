@@ -34,6 +34,7 @@ export interface RoutingDecisionDTO {
 }
 
 export interface ChatMessageSubmitRequestV3 {
+  clientMessageId: string;
   userId: string;
   sessionId?: number;
   message: string;
@@ -47,8 +48,11 @@ export interface ChatMessageSubmitRequestV3 {
 export interface ChatMessageSubmitResponseV3 {
   sessionId: number;
   turnId: number;
-  planId: number;
+  planId?: number;
   turnStatus: string;
+  accepted?: boolean;
+  submissionState?: string;
+  acceptedAt?: string;
   sessionTitle?: string;
   assistantMessage?: string;
   streamPath?: string;
@@ -80,19 +84,6 @@ export interface ChatHistoryResponseV3 {
   messages: SessionMessageDTO[];
 }
 
-export interface SessionCreateRequest {
-  userId: string;
-  title?: string;
-  metaInfo?: Record<string, unknown>;
-}
-
-export interface SessionCreateResponse {
-  sessionId: number;
-  userId: string;
-  title?: string;
-  active: boolean;
-}
-
 export interface SessionDetailDTO {
   sessionId: number;
   userId: string;
@@ -111,16 +102,6 @@ export interface PlanSummaryDTO {
   errorSummary?: string;
   createdAt?: string;
   updatedAt?: string;
-}
-
-export interface PlanTaskStatsDTO {
-  total: number;
-  pending: number;
-  ready: number;
-  runningLike: number;
-  completed: number;
-  failed: number;
-  skipped: number;
 }
 
 export interface TaskDetailDTO {
@@ -203,20 +184,6 @@ export interface SessionMessageDTO {
   createdAt?: string;
 }
 
-export interface SessionOverviewDTO {
-  session: SessionDetailDTO;
-  plans: PlanSummaryDTO[];
-  latestPlanId?: number;
-  latestPlanTaskStats?: PlanTaskStatsDTO;
-  latestPlanTasks?: TaskDetailDTO[];
-}
-
-export interface PlanStreamEvent {
-  event: string;
-  id?: string;
-  data?: unknown;
-}
-
 export interface WorkflowDraftSummaryDTO {
   id: number;
   draftKey: string;
@@ -224,6 +191,7 @@ export interface WorkflowDraftSummaryDTO {
   category: string;
   name: string;
   status: string;
+  compileStatus?: string;
   dedupHash?: string;
   sourceType?: string;
   createdBy?: string;
@@ -239,6 +207,11 @@ export interface WorkflowDraftDetailDTO extends WorkflowDraftSummaryDTO {
   approvedBy?: string;
   approvedAt?: string;
   graphDefinition?: Record<string, unknown>;
+  sopRuntimeGraph?: Record<string, unknown>;
+  sopSpec?: Record<string, unknown>;
+  compileStatus?: string;
+  compileHash?: string;
+  compileWarnings?: string[];
   inputSchema?: Record<string, unknown>;
   defaultConfig?: Record<string, unknown>;
   toolPolicy?: Record<string, unknown>;
@@ -257,6 +230,7 @@ export interface WorkflowDraftUpdateRequestDTO {
   name?: string;
   routeDescription?: string;
   graphDefinition?: Record<string, unknown>;
+  sopSpec?: Record<string, unknown>;
   inputSchema?: Record<string, unknown>;
   defaultConfig?: Record<string, unknown>;
   toolPolicy?: Record<string, unknown>;
@@ -270,6 +244,22 @@ export interface WorkflowPublishResultDTO {
   definitionId: number;
   definitionKey: string;
   definitionVersion: number;
+}
+
+export interface SopCompileResultDTO {
+  draftId: number;
+  sopSpec?: Record<string, unknown>;
+  sopRuntimeGraph?: Record<string, unknown>;
+  compileHash?: string;
+  nodeSignature?: string;
+  warnings?: string[];
+}
+
+export interface SopValidateResultDTO {
+  draftId: number;
+  pass: boolean;
+  issues?: string[];
+  warnings?: string[];
 }
 
 export interface PlanTaskEventDTO {

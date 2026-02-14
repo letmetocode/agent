@@ -10,6 +10,10 @@ import java.util.Map;
 @Data
 public class ChatMessageSubmitRequestV3DTO {
 
+    /**
+     * 客户端提交幂等键，建议前端每次点击发送生成唯一值。
+     */
+    private String clientMessageId;
     private String userId;
     private Long sessionId;
     private String message;

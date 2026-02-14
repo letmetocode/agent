@@ -83,23 +83,50 @@ PostgreSQL 最终版初始化脚本：
 - 存量环境：先备份数据库，再依次执行 `V20260212_01_session_planner_v2.sql`、`V20260213_02_executor_terminal_convergence.sql`。
 - 回滚场景：按逆序执行回滚脚本，并同步回滚应用版本。
 
-### 1.5) 启动本地依赖（可选）
+### 1.5) 启动本地依赖（推荐）
 
-使用以下 compose 文件可一键启动 `PostgreSQL + pgAdmin + Redis + Redis Commander`：
+项目提供了可复现启动脚本与环境模板：
 
-- 本地环境：`docs/dev-ops/docker-compose-environment.yml`
-- 阿里云镜像环境：`docs/dev-ops/docker-compose-environment-aliyun.yml`
+- 环境模板：`docs/dev-ops/.env.example`
+- 一键启动：`scripts/devops/local-up.sh`
+- 一键停机：`scripts/devops/local-down.sh`
+
+首次执行时若不存在 `docs/dev-ops/.env`，脚本会自动从模板生成，并写入随机密钥。
 
 ```bash
-docker compose -f docs/dev-ops/docker-compose-environment.yml up -d
+# 启动 PostgreSQL + Redis（默认最小暴露）
+bash scripts/devops/local-up.sh
+
+# 额外启动 pgAdmin + Redis Commander
+bash scripts/devops/local-up.sh --with-ops-ui
+
+# 同时构建并启动应用容器
+bash scripts/devops/local-up.sh --with-app
 ```
 
-默认端口：
+默认端口（可在 `docs/dev-ops/.env` 覆盖）：
 
-- PostgreSQL：`15432`（`postgres` / `agent_db`）
-- pgAdmin：`5050`
+- PostgreSQL：`15432`
+- pgAdmin：`5050`（`--with-ops-ui`）
 - Redis：`16379`
-- Redis Commander：`8081`
+- Redis Commander：`8081`（`--with-ops-ui`）
+- agent-app：`8091`（`--with-app`）
+
+停机命令：
+
+```bash
+# 保留数据卷
+bash scripts/devops/local-down.sh
+
+# 删除数据卷（慎用）
+bash scripts/devops/local-down.sh --volumes
+```
+
+如需使用阿里云镜像，复制并修改 `docs/dev-ops/.env` 中的 `POSTGRES_IMAGE/PGADMIN_IMAGE/REDIS_IMAGE` 后，执行：
+
+```bash
+docker compose --env-file docs/dev-ops/.env -f docs/dev-ops/docker-compose-environment-aliyun.yml up -d
+```
 
 启动后会自动执行 `docs/dev-ops/postgresql/sql` 下的初始化 SQL。
 
@@ -115,6 +142,13 @@ docker compose -f docs/dev-ops/docker-compose-environment.yml up -d
 - `spring.ai.openai.api-key`
 - `spring.ai.openai.base-url`
 - `spring.ai.openai.chat.completions-path`
+
+数据库配置支持环境变量覆盖（`DB_HOST/DB_PORT/DB_NAME/DB_USERNAME/DB_PASSWORD`），便于本地 Docker 与 CI 复用同一套参数。
+
+生产 profile (`application-prod.yml`) 需要显式提供：
+
+- `DB_PASSWORD`
+- `APP_SHARE_TOKEN_SALT`
 
 ### 3) 启动后端
 
@@ -132,6 +166,26 @@ npm run dev
 
 默认前端访问后端 `http://127.0.0.1:8091`。
 
+## 端到端压测脚本（会话 -> SSE 终态）
+
+压测脚本：`scripts/chat_e2e_perf.py`
+
+示例：
+
+```bash
+python3 scripts/chat_e2e_perf.py \
+  --base-url http://127.0.0.1:8091 \
+  --user-id perf-user \
+  --requests 20 \
+  --concurrency 5
+```
+
+脚本会输出：
+- 提交成功率、终态收敛成功率（`answer.final + stream.completed`）
+- 收敛时延（平均/P95）与首事件时延
+- SSE 重连率、总重连次数、每请求平均重连次数
+- 明细结果 JSON（默认写入 `scripts/output/perf-chat-e2e-*.json`）
+
 ## 关键配置说明
 
 ### Root 规划与 Workflow Draft
@@ -142,6 +196,7 @@ npm run dev
 - `planner.root.agent-key`（Root AgentProfile Key）
 - `planner.root.retry.max-attempts`
 - `planner.root.retry.backoff-ms`
+- `planner.root.timeout.soft-ms`（Root 规划软超时，超时后快速降级）
 - `planner.root.fallback.single-node.enabled`
 - `planner.root.fallback.agent-key`（Draft 节点缺省 agentKey，当前默认 `assistant`）
 
@@ -175,6 +230,14 @@ npm run dev
 - `sse.replay.batch-size`（每次回放 sweep 的单批次查询上限）
 - `sse.replay.max-batches-per-sweep`（每次 sweep 对单订阅者最多回放批次数）
 
+前端默认行为：
+- SSE `onerror` 若判断为短暂链路抖动（22 秒内仍有事件/心跳）会静默等待自动恢复，不立即提示“重连中”。
+- 仅在确认失联后执行指数退避重连，重连上限后切换历史自动同步兜底。
+
+后端默认行为：
+- V3 SSE 响应头默认包含 `Cache-Control: no-cache, no-transform` 与 `X-Accel-Buffering: no`，降低中间层缓冲导致的假断流。
+- 断线重连时（`lastEventId > 0`）仅回放漏事件，不重复发送 `message.accepted/planning.started` 引导事件。
+
 ### HTTP 入口日志与链路追踪
 
 配置位置：`agent-app/src/main/resources/application*.yml`
@@ -204,40 +267,54 @@ npm run dev
 
 - `GET /api/workflows/drafts`：查询 Draft 列表（支持按状态筛选）。
 - `GET /api/workflows/drafts/{id}`：查询 Draft 详情。
-- `PUT /api/workflows/drafts/{id}`：更新 Draft（仅非 `ARCHIVED/PUBLISHED`）。
+- `PUT /api/workflows/drafts/{id}`：更新 Draft（仅非 `ARCHIVED/PUBLISHED`）；支持提交 `sopSpec`，服务端自动编译为 Runtime Graph。
+- `POST /api/workflows/sop-spec/drafts/{id}/compile`：编译 `sopSpec` 并返回 Runtime Graph 预览、`compileHash` 与警告信息。
+- `POST /api/workflows/sop-spec/drafts/{id}/validate`：校验 `sopSpec`，返回 `pass/issues/warnings`。
 - `POST /api/workflows/drafts/{id}/publish`：发布 Draft 为新 Definition 版本。
 - `GET /api/workflows/definitions`：查询 Definition 列表。
 - `GET /api/workflows/definitions/{id}`：查询 Definition 详情。
 
-前端会话页在识别到“未命中生产 Definition”时，会展示 Draft 提示与编辑入口。
+前端 `Workflow Draft` 页面已支持 SOP 图形化编排（节点拖拽、依赖连线、策略编辑、编译预览与保存）。
+
+### Graph DSL v2（SOP 编排）
+
+- 治理层单一事实源为 `sopSpec`；执行层使用编译产物 `graphDefinition(version=2)`。
+- 发布前会校验 `compileHash` 与当前 Runtime Graph 一致性，不一致则阻断发布并提示重新编译保存。
+- 当前运行时统一以 `graphDefinition.version = 2` 执行；发布与更新 Draft 时会强校验 `version=2`。
+- 候选 Draft（Root 规划产物）允许版本兼容升级：当仅缺失/非 2 但节点结构可执行时，Planner 会自动补齐为 `version=2`（并补齐缺省 `groups/edges`）。
+- 候选 Draft 结构性非法（如边指向不存在节点）会判定为不可重试错误，Root 规划直接快速降级，避免 3 次无效重试。
+- Root 规划增加软超时（`planner.root.timeout.soft-ms`），超时视为不可重试并直接降级单节点 Draft，缩短入口等待。
+- 最小结构：`{ version, nodes, edges, groups }`，其中 `nodes` 必填，`groups` 可为空数组。
+- 节点/分组可配置依赖汇聚策略：
+  - `joinPolicy`: `all | any | quorum`
+  - `failurePolicy`: `failFast | failSafe`
+  - `quorum`: 当 `joinPolicy=quorum` 时生效
+- Planner 在展开 Task 时会把策略写入 `task.configSnapshot.graphPolicy`，调度与 Plan 收敛统一按该策略执行。
 
 ## 会话编排 V3 接口（推荐）
 
-- `POST /api/v3/chat/messages`：统一会话编排入口（自动创建/复用 Session + 创建 Turn + 触发 Plan）。
+- `POST /api/v3/chat/messages`：统一会话编排入口（自动创建/复用 Session + 创建 Turn，先 ACK 后异步触发 Plan）。
+  - 请求建议携带 `clientMessageId` 作为幂等键；重复提交会复用已有 Turn。
+  - 响应新增 `accepted/submissionState/acceptedAt`，`planId` 可能延后出现在 history 中。
 - `GET /api/v3/chat/sessions/{id}/history`：聚合返回会话历史（session/turns/messages + latestPlanId）。
 - `GET /api/v3/chat/sessions/{id}/stream?planId=...`：聊天语义 SSE（`message.accepted`、`task.progress`、`answer.final`、`stream.completed` 等）。
 - `GET /api/v3/chat/plans/{id}/routing`：查询路由决策详情（V2 路由接口替代）。
 - 默认策略：优先使用 `assistant`（若存在且激活），否则使用首个激活 Agent；无可用 Agent 时返回明确错误。
 - 输入校验策略：当 Workflow `inputSchema.required` 包含系统上下文字段（如 `sessionId`）时，由 Planner 从运行时上下文自动注入，避免误报 `Missing required input`。
 
-## 会话与规划 V2 接口（已下线，仅保留迁移提示）
+## 接口基线说明
 
-> 说明：V2 接口已全部下线，仅保留迁移提示用于存量调用识别。替代方案见 `docs/04-development-backlog.md` 第 4 节。
-
-- `GET /api/v2/agents/active`：已下线，返回迁移提示（请使用 `/api/v3/chat/messages`）。
-- `POST /api/v2/agents`：已下线，返回迁移提示（请使用 `/api/v3/chat/messages`）。
-- `POST /api/v2/sessions`：已下线，返回迁移提示（请使用 `/api/v3/chat/messages`）。
-- `POST /api/v2/sessions/{id}/turns`：已下线，返回迁移提示（请使用 `/api/v3/chat/messages`）。
-- `GET /api/v2/plans/{id}/routing`：已下线，返回迁移提示（请使用 `/api/v3/chat/plans/{id}/routing`）。
-- 旧 `POST /api/sessions/{id}/chat` 已下线，调用会返回迁移提示。
-- 查询性能：`/api/tasks`、`/api/plans/{id}/tasks`、`/api/sessions/{id}/overview`、`/api/dashboard/overview` 已使用批量 latestExecution 查询，避免 N+1。
+- 当前仅维护 V3 会话主链路：`/api/v3/chat/messages`、`/api/v3/chat/sessions/{id}/history`、`/api/v3/chat/sessions/{id}/stream`、`/api/v3/chat/plans/{id}/routing`。
+- 历史入口代码已删除，不再提供兼容路由。
+- 只读查询统一为 `/api/v3/chat/sessions/{id}/history`、`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`。
+- 查询性能：`/api/plans/{id}/tasks`、`/api/dashboard/overview` 已使用批量 latestExecution 查询，避免 N+1。
 - 观测闭环：`/api/logs/paged` 已改为 DB 侧分页查询；`GET /api/observability/alerts/catalog` 提供告警目录与 runbook 入口。
 
 ### 会话编排 V3 最小验证流程
 
 - 发送消息：`POST /api/v3/chat/messages`
 - 回查历史：`GET /api/v3/chat/sessions/{sessionId}/history`
-- 订阅流式执行：`GET /api/v3/chat/sessions/{sessionId}/stream?planId={planId}`
+- 当 history 出现 `planId` 后订阅流式执行：`GET /api/v3/chat/sessions/{sessionId}/stream?planId={planId}`
 - 回查路由：`GET /api/v3/chat/plans/{planId}/routing`
 - 前端会话页具备自动收敛机制：SSE 断链最多自动重连 3 次，仍失败则自动轮询历史（30s 超时）以同步最终结果。
 
@@ -273,11 +350,12 @@ npm run dev
 - 构建：`mvn clean package`
 - 启动：`mvn -pl agent-app -am spring-boot:run`
 - 全量单测：`mvn -pl agent-app -am -DskipTests=false test`
+- 本地依赖启动：`bash scripts/devops/local-up.sh`
+- 本地依赖停机：`bash scripts/devops/local-down.sh`
+- 容器化启动应用：`bash scripts/devops/local-up.sh --with-app`
 - 初始化 Git hooks：`bash scripts/setup-git-hooks.sh`
 - 指定回归：
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlannerServiceRootDraftTest -Dsurefire.failIfNoSpecifiedTests=false test`
-  - `mvn -pl agent-app -am -DskipTests=false -Dtest=AgentV2ControllerTest,SessionV2ControllerTest,TurnV2ControllerTest,PlanRoutingV2ControllerTest -Dsurefire.failIfNoSpecifiedTests=false test`
-  - `mvn -pl agent-app -am -DskipTests=false -Dtest=ChatControllerTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=ConversationOrchestratorServiceTest,ChatV3ControllerTest,ChatStreamV3ControllerTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TaskExecutorPlanBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TurnResultServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`
@@ -286,6 +364,20 @@ npm run dev
   - `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=SessionChatPlanSseIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=ExecutorTerminalConvergenceIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - 分享闭环（需 Docker）：`mvn -pl agent-app -am -DskipTests=false -Dit.docker.enabled=true -Dtest=TaskShareLinkControllerIntegrationTest,ShareAccessControllerIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`
+
+Docker 集成测试前置（Docker Desktop on macOS）：
+
+- `export DOCKER_HOST=unix:///Users/${USER}/.docker/run/docker.sock`
+- `export DOCKER_API_VERSION=1.44`
+
+## CI 基线
+
+仓库新增 GitHub Actions：`.github/workflows/ci.yml`，包括：
+
+- 后端构建：`mvn -DskipTests clean package`
+- 后端冒烟回归：`PlannerServiceRootDraftTest`、`TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`
+- 前端构建：`frontend` 下 `npm ci && npm run build`
+- Compose 校验：对 `docs/dev-ops/docker-compose-environment.yml` 与 `docker-compose-app.yml` 执行 `docker compose config`
 
 ## 术语约定
 

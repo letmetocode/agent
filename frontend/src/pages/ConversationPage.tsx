@@ -6,8 +6,7 @@ import { useSessionStore } from '@/features/session/sessionStore';
 import { openChatSseV3 } from '@/features/sse/sseClient';
 import { agentApi } from '@/shared/api/agentApi';
 import { CHAT_HTTP_TIMEOUT_MS } from '@/shared/api/http';
-import type { ChatHistoryResponseV3, ChatStreamEventV3, SessionDetailDTO, SessionMessageDTO } from '@/shared/types/api';
-import { PageHeader } from '@/shared/ui/PageHeader';
+import type { ChatHistoryResponseV3, ChatStreamEventV3, SessionDetailDTO } from '@/shared/types/api';
 
 const { TextArea } = Input;
 
@@ -16,6 +15,26 @@ interface ProcessEventItem {
   type: string;
   time: string;
   text: string;
+}
+
+interface OptimisticMessageItem {
+  clientMessageId: string;
+  content: string;
+  createdAt: string;
+  sessionId?: number;
+  status: 'PENDING' | 'FAILED';
+  errorMessage?: string;
+}
+
+interface ChatRenderMessageItem {
+  key: string;
+  messageId?: number;
+  role: string;
+  content: string;
+  createdAt?: string;
+  localStatus?: 'PENDING' | 'FAILED';
+  localErrorMessage?: string;
+  clientMessageId?: string;
 }
 
 type StreamState = 'idle' | 'connecting' | 'connected' | 'retrying' | 'polling';
@@ -29,9 +48,16 @@ interface HistorySyncResult {
 const EXECUTING_TURN_STATUS = new Set(['CREATED', 'PLANNING', 'EXECUTING', 'SUMMARIZING']);
 const SSE_MAX_RETRIES = 3;
 const SSE_RETRY_BASE_MS = 1200;
+const SSE_SIGNAL_STALE_MS = 22000;
 const HISTORY_POLL_INTERVAL_MS = 1500;
 const HISTORY_POLL_TIMEOUT_MS = 30000;
 const STREAM_ERROR_DEDUP_MS = 10000;
+const SEND_REQUEST_TIMEOUT_MS = 15000;
+const SEND_REQUEST_HARD_TIMEOUT_MS = 17000;
+const SEND_RECOVERY_INTERVAL_MS = 1200;
+const SEND_RECOVERY_TIMEOUT_MS = 45000;
+const SEND_RECOVERY_HISTORY_LOOKBACK_MS = 10 * 60 * 1000;
+const ACTIVE_HISTORY_SYNC_INTERVAL_MS = 2500;
 
 const safeTime = (value?: string) => {
   if (!value) {
@@ -54,6 +80,90 @@ const toChatMessageError = (err: unknown): string => {
   return String(err);
 };
 
+const toEpoch = (value?: string): number => {
+  if (!value) {
+    return 0;
+  }
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : 0;
+};
+
+const isAbortRequestError = (err: unknown): boolean => {
+  if (!err || typeof err !== 'object') {
+    return false;
+  }
+  const maybe = err as { code?: string; name?: string; message?: string };
+  return (
+    maybe.code === 'ERR_CANCELED' ||
+    maybe.code === 'ECONNABORTED' ||
+    maybe.name === 'CanceledError' ||
+    maybe.name === 'AbortError' ||
+    (typeof maybe.message === 'string' && maybe.message.includes('SEND_HARD_TIMEOUT')) ||
+    (typeof maybe.message === 'string' && maybe.message.toLowerCase().includes('timeout')) ||
+    (typeof maybe.message === 'string' && maybe.message.toLowerCase().includes('canceled'))
+  );
+};
+
+const hasSubmittedMessageInHistory = (
+  data: ChatHistoryResponseV3,
+  expectedMessage: string,
+  startedAt: number,
+  clientMessageId?: string
+): boolean => {
+  const normalized = expectedMessage.trim();
+  if (!normalized) {
+    return false;
+  }
+  const threshold = Math.max(0, startedAt - SEND_RECOVERY_HISTORY_LOOKBACK_MS);
+
+  const normalizedClientMessageId = (clientMessageId || '').trim();
+  if (normalizedClientMessageId) {
+    const matchedByClientMessageId = data.messages?.some((item) => {
+      const role = (item.role || '').toUpperCase();
+      if (role !== 'USER') {
+        return false;
+      }
+      const metaClientMessageId =
+        item.metadata && typeof item.metadata.clientMessageId === 'string'
+          ? item.metadata.clientMessageId.trim()
+          : '';
+      if (metaClientMessageId !== normalizedClientMessageId) {
+        return false;
+      }
+      const createdAt = toEpoch(item.createdAt);
+      return createdAt <= 0 || createdAt >= threshold;
+    });
+    if (matchedByClientMessageId) {
+      return true;
+    }
+  }
+
+  const matchedUserMessage = data.messages?.some((item) => {
+    const role = (item.role || '').toUpperCase();
+    if (role !== 'USER') {
+      return false;
+    }
+    const content = (item.content || '').trim();
+    if (content !== normalized) {
+      return false;
+    }
+    const createdAt = toEpoch(item.createdAt);
+    return createdAt <= 0 || createdAt >= threshold;
+  });
+  if (matchedUserMessage) {
+    return true;
+  }
+
+  return data.turns?.some((turn) => {
+    const messageText = (turn.userMessage || '').trim();
+    if (messageText !== normalized) {
+      return false;
+    }
+    const createdAt = toEpoch(turn.createdAt);
+    return createdAt <= 0 || createdAt >= threshold;
+  }) || false;
+};
+
 export const ConversationPage = () => {
   const navigate = useNavigate();
   const { sessionId } = useParams();
@@ -65,11 +175,13 @@ export const ConversationPage = () => {
   const [sessionListLoading, setSessionListLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [recoveringSubmission, setRecoveringSubmission] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [streamState, setStreamState] = useState<StreamState>('idle');
 
   const [sessions, setSessions] = useState<SessionDetailDTO[]>([]);
   const [history, setHistory] = useState<ChatHistoryResponseV3 | null>(null);
+  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessageItem[]>([]);
   const [prompt, setPrompt] = useState('');
   const [activePlanId, setActivePlanId] = useState<number | undefined>();
   const [processEvents, setProcessEvents] = useState<ProcessEventItem[]>([]);
@@ -81,15 +193,72 @@ export const ConversationPage = () => {
   const retryCountRef = useRef(0);
   const currentSubscriptionRef = useRef<string | null>(null);
   const lastFinalEventRef = useRef<{ key: string; eventId: number }>({ key: '', eventId: 0 });
+  const lastSseSignalAtRef = useRef<number>(0);
   const streamErrorHintAtRef = useRef<Record<string, number>>({});
+  const sendAbortControllerRef = useRef<AbortController | null>(null);
+  const chatScrollableRef = useRef<HTMLDivElement | null>(null);
+  const autoScrollEnabledRef = useRef(true);
+  const mountedRef = useRef(true);
 
   const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8091';
 
-  const messages = useMemo(() => {
-    if (!history?.messages) {
-      return [];
-    }
-    return [...history.messages].sort((a, b) => {
+  const messages = useMemo<ChatRenderMessageItem[]>(() => {
+    const serverMessages = (history?.messages || []).map((item) => ({
+      key: `server-${item.messageId || `${item.turnId || 0}-${item.createdAt || ''}-${(item.content || '').slice(0, 12)}`}`,
+      messageId: item.messageId,
+      role: item.role || 'SYSTEM',
+      content: item.content || '',
+      createdAt: item.createdAt,
+      clientMessageId:
+        item.metadata && typeof item.metadata.clientMessageId === 'string'
+          ? item.metadata.clientMessageId
+          : undefined
+    }));
+
+    const serverClientMessageIds = new Set(
+      serverMessages
+        .map((item) => item.clientMessageId)
+        .filter((item): item is string => typeof item === 'string' && item.length > 0)
+    );
+
+    const historySessionId = history?.sessionId;
+    const optimisticRenderable = optimisticMessages
+      .filter((item) => {
+        if (serverClientMessageIds.has(item.clientMessageId)) {
+          return false;
+        }
+        if (item.sessionId && historySessionId && item.sessionId !== historySessionId) {
+          return false;
+        }
+        if (!serverClientMessageIds.size) {
+          return true;
+        }
+        const fallbackMatched = (history?.messages || []).some((serverItem) => {
+          const role = (serverItem.role || '').toUpperCase();
+          if (role !== 'USER') {
+            return false;
+          }
+          if ((serverItem.content || '').trim() !== item.content.trim()) {
+            return false;
+          }
+          const serverAt = toEpoch(serverItem.createdAt);
+          const localAt = toEpoch(item.createdAt);
+          return serverAt > 0 && localAt > 0 && Math.abs(serverAt - localAt) <= SEND_RECOVERY_HISTORY_LOOKBACK_MS;
+        });
+        return !fallbackMatched;
+      })
+      .map((item) => ({
+        key: `optimistic-${item.clientMessageId}`,
+        messageId: undefined,
+        role: 'USER',
+        content: item.content,
+        createdAt: item.createdAt,
+        localStatus: item.status,
+        localErrorMessage: item.errorMessage,
+        clientMessageId: item.clientMessageId
+      }));
+
+    return [...serverMessages, ...optimisticRenderable].sort((a, b) => {
       const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       if (at !== bt) {
@@ -97,7 +266,7 @@ export const ConversationPage = () => {
       }
       return (a.messageId || 0) - (b.messageId || 0);
     });
-  }, [history?.messages]);
+  }, [history?.messages, history?.sessionId, optimisticMessages]);
 
   const hasExecutingTurn = useMemo(() => {
     if (!history?.turns) {
@@ -123,7 +292,7 @@ export const ConversationPage = () => {
 
   const streamStatusHint = useMemo(() => {
     if (streamState === 'retrying') {
-      return '流连接中断，正在自动重连…';
+      return '连接轻微波动，正在自动恢复…';
     }
     if (streamState === 'polling') {
       return '重连失败，正在同步最终结果…';
@@ -133,6 +302,29 @@ export const ConversationPage = () => {
     }
     return '仅展示流式执行状态与终态收敛，不把中间态落为最终回复。';
   }, [streamState]);
+
+  const scrollChatToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    if (!autoScrollEnabledRef.current) {
+      return;
+    }
+    const panel = chatScrollableRef.current;
+    if (!panel) {
+      return;
+    }
+    panel.scrollTo({
+      top: panel.scrollHeight,
+      behavior
+    });
+  }, []);
+
+  const handleChatScroll = useCallback(() => {
+    const panel = chatScrollableRef.current;
+    if (!panel) {
+      return;
+    }
+    const distanceToBottom = panel.scrollHeight - panel.scrollTop - panel.clientHeight;
+    autoScrollEnabledRef.current = distanceToBottom < 96;
+  }, []);
 
   const pushProcessEvent = useCallback((event: ChatStreamEventV3) => {
     const text = event.finalAnswer || event.message || event.taskStatus || event.type;
@@ -158,6 +350,45 @@ export const ConversationPage = () => {
     [pushProcessEvent]
   );
 
+  const upsertOptimisticMessage = useCallback((item: OptimisticMessageItem) => {
+    setOptimisticMessages((previous) => {
+      const index = previous.findIndex((candidate) => candidate.clientMessageId === item.clientMessageId);
+      if (index < 0) {
+        return [...previous, item];
+      }
+      const next = previous.slice();
+      next[index] = { ...next[index], ...item };
+      return next;
+    });
+  }, []);
+
+  const markOptimisticMessageFailed = useCallback((clientMessageId: string, errorMessage: string) => {
+    setOptimisticMessages((previous) =>
+      previous.map((item) =>
+        item.clientMessageId === clientMessageId
+          ? {
+              ...item,
+              status: 'FAILED',
+              errorMessage
+            }
+          : item
+      )
+    );
+  }, []);
+
+  const bindOptimisticMessageSession = useCallback((clientMessageId: string, sessionId: number) => {
+    setOptimisticMessages((previous) =>
+      previous.map((item) =>
+        item.clientMessageId === clientMessageId
+          ? {
+              ...item,
+              sessionId
+            }
+          : item
+      )
+    );
+  }, []);
+
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
       window.clearTimeout(reconnectTimerRef.current);
@@ -173,12 +404,20 @@ export const ConversationPage = () => {
     historyPollDeadlineRef.current = 0;
   }, []);
 
+  const abortPendingSendRequest = useCallback(() => {
+    if (sendAbortControllerRef.current) {
+      sendAbortControllerRef.current.abort();
+      sendAbortControllerRef.current = null;
+    }
+  }, []);
+
   const stopStream = useCallback(() => {
     clearReconnectTimer();
     clearHistoryPollTimer();
     retryCountRef.current = 0;
     currentSubscriptionRef.current = null;
     lastFinalEventRef.current = { key: '', eventId: 0 };
+    lastSseSignalAtRef.current = 0;
     streamErrorHintAtRef.current = {};
     if (sseRef.current) {
       sseRef.current.close();
@@ -295,6 +534,7 @@ export const ConversationPage = () => {
         lastFinalEventRef.current = { key: subscriptionKey, eventId: 0 };
       }
       setStreaming(true);
+      lastSseSignalAtRef.current = Date.now();
       setStreamState(options?.force ? 'retrying' : 'connecting');
 
       const source = openChatSseV3(
@@ -305,6 +545,8 @@ export const ConversationPage = () => {
           if (currentSubscriptionRef.current !== subscriptionKey) {
             return;
           }
+
+          lastSseSignalAtRef.current = Date.now();
 
           if (event.type !== 'stream.heartbeat') {
             if (event.type !== 'stream.completed') {
@@ -352,9 +594,18 @@ export const ConversationPage = () => {
             void Promise.all([loadSessions(), syncHistorySnapshot(targetSessionId, { silent: true })]);
           }
         },
-        () => {
+        (eventSource) => {
           const handleStreamError = async () => {
             if (currentSubscriptionRef.current !== subscriptionKey) {
+              return;
+            }
+
+            const lastSignalAt = lastSseSignalAtRef.current || Date.now();
+            const staleDuration = Date.now() - lastSignalAt;
+            const isTransientReconnect = eventSource.readyState === EventSource.CONNECTING && staleDuration < SSE_SIGNAL_STALE_MS;
+            if (isTransientReconnect) {
+              setStreaming(true);
+              setStreamState((previous) => (previous === 'polling' ? previous : 'connected'));
               return;
             }
 
@@ -365,7 +616,9 @@ export const ConversationPage = () => {
               sseRef.current = null;
             }
 
-            const historyState = await syncHistorySnapshot(targetSessionId, { silent: true });
+            const historyState = staleDuration >= SSE_SIGNAL_STALE_MS
+              ? await syncHistorySnapshot(targetSessionId, { silent: true })
+              : null;
             if (currentSubscriptionRef.current !== subscriptionKey) {
               return;
             }
@@ -381,7 +634,7 @@ export const ConversationPage = () => {
 
             if (retryCountRef.current >= SSE_MAX_RETRIES) {
               currentSubscriptionRef.current = null;
-              pushStreamErrorHint('switch-polling', '流连接中断，已切换为自动同步模式。');
+              pushStreamErrorHint('switch-polling', '流连接长期中断，已切换为自动同步模式。');
               startHistoryPolling(targetSessionId);
               return;
             }
@@ -389,7 +642,7 @@ export const ConversationPage = () => {
             retryCountRef.current += 1;
             const delay = SSE_RETRY_BASE_MS * Math.pow(2, retryCountRef.current - 1);
             setStreamState('retrying');
-            if (retryCountRef.current > 1) {
+            if (retryCountRef.current > 1 && staleDuration >= SSE_SIGNAL_STALE_MS) {
               pushStreamErrorHint(
                 'retrying',
                 `流连接中断，正在重连（${retryCountRef.current}/${SSE_MAX_RETRIES}）...`
@@ -411,6 +664,7 @@ export const ConversationPage = () => {
           return;
         }
         retryCountRef.current = 0;
+        lastSseSignalAtRef.current = Date.now();
         setStreaming(true);
         setStreamState('connected');
       };
@@ -429,6 +683,79 @@ export const ConversationPage = () => {
     ]
   );
 
+  const recoverSubmissionFromHistory = useCallback(
+    async (
+      expectedMessage: string,
+      options?: { preferredSessionId?: number; startedAt?: number; clientMessageId?: string }
+    ): Promise<boolean> => {
+      const normalized = expectedMessage.trim();
+      if (!normalized) {
+        return false;
+      }
+      const startedAt = options?.startedAt || Date.now();
+      const deadline = Date.now() + SEND_RECOVERY_TIMEOUT_MS;
+
+      while (Date.now() <= deadline) {
+        const candidateSessionIds: number[] = [];
+        if (options?.preferredSessionId) {
+          candidateSessionIds.push(options.preferredSessionId);
+        } else if (userId) {
+          try {
+            const pageData = await agentApi.getSessionsList({ userId, page: 1, size: 12 });
+            const candidates = (pageData.items || [])
+              .slice()
+              .sort((a, b) => toEpoch(b.createdAt) - toEpoch(a.createdAt))
+              .map((item) => item.sessionId)
+              .filter((item): item is number => typeof item === 'number' && item > 0);
+            candidateSessionIds.push(...candidates);
+          } catch {
+            // ignore transient list error and continue retry loop
+          }
+        }
+
+        for (const candidateSessionId of candidateSessionIds) {
+          try {
+            const historyData = await agentApi.getChatHistoryV3(candidateSessionId);
+            if (!hasSubmittedMessageInHistory(historyData, normalized, startedAt, options?.clientMessageId)) {
+              continue;
+            }
+
+            setHistory(historyData);
+            const state = resolveHistoryState(historyData);
+            setActivePlanId(state.nextPlanId);
+
+            addBookmark({
+              sessionId: historyData.sessionId,
+              title: historyData.title || normalized,
+              createdAt: new Date().toISOString()
+            });
+
+            if (!sid || sid !== historyData.sessionId) {
+              const query = state.nextPlanId ? `?planId=${state.nextPlanId}` : '';
+              navigate(`/sessions/${historyData.sessionId}${query}`, { replace: true });
+            } else if (state.nextPlanId) {
+              setSearchParams({ planId: String(state.nextPlanId) }, { replace: true });
+            }
+
+            if (state.nextPlanId && state.hasExecutingTurn) {
+              connectStream(historyData.sessionId, state.nextPlanId, { force: true, resetRetry: true });
+            }
+
+            void loadSessions();
+            return true;
+          } catch {
+            // ignore history fetch error and continue retry loop
+          }
+        }
+
+        await new Promise((resolve) => window.setTimeout(resolve, SEND_RECOVERY_INTERVAL_MS));
+      }
+
+      return false;
+    },
+    [addBookmark, connectStream, loadSessions, navigate, resolveHistoryState, setSearchParams, sid, userId]
+  );
+
   const loadHistory = useCallback(
     async (targetSessionId: number) => {
       setHistoryLoading(true);
@@ -442,11 +769,79 @@ export const ConversationPage = () => {
   );
 
   useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     void loadSessions();
   }, [loadSessions]);
 
   useEffect(() => {
+    autoScrollEnabledRef.current = true;
+    setOptimisticMessages((previous) => previous.filter((item) => (sid ? item.sessionId === sid : !item.sessionId)));
+  }, [sid]);
+
+  useEffect(() => {
+    if (!messages.length) {
+      return;
+    }
+    scrollChatToBottom('smooth');
+  }, [messages.length, scrollChatToBottom]);
+
+  useEffect(() => {
+    if (!history?.messages?.length) {
+      return;
+    }
+    const settledClientMessageIds = new Set(
+      history.messages
+        .map((item) =>
+          item.metadata && typeof item.metadata.clientMessageId === 'string'
+            ? item.metadata.clientMessageId
+            : undefined
+        )
+        .filter((item): item is string => Boolean(item))
+    );
+    if (!settledClientMessageIds.size) {
+      return;
+    }
+    setOptimisticMessages((previous) =>
+      previous.filter((item) => !settledClientMessageIds.has(item.clientMessageId))
+    );
+  }, [history?.messages]);
+
+  useEffect(() => {
+    if (!sid || !hasExecutingTurn || streamState === 'polling') {
+      return;
+    }
+
+    let canceled = false;
+    let timer: number | null = null;
+
+    const tick = async () => {
+      const state = await syncHistorySnapshot(sid, { silent: true });
+      if (canceled || !state || !state.hasExecutingTurn) {
+        return;
+      }
+      timer = window.setTimeout(tick, ACTIVE_HISTORY_SYNC_INTERVAL_MS);
+    };
+
+    timer = window.setTimeout(tick, ACTIVE_HISTORY_SYNC_INTERVAL_MS);
+
+    return () => {
+      canceled = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [hasExecutingTurn, sid, streamState, syncHistorySnapshot]);
+
+  useEffect(() => {
     if (!sid || Number.isNaN(sid)) {
+      abortPendingSendRequest();
+      setRecoveringSubmission(false);
       setHistory(null);
       setActivePlanId(undefined);
       stopStream();
@@ -458,11 +853,13 @@ export const ConversationPage = () => {
     );
 
     if (!hasSameSessionSubscription) {
+      abortPendingSendRequest();
+      setRecoveringSubmission(false);
       stopStream();
     }
 
     void loadHistory(sid);
-  }, [loadHistory, sid, stopStream]);
+  }, [abortPendingSendRequest, loadHistory, sid, stopStream]);
 
   useEffect(() => {
     if (!sid || !activePlanId) {
@@ -478,7 +875,7 @@ export const ConversationPage = () => {
       }
       return;
     }
-    if (streamState === 'polling' || streamState === 'retrying') {
+    if (streamState === 'retrying') {
       return;
     }
 
@@ -491,42 +888,93 @@ export const ConversationPage = () => {
 
   useEffect(
     () => () => {
+      abortPendingSendRequest();
       stopStream();
     },
-    [stopStream]
+    [abortPendingSendRequest, stopStream]
   );
 
-  const sendMessage = async () => {
+  const buildClientMessageId = () => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return `cm-${crypto.randomUUID()}`;
+    }
+    return `cm-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+  };
+
+  const sendMessage = async (options?: { content?: string; clientMessageId?: string; retry?: boolean }) => {
     if (!userId) {
       message.warning('请先设置 userId');
       navigate('/login');
       return;
     }
-    if (!prompt.trim()) {
+    const rawContent = options?.content ?? prompt;
+    if (!rawContent.trim() || sending || recoveringSubmission) {
       return;
     }
 
-    const content = prompt.trim();
+    const content = rawContent.trim();
+    const clientMessageId = options?.clientMessageId || buildClientMessageId();
+    const localCreatedAt = new Date().toISOString();
+    const submitStartedAt = Date.now();
+    const controller = new AbortController();
+    sendAbortControllerRef.current = controller;
+    const abortTimeoutHandle = window.setTimeout(() => {
+      if (!controller.signal.aborted) {
+        controller.abort();
+      }
+    }, SEND_REQUEST_TIMEOUT_MS);
+    let hardTimeoutHandle: number | null = null;
+
+    autoScrollEnabledRef.current = true;
+    setRecoveringSubmission(false);
+    setPrompt('');
+    upsertOptimisticMessage({
+      clientMessageId,
+      content,
+      createdAt: localCreatedAt,
+      sessionId: sid,
+      status: 'PENDING',
+      errorMessage: undefined
+    });
     setSending(true);
     try {
-      const response = await agentApi.submitChatMessageV3({
-        userId,
-        sessionId: sid,
-        message: content,
-        scenario: 'CHAT_DEFAULT',
-        metaInfo: {
-          source: 'conversation-page',
-          entry: sid ? 'continue-chat' : 'new-chat'
-        }
-      });
+      const response = await Promise.race([
+        agentApi.submitChatMessageV3(
+          {
+            clientMessageId,
+            userId,
+            sessionId: sid,
+            message: content,
+            scenario: 'CHAT_DEFAULT',
+            metaInfo: {
+              source: 'conversation-page',
+              entry: sid ? 'continue-chat' : 'new-chat'
+            }
+          },
+          {
+            timeoutMs: Math.min(CHAT_HTTP_TIMEOUT_MS, SEND_REQUEST_TIMEOUT_MS),
+            signal: controller.signal
+          }
+        ),
+        new Promise<never>((_, reject) => {
+          hardTimeoutHandle = window.setTimeout(() => {
+            if (!controller.signal.aborted) {
+              controller.abort();
+            }
+            reject(new Error('SEND_HARD_TIMEOUT'));
+          }, SEND_REQUEST_HARD_TIMEOUT_MS);
+        })
+      ]);
 
-      setPrompt('');
-      setActivePlanId(response.planId);
+      bindOptimisticMessageSession(clientMessageId, response.sessionId);
+      if (response.planId) {
+        setActivePlanId(response.planId);
+      }
       pushProcessEvent({
         type: 'message.accepted',
         planId: response.planId,
         sessionId: response.sessionId,
-        message: `已提交，Plan #${response.planId}`
+        message: response.planId ? `已提交，Plan #${response.planId}` : '已提交，等待异步规划生成 Plan…'
       });
 
       addBookmark({
@@ -535,32 +983,110 @@ export const ConversationPage = () => {
         createdAt: new Date().toISOString()
       });
 
+      const planQuery = response.planId ? `?planId=${response.planId}` : '';
       if (!sid || sid !== response.sessionId) {
-        navigate(`/sessions/${response.sessionId}?planId=${response.planId}`, { replace: true });
+        navigate(`/sessions/${response.sessionId}${planQuery}`, { replace: true });
       } else {
-        setSearchParams({ planId: String(response.planId) }, { replace: true });
+        if (response.planId) {
+          setSearchParams({ planId: String(response.planId) }, { replace: true });
+        } else {
+          setSearchParams({}, { replace: true });
+        }
       }
 
-      connectStream(response.sessionId, response.planId, { force: true, resetRetry: true });
+      if (response.planId) {
+        connectStream(response.sessionId, response.planId, { force: true, resetRetry: true });
+      } else {
+        startHistoryPolling(response.sessionId);
+      }
       void Promise.all([loadSessions(), syncHistorySnapshot(response.sessionId, { silent: true })]);
     } catch (err) {
-      message.error(`发送失败: ${toChatMessageError(err)}`);
+      if (isAbortRequestError(err)) {
+        setRecoveringSubmission(true);
+        pushProcessEvent({
+          type: 'message.accepted',
+          message: '请求响应超时，正在自动同步最新会话结果…'
+        });
+
+        void (async () => {
+          try {
+            const recovered = await recoverSubmissionFromHistory(content, {
+              preferredSessionId: sid,
+              startedAt: submitStartedAt,
+              clientMessageId
+            });
+            if (recovered) {
+              message.info('请求已恢复：会话结果已自动同步。');
+            } else {
+              markOptimisticMessageFailed(clientMessageId, '发送超时：未匹配到服务端受理结果');
+              message.warning('发送超时，自动同步未命中，请稍后重试或手动刷新。');
+            }
+          } finally {
+            if (mountedRef.current) {
+              setRecoveringSubmission(false);
+            }
+          }
+        })();
+      } else {
+        markOptimisticMessageFailed(clientMessageId, toChatMessageError(err));
+        message.error(`发送失败: ${toChatMessageError(err)}`);
+      }
     } finally {
+      window.clearTimeout(abortTimeoutHandle);
+      if (hardTimeoutHandle !== null) {
+        window.clearTimeout(hardTimeoutHandle);
+      }
+      if (sendAbortControllerRef.current === controller) {
+        sendAbortControllerRef.current = null;
+      }
       setSending(false);
     }
   };
 
-  const renderMessage = (item: SessionMessageDTO) => {
+  const retryOptimisticMessage = (item: ChatRenderMessageItem) => {
+    if (!item.clientMessageId || !item.content.trim()) {
+      return;
+    }
+    void sendMessage({
+      content: item.content,
+      clientMessageId: item.clientMessageId,
+      retry: true
+    });
+  };
+
+  const renderMessage = (item: ChatRenderMessageItem) => {
     const role = (item.role || '').toUpperCase();
     const isUser = role === 'USER';
     const bubbleClass = isUser ? 'chat-message-bubble user' : 'chat-message-bubble assistant';
+    const isPending = item.localStatus === 'PENDING';
+    const isFailed = item.localStatus === 'FAILED';
 
     return (
-      <div key={item.messageId} className={`chat-message-row ${isUser ? 'user' : 'assistant'}`}>
+      <div key={item.key} className={`chat-message-row ${isUser ? 'user' : 'assistant'}`}>
         <div className={bubbleClass}>
           <Space direction="vertical" size={4} style={{ width: '100%' }}>
             <Typography.Text strong>{isUser ? '你' : role === 'ASSISTANT' ? 'Agent' : role}</Typography.Text>
             <Typography.Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>{item.content}</Typography.Paragraph>
+            {isPending ? (
+              <Tag color="processing" style={{ width: 'fit-content' }}>
+                发送中
+              </Tag>
+            ) : null}
+            {isFailed ? (
+              <Space size={8} wrap>
+                <Tag color="error" style={{ width: 'fit-content' }}>
+                  发送失败
+                </Tag>
+                <Button type="link" size="small" onClick={() => retryOptimisticMessage(item)}>
+                  重试
+                </Button>
+              </Space>
+            ) : null}
+            {isFailed && item.localErrorMessage ? (
+              <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                {item.localErrorMessage}
+              </Typography.Text>
+            ) : null}
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               {safeTime(item.createdAt)}
             </Typography.Text>
@@ -571,14 +1097,21 @@ export const ConversationPage = () => {
   };
 
   return (
-    <div className="page-container">
-      <PageHeader
-        title="对话与执行"
-        description="ChatGPT 风格入口：点击新聊天直接输入目标；高级能力保留在执行侧栏。"
-        primaryActionText="新聊天"
-        onPrimaryAction={() => navigate('/sessions')}
-        extra={<Typography.Text type="secondary">当前 userId：{userId || '未设置'}</Typography.Text>}
-      />
+    <div className="page-container conversation-page">
+      <div className="chat-toolbar glass-card">
+        <Space direction="vertical" size={2} className="chat-toolbar-main">
+          <Typography.Text strong className="chat-toolbar-title">
+            {sid ? currentSessionTitle : '新聊天'}
+          </Typography.Text>
+          <Typography.Text type="secondary">ChatGPT 风格入口：直接发消息，复杂执行细节放在右侧进度栏。</Typography.Text>
+        </Space>
+        <Space size={12} align="center">
+          <Typography.Text type="secondary">当前 userId：{userId || '未设置'}</Typography.Text>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/sessions')}>
+            新聊天
+          </Button>
+        </Space>
+      </div>
 
       {!userId ? (
         <Alert
@@ -623,7 +1156,7 @@ export const ConversationPage = () => {
         <Card
           className="app-card chat-panel"
           title={
-            <Space>
+            <Space wrap>
               <Typography.Text strong>{currentSessionTitle}</Typography.Text>
               {activePlanId ? <Tag color="processing">Plan #{activePlanId}</Tag> : <Tag>未执行</Tag>}
               {streaming || hasExecutingTurn ? (
@@ -633,17 +1166,32 @@ export const ConversationPage = () => {
               ) : null}
               {streamState === 'retrying' ? <Tag color="warning">重连中</Tag> : null}
               {streamState === 'polling' ? <Tag color="purple">自动同步中</Tag> : null}
+              {recoveringSubmission ? <Tag color="gold">请求恢复中</Tag> : null}
             </Space>
           }
         >
-          <div className="chat-scrollable" style={{ flex: 1, paddingRight: 8 }}>
+          {(streamState !== 'idle' || recoveringSubmission) && (
+            <Alert
+              type={streamState === 'polling' || recoveringSubmission ? 'warning' : 'info'}
+              showIcon
+              banner
+              message={recoveringSubmission ? '请求超时后自动同步中，请稍候。' : streamStatusHint}
+              style={{ marginBottom: 12 }}
+            />
+          )}
+
+          <div ref={chatScrollableRef} className="chat-scrollable chat-main-scrollable" onScroll={handleChatScroll}>
             {historyLoading ? (
-              <Spin />
+              <div className="chat-empty-state">
+                <Spin />
+              </div>
             ) : messages.length === 0 ? (
-              <Empty
-                description={sid ? '当前会话还没有消息，先输入你的目标。' : '开始一个新聊天，例如：生成一条小红书商品推荐文案'}
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-              />
+              <div className="chat-empty-state">
+                <Empty
+                  description={sid ? '当前会话还没有消息，先输入你的目标。' : '开始一个新聊天，例如：生成一条小红书商品推荐文案'}
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                />
+              </div>
             ) : (
               <Space direction="vertical" size={12} style={{ width: '100%' }}>
                 {messages.map(renderMessage)}
@@ -656,7 +1204,7 @@ export const ConversationPage = () => {
               <TextArea
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
-                rows={4}
+                rows={3}
                 placeholder="输入你的任务目标，按 Enter 发送，Shift+Enter 换行"
                 onPressEnter={(event) => {
                   if (event.shiftKey) {
@@ -670,8 +1218,14 @@ export const ConversationPage = () => {
                 <Typography.Text type="secondary" className="chat-composer-hint">
                   中间态仅用于展示执行进展，最终回复以 answer.final 为准。
                 </Typography.Text>
-                <Button icon={<SendOutlined />} type="primary" loading={sending} onClick={() => void sendMessage()}>
-                  发送
+                <Button
+                  icon={<SendOutlined />}
+                  type="primary"
+                  loading={sending}
+                  disabled={!prompt.trim() || sending || recoveringSubmission}
+                  onClick={() => void sendMessage()}
+                >
+                  {recoveringSubmission ? '同步中' : '发送'}
                 </Button>
               </Space>
             </Space>

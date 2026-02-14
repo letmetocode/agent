@@ -4,6 +4,7 @@ import com.getoffer.api.dto.ChatMessageSubmitRequestV3DTO;
 import com.getoffer.api.dto.RoutingDecisionDTO;
 import com.getoffer.domain.agent.adapter.repository.IAgentRegistryRepository;
 import com.getoffer.domain.agent.model.entity.AgentRegistryEntity;
+import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.adapter.repository.IRoutingDecisionRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.planning.model.entity.RoutingDecisionEntity;
@@ -21,11 +22,15 @@ import com.getoffer.types.exception.AppException;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.Executor;
 
 /**
  * 聊天会话写用例：统一处理会话创建/复用、回合创建、规划触发与失败兜底。
@@ -34,28 +39,37 @@ import java.util.Map;
 @Service
 public class ChatConversationCommandService {
 
+    private static final String SUBMISSION_STATE_ACCEPTED = "ACCEPTED";
+    private static final String SUBMISSION_STATE_DUPLICATE = "DUPLICATE";
+
     private final PlannerService plannerService;
     private final IAgentSessionRepository agentSessionRepository;
     private final ISessionTurnRepository sessionTurnRepository;
     private final ISessionMessageRepository sessionMessageRepository;
+    private final IAgentPlanRepository agentPlanRepository;
     private final IRoutingDecisionRepository routingDecisionRepository;
     private final IAgentRegistryRepository agentRegistryRepository;
     private final SessionConversationDomainService sessionConversationDomainService;
+    private final Executor commonThreadPoolExecutor;
 
     public ChatConversationCommandService(PlannerService plannerService,
                                           IAgentSessionRepository agentSessionRepository,
                                           ISessionTurnRepository sessionTurnRepository,
                                           ISessionMessageRepository sessionMessageRepository,
+                                          IAgentPlanRepository agentPlanRepository,
                                           IRoutingDecisionRepository routingDecisionRepository,
                                           IAgentRegistryRepository agentRegistryRepository,
-                                          SessionConversationDomainService sessionConversationDomainService) {
+                                          SessionConversationDomainService sessionConversationDomainService,
+                                          @Qualifier("commonThreadPoolExecutor") Executor commonThreadPoolExecutor) {
         this.plannerService = plannerService;
         this.agentSessionRepository = agentSessionRepository;
         this.sessionTurnRepository = sessionTurnRepository;
         this.sessionMessageRepository = sessionMessageRepository;
+        this.agentPlanRepository = agentPlanRepository;
         this.routingDecisionRepository = routingDecisionRepository;
         this.agentRegistryRepository = agentRegistryRepository;
         this.sessionConversationDomainService = sessionConversationDomainService;
+        this.commonThreadPoolExecutor = commonThreadPoolExecutor;
     }
 
     public ConversationSubmitResult submitMessage(ChatMessageSubmitRequestV3DTO request) {
@@ -66,13 +80,21 @@ public class ChatConversationCommandService {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "message 不能为空");
         }
 
+        String clientMessageId = normalizeClientMessageId(request.getClientMessageId());
+        request.setClientMessageId(clientMessageId);
+
         SessionConversationDomainService.SessionPreparationResult sessionResult = resolveOrCreateSession(request);
         AgentSessionEntity session = sessionResult.session();
         SessionTurnEntity savedTurn = null;
         String userMessage = sessionResult.normalizedUserMessage();
 
         try {
-            savedTurn = createTurn(session, userMessage);
+            SessionTurnEntity duplicatedTurn = sessionTurnRepository.findBySessionIdAndClientMessageId(session.getId(), clientMessageId);
+            if (duplicatedTurn != null) {
+                return buildDuplicateResult(session, duplicatedTurn);
+            }
+
+            savedTurn = createTurn(session, userMessage, clientMessageId);
             SessionTurnEntity latestCompletedTurn = sessionTurnRepository.findLatestBySessionIdAndStatus(session.getId(), TurnStatusEnum.COMPLETED);
             Map<String, Object> extraContext = sessionConversationDomainService.buildPlanExtraContext(
                     new SessionConversationDomainService.PlanContextCommand(
@@ -82,31 +104,24 @@ public class ChatConversationCommandService {
                             latestCompletedTurn
                     )
             );
-
-            AgentPlanEntity plan = plannerService.createPlan(session.getId(), userMessage, extraContext);
-            savedTurn.markExecuting(plan.getId());
-            sessionTurnRepository.update(savedTurn);
-
-            RoutingDecisionDTO routingDecision = null;
-            if (plan.getRouteDecisionId() != null) {
-                routingDecision = toRoutingDecisionDTO(routingDecisionRepository.findById(plan.getRouteDecisionId()));
-            }
+            extraContext.put("clientMessageId", clientMessageId);
+            dispatchAsyncPlanning(session, savedTurn, userMessage, extraContext);
 
             ConversationSubmitResult result = new ConversationSubmitResult();
             result.setSessionId(session.getId());
             result.setSessionTitle(session.getTitle());
             result.setTurnId(savedTurn.getId());
-            result.setPlanId(plan.getId());
-            result.setPlanGoal(plan.getPlanGoal());
-            result.setTurnStatus(TurnStatusEnum.EXECUTING.name());
-            result.setRoutingDecision(routingDecision);
+            result.setTurnStatus(TurnStatusEnum.PLANNING.name());
+            result.setAccepted(true);
+            result.setSubmissionState(SUBMISSION_STATE_ACCEPTED);
+            result.setAcceptedAt(savedTurn.getCreatedAt() == null ? LocalDateTime.now() : savedTurn.getCreatedAt());
             result.setAssistantMessage("收到，本轮任务已开始执行。");
 
-            log.info("CHAT_V3_ACCEPTED sessionId={}, turnId={}, planId={}, routeDecisionId={}",
+            log.info("CHAT_V3_ACCEPTED sessionId={}, turnId={}, clientMessageId={}, submissionState={}",
                     session.getId(),
                     savedTurn.getId(),
-                    plan.getId(),
-                    plan.getRouteDecisionId());
+                    clientMessageId,
+                    SUBMISSION_STATE_ACCEPTED);
             return result;
         } catch (Exception ex) {
             String errorMessage = sessionConversationDomainService.resolveErrorMessage(ex);
@@ -124,6 +139,35 @@ public class ChatConversationCommandService {
             }
             throw new AppException(ResponseCode.UN_ERROR.getCode(), errorMessage, ex);
         }
+    }
+
+    private ConversationSubmitResult buildDuplicateResult(AgentSessionEntity session, SessionTurnEntity existingTurn) {
+        ConversationSubmitResult result = new ConversationSubmitResult();
+        result.setSessionId(session.getId());
+        result.setSessionTitle(session.getTitle());
+        result.setTurnId(existingTurn.getId());
+        result.setPlanId(existingTurn.getPlanId());
+        result.setTurnStatus(existingTurn.getStatus() == null ? null : existingTurn.getStatus().name());
+        result.setAccepted(true);
+        result.setSubmissionState(SUBMISSION_STATE_DUPLICATE);
+        result.setAcceptedAt(existingTurn.getCreatedAt());
+        result.setAssistantMessage("检测到重复提交，已复用已有回合。");
+
+        if (existingTurn.getPlanId() != null) {
+            AgentPlanEntity existingPlan = agentPlanRepository.findById(existingTurn.getPlanId());
+            if (existingPlan != null) {
+                result.setPlanGoal(existingPlan.getPlanGoal());
+                if (existingPlan.getRouteDecisionId() != null) {
+                    result.setRoutingDecision(toRoutingDecisionDTO(routingDecisionRepository.findById(existingPlan.getRouteDecisionId())));
+                }
+            }
+        }
+
+        log.info("CHAT_V3_DUPLICATE_ACCEPTED sessionId={}, turnId={}, planId={}",
+                result.getSessionId(),
+                result.getTurnId(),
+                result.getPlanId());
+        return result;
     }
 
     private SessionConversationDomainService.SessionPreparationResult resolveOrCreateSession(ChatMessageSubmitRequestV3DTO request) {
@@ -169,13 +213,73 @@ public class ChatConversationCommandService {
         return result;
     }
 
-    private SessionTurnEntity createTurn(AgentSessionEntity session, String message) {
+    private SessionTurnEntity createTurn(AgentSessionEntity session, String message, String clientMessageId) {
         SessionTurnEntity turn = sessionConversationDomainService.createPlanningTurn(session, message);
+        Map<String, Object> turnMetadata = new HashMap<>();
+        turnMetadata.put("clientMessageId", clientMessageId);
+        turnMetadata.put("entry", "chat-v3");
+        turn.setMetadata(turnMetadata);
         SessionTurnEntity savedTurn = sessionTurnRepository.save(turn);
 
-        SessionMessageEntity userMessage = sessionConversationDomainService.createUserMessage(session.getId(), savedTurn.getId(), message);
+        SessionMessageEntity userMessage = sessionConversationDomainService.createUserMessage(
+                session.getId(),
+                savedTurn.getId(),
+                message,
+                Map.of("clientMessageId", clientMessageId)
+        );
         sessionMessageRepository.save(userMessage);
         return savedTurn;
+    }
+
+    private void dispatchAsyncPlanning(AgentSessionEntity session,
+                                       SessionTurnEntity savedTurn,
+                                       String userMessage,
+                                       Map<String, Object> extraContext) {
+        try {
+            commonThreadPoolExecutor.execute(() -> runPlanningAsync(session, savedTurn, userMessage, extraContext));
+        } catch (Exception ex) {
+            throw new AppException(ResponseCode.UN_ERROR.getCode(), "规划任务派发失败，请稍后重试", ex);
+        }
+    }
+
+    private void runPlanningAsync(AgentSessionEntity session,
+                                  SessionTurnEntity savedTurn,
+                                  String userMessage,
+                                  Map<String, Object> extraContext) {
+        if (session == null || savedTurn == null || savedTurn.getId() == null) {
+            return;
+        }
+        try {
+            AgentPlanEntity plan = plannerService.createPlan(session.getId(), userMessage, extraContext);
+
+            SessionTurnEntity latestTurn = sessionTurnRepository.findById(savedTurn.getId());
+            if (latestTurn == null || latestTurn.isTerminal()) {
+                return;
+            }
+            latestTurn.markExecuting(plan.getId());
+            sessionTurnRepository.update(latestTurn);
+
+            log.info("CHAT_V3_PLAN_BOUND sessionId={}, turnId={}, planId={}, routeDecisionId={}",
+                    session.getId(),
+                    latestTurn.getId(),
+                    plan.getId(),
+                    plan.getRouteDecisionId());
+        } catch (Exception ex) {
+            String errorMessage = sessionConversationDomainService.resolveErrorMessage(ex);
+            markTurnAsFailed(savedTurn, session.getId(), errorMessage);
+            log.error("CHAT_V3_PLAN_ASYNC_FAILED sessionId={}, turnId={}, reason={}",
+                    session.getId(),
+                    savedTurn.getId(),
+                    errorMessage,
+                    ex);
+        }
+    }
+
+    private String normalizeClientMessageId(String raw) {
+        if (StringUtils.isNotBlank(raw)) {
+            return StringUtils.abbreviate(raw.trim(), 128);
+        }
+        return "cm-" + UUID.randomUUID();
     }
 
     private RoutingDecisionDTO toRoutingDecisionDTO(RoutingDecisionEntity entity) {
@@ -233,6 +337,9 @@ public class ChatConversationCommandService {
         private Long planId;
         private String planGoal;
         private String turnStatus;
+        private Boolean accepted;
+        private String submissionState;
+        private LocalDateTime acceptedAt;
         private String assistantMessage;
         private RoutingDecisionDTO routingDecision;
     }

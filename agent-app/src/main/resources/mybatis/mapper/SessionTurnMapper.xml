@@ -76,6 +76,16 @@
         LIMIT 1
     </select>
 
+    <select id="selectLatestBySessionIdAndClientMessageId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM session_turns
+        WHERE session_id = #{sessionId}
+          AND metadata IS NOT NULL
+          AND metadata ->> 'clientMessageId' = #{clientMessageId}
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
     <select id="selectBySessionId" resultMap="BaseResultMap">
         SELECT <include refid="Base_Column_List"/>
         FROM session_turns

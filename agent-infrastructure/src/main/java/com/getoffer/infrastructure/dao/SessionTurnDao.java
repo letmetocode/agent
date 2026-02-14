@@ -30,6 +30,9 @@ public interface SessionTurnDao {
 
     SessionTurnPO selectByPlanId(@Param("planId") Long planId);
 
+    SessionTurnPO selectLatestBySessionIdAndClientMessageId(@Param("sessionId") Long sessionId,
+                                                            @Param("clientMessageId") String clientMessageId);
+
     List<SessionTurnPO> selectBySessionId(@Param("sessionId") Long sessionId);
 
     SessionTurnPO selectLatestBySessionIdAndStatus(@Param("sessionId") Long sessionId,

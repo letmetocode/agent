@@ -20,6 +20,8 @@ public interface ISessionTurnRepository {
 
     SessionTurnEntity findByPlanId(Long planId);
 
+    SessionTurnEntity findBySessionIdAndClientMessageId(Long sessionId, String clientMessageId);
+
     boolean markTerminalIfNotTerminal(Long turnId,
                                       TurnStatusEnum status,
                                       String assistantSummary,

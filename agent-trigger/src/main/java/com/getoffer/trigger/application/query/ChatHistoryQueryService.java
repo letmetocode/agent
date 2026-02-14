@@ -122,6 +122,7 @@ public class ChatHistoryQueryService {
         dto.setTurnId(entity.getTurnId());
         dto.setRole(entity.getRole() == null ? null : entity.getRole().name());
         dto.setContent(entity.getContent());
+        dto.setMetadata(entity.getMetadata());
         dto.setCreatedAt(entity.getCreatedAt());
         return dto;
     }

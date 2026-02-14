@@ -205,6 +205,11 @@ public class TurnResultServiceTest {
             return turn;
         }
 
+        @Override
+        public SessionTurnEntity findBySessionIdAndClientMessageId(Long sessionId, String clientMessageId) {
+            return null;
+        }
+
         public void setMarkTerminalReturn(boolean markTerminalReturn) {
             this.markTerminalReturn = markTerminalReturn;
         }

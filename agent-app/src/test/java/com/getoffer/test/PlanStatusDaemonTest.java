@@ -7,6 +7,7 @@ import com.getoffer.domain.planning.service.PlanTransitionDomainService;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.IPlanTaskEventRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
+import com.getoffer.domain.task.service.TaskFailurePolicyDomainService;
 import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
 import com.getoffer.domain.task.model.valobj.PlanTaskStatusStat;
 import com.getoffer.trigger.job.PlanStatusDaemon;
@@ -223,7 +224,8 @@ public class PlanStatusDaemonTest {
                 taskRepository,
                 new PlanTaskEventPublisher(eventRepository),
                 turnResultService,
-                new PlanTransitionDomainService()
+                new PlanTransitionDomainService(),
+                new TaskFailurePolicyDomainService()
         );
         return new PlanStatusDaemon(syncApplicationService, 100, 1000);
     }
@@ -538,6 +540,11 @@ public class PlanStatusDaemonTest {
         @Override
         public com.getoffer.domain.session.model.entity.SessionTurnEntity findByPlanId(Long planId) {
             return byPlanId.get(planId);
+        }
+
+        @Override
+        public com.getoffer.domain.session.model.entity.SessionTurnEntity findBySessionIdAndClientMessageId(Long sessionId, String clientMessageId) {
+            return null;
         }
 
         @Override

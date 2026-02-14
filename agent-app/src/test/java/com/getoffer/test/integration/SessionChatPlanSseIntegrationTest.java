@@ -35,6 +35,7 @@ import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -82,11 +83,10 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
     public void shouldFinishPlanAndPushSseEventAfterChatFlow() throws Exception {
         seedWorkflowDefinition();
 
-        Long sessionId = createSession();
-        ChatResult chat = triggerTurn(sessionId);
+        ChatResult chat = triggerTurn();
 
         CompletableFuture<Boolean> sseFuture = CompletableFuture.supplyAsync(
-                () -> waitPlanFinishedEvent(chat.planId)
+                () -> waitPlanFinishedEvent(chat.sessionId, chat.planId)
         );
 
         Thread.sleep(300L);
@@ -119,7 +119,7 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
 
         AtomicLong resumedCursor = new AtomicLong(-1L);
         CompletableFuture<Boolean> replayFuture = CompletableFuture.supplyAsync(
-                () -> waitPlanFinishedEventWithCursor(chat.planId, replaySnapshot.maxEventId - 1L, resumedCursor)
+                () -> waitPlanFinishedEventWithCursor(chat.sessionId, chat.planId, replaySnapshot.maxEventId - 1L, resumedCursor)
         );
         Boolean replayed = replayFuture.get(6, TimeUnit.SECONDS);
         Assertions.assertTrue(Boolean.TRUE.equals(replayed), "带 Last-Event-ID 重连后应收到 PlanFinished 事件");
@@ -145,6 +145,8 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
         node.put("name", "worker-1");
 
         Map<String, Object> graph = new HashMap<>();
+        graph.put("version", 2);
+        graph.put("groups", Collections.emptyList());
         graph.put("nodes", List.of(node));
         graph.put("edges", new ArrayList<>());
         definition.setGraphDefinition(graph);
@@ -156,27 +158,21 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
         workflowDefinitionRepository.save(definition);
     }
 
-    private Long createSession() throws Exception {
+    private ChatResult triggerTurn() throws Exception {
         Map<String, Object> request = new HashMap<>();
+        request.put("clientMessageId", "it-msg-" + System.nanoTime());
         request.put("userId", "it-user");
-        request.put("title", "it-session");
-
-        ResponseEntity<String> response = postJson("/api/sessions", request);
-        JsonNode root = objectMapper.readTree(response.getBody());
-        return root.path("data").path("sessionId").asLong();
-    }
-
-    private ChatResult triggerTurn(Long sessionId) throws Exception {
-        Map<String, Object> request = new HashMap<>();
         request.put("message", "please run integration sse test flow");
 
-        ResponseEntity<String> response = postJson("/api/v2/sessions/" + sessionId + "/turns", request);
+        ResponseEntity<String> response = postJson("/api/v3/chat/messages", request);
         JsonNode root = objectMapper.readTree(response.getBody());
 
         ChatResult result = new ChatResult();
-        result.planId = root.path("data").path("planId").asLong();
+        result.sessionId = root.path("data").path("sessionId").asLong();
         result.turnId = root.path("data").path("turnId").asLong();
-        Assertions.assertTrue(result.planId > 0, "turn 创建应返回 planId");
+        result.planId = waitPlanIdByHistory(result.sessionId, result.turnId);
+        Assertions.assertTrue(result.sessionId > 0, "消息提交应返回 sessionId");
+        Assertions.assertTrue(result.planId > 0, "应在异步规划后生成 planId");
         Assertions.assertTrue(result.turnId > 0, "turn 创建应返回 turnId");
         return result;
     }
@@ -191,14 +187,42 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
         );
     }
 
-    private boolean waitPlanFinishedEvent(Long planId) {
-        return waitPlanFinishedEventWithCursor(planId, null, new AtomicLong(-1L));
+    private boolean waitPlanFinishedEvent(Long sessionId, Long planId) {
+        return waitPlanFinishedEventWithCursor(sessionId, planId, null, new AtomicLong(-1L));
     }
 
-    private boolean waitPlanFinishedEventWithCursor(Long planId, Long lastEventId, AtomicLong resumedCursor) {
+    private Long waitPlanIdByHistory(Long sessionId, Long turnId) throws Exception {
+        long deadline = System.currentTimeMillis() + 8000L;
+        while (System.currentTimeMillis() <= deadline) {
+            ResponseEntity<String> response = restTemplate.getForEntity(
+                    "http://127.0.0.1:" + port + "/api/v3/chat/sessions/" + sessionId + "/history",
+                    String.class
+            );
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode turns = root.path("data").path("turns");
+            if (turns.isArray()) {
+                for (JsonNode turn : turns) {
+                    if (turn.path("turnId").asLong() != turnId) {
+                        continue;
+                    }
+                    long planId = turn.path("planId").asLong(0L);
+                    if (planId > 0L) {
+                        return planId;
+                    }
+                }
+            }
+            Thread.sleep(200L);
+        }
+        return 0L;
+    }
+
+    private boolean waitPlanFinishedEventWithCursor(Long sessionId,
+                                                    Long planId,
+                                                    Long lastEventId,
+                                                    AtomicLong resumedCursor) {
         HttpURLConnection connection = null;
         try {
-            URL url = new URL("http://127.0.0.1:" + port + "/api/plans/" + planId + "/stream");
+            URL url = new URL("http://127.0.0.1:" + port + "/api/v3/chat/sessions/" + sessionId + "/stream?planId=" + planId);
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             connection.setRequestProperty("Accept", "text/event-stream");
@@ -222,7 +246,7 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
                             currentEventId = -1L;
                         }
                     }
-                    if (line.startsWith("event:") && line.contains("PlanFinished")) {
+                    if (line.startsWith("event:") && line.contains("stream.completed")) {
                         if (currentEventId > 0L) {
                             resumedCursor.set(Math.max(resumedCursor.get(), currentEventId));
                         }
@@ -254,7 +278,8 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
         boolean hasPlanFinished = false;
         if (data.isArray()) {
             for (JsonNode item : data) {
-                maxEventId = Math.max(maxEventId, item.path("eventId").asLong(0L));
+                long cursor = item.path("id").asLong(item.path("eventId").asLong(0L));
+                maxEventId = Math.max(maxEventId, cursor);
                 if ("PLAN_FINISHED".equalsIgnoreCase(item.path("eventType").asText(""))) {
                     hasPlanFinished = true;
                 }
@@ -267,6 +292,7 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
     }
 
     private static final class ChatResult {
+        private Long sessionId;
         private Long planId;
         private Long turnId;
     }

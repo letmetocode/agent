@@ -64,6 +64,17 @@ public class SessionConversationDomainService {
         return SessionMessageEntity.userMessage(sessionId, turnId, normalizeRequired(content, "message 不能为空"));
     }
 
+    public SessionMessageEntity createUserMessage(Long sessionId,
+                                                  Long turnId,
+                                                  String content,
+                                                  Map<String, Object> metadata) {
+        SessionMessageEntity entity = createUserMessage(sessionId, turnId, content);
+        if (metadata != null && !metadata.isEmpty()) {
+            entity.setMetadata(new HashMap<>(metadata));
+        }
+        return entity;
+    }
+
     public SessionMessageEntity createFailureAssistantMessage(Long sessionId, Long turnId, String errorMessage) {
         return SessionMessageEntity.assistantMessage(sessionId, turnId, resolveFailureMessage(errorMessage));
     }

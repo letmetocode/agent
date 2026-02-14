@@ -71,19 +71,24 @@ sequenceDiagram
     participant UI as Frontend
     participant ChatV3 as ChatV3Controller
     participant Orchestrator as ChatConversationCommandService
+    participant PlannerAsync as Async Planner Worker
     participant Planner as PlannerService
     participant DB as PostgreSQL
 
     UI->>ChatV3: POST /api/v3/chat/messages
     ChatV3->>Orchestrator: submitMessage(request)
     Orchestrator->>DB: create/reuse session + create turn + save user message
-    Orchestrator->>Planner: createPlan(sessionId, message, context)
+    Orchestrator-->>UI: sessionId + turnId + accepted(快速ACK)
+    Orchestrator->>PlannerAsync: dispatch planning job
+    PlannerAsync->>Planner: createPlan(sessionId, message, context)
     Planner->>DB: route + create plan + create tasks
-    Orchestrator->>DB: update turn(planId, EXECUTING)
-    ChatV3-->>UI: sessionId + turnId + planId + streamPath
+    PlannerAsync->>DB: update turn(planId, EXECUTING)
 ```
 
-补充约束：Planner 在校验 `inputSchema.required` 前会用运行时上下文补全系统字段（例如 `sessionId`、`turnId`），避免把系统字段当作用户必填。
+补充约束：
+
+- Planner 在校验 `inputSchema.required` 前会用运行时上下文补全系统字段（例如 `sessionId`、`turnId`），避免把系统字段当作用户必填。
+- `clientMessageId` 作为提交幂等键写入 `session_turns.metadata/session_messages.metadata`，用于重复提交去重与前端恢复对账。
 
 ### 4.2 调度执行与终态收敛
 
@@ -105,6 +110,16 @@ sequenceDiagram
     Result->>DB: save final assistant message(if absent)
 ```
 
+### 4.2.1 Graph DSL v2（SOP 图运行时）
+
+- 治理分层：`SOP Spec` 为治理层单一事实源；发布/保存时编译为 `Runtime Graph(graphDefinition)` 执行。
+- 编译接口：`POST /api/workflows/sop-spec/drafts/{id}/compile`、`POST /api/workflows/sop-spec/drafts/{id}/validate`。
+- 发布保护：Draft 含 `sopSpec` 时，发布前校验 `compileHash` 与当前 Runtime Graph 一致性，不一致则拒绝发布。
+- Planner 仅接受 `graphDefinition.version = 2`，并在创建 Plan 前统一执行归一化与校验。
+- 图最小结构：`nodes + edges + groups`；`groups` 支持空数组，`edges` 支持组到组/组到节点展开。
+- 节点依赖策略支持：`joinPolicy(all|any|quorum)`、`failurePolicy(failFast|failSafe)`、`quorum`。
+- Planner 展开 Task 时注入 `configSnapshot.graphPolicy`，由调度领域服务统一判定 PENDING -> READY/SKIPPED。
+
 ### 4.3 聊天语义 SSE（V3）
 
 ```mermaid
@@ -125,12 +140,12 @@ sequenceDiagram
 ### 4.4 路由决策查询（V3）
 
 - `GET /api/v3/chat/plans/{id}/routing` 返回结构化路由决策。
-- V2 路由查询入口已下线并返回迁移提示。
+- 旧 V1/V2 路由入口代码已移除。
 
 ## 5. 一致性与并发策略
 
 - 领域充血：`SessionTurnEntity`、`AgentPlanEntity`、`AgentTaskEntity` 新增状态迁移与 claim/lease 领域行为，应用层仅编排不写规则。
-- 领域服务落位：`SessionConversationDomainService`、`PlanFinalizationDomainService`、`PlanTransitionDomainService`、`TaskDispatchDomainService`、`TaskExecutionDomainService`、`TaskPromptDomainService`、`TaskEvaluationDomainService`、`TaskRecoveryDomainService`、`TaskAgentSelectionDomainService`、`TaskBlackboardDomainService`、`TaskJsonDomainService`、`TaskPersistencePolicyDomainService`、`TaskDependencyPolicyDomainService` 承载会话策略、终态汇总、Plan 聚合迁移与 Task 执行/提示词/判定/回滚/Agent 选择/黑板写回/JSON 解析/持久化/依赖判定策略规则。
+- 领域服务落位：`SessionConversationDomainService`、`PlanFinalizationDomainService`、`PlanTransitionDomainService`、`TaskDispatchDomainService`、`TaskExecutionDomainService`、`TaskPromptDomainService`、`TaskEvaluationDomainService`、`TaskRecoveryDomainService`、`TaskAgentSelectionDomainService`、`TaskBlackboardDomainService`、`TaskJsonDomainService`、`TaskPersistencePolicyDomainService`、`TaskDependencyPolicyDomainService`、`TaskFailurePolicyDomainService` 承载会话策略、终态汇总、Plan 聚合迁移与 Task 执行/提示词/判定/回滚/Agent 选择/黑板写回/JSON 解析/持久化/依赖判定/失败容忍策略规则。
 - 应用层编排：`TaskPersistenceApplicationService` 统一承载 `Task`/`TaskExecution` 写入与 `Plan.globalContext` 乐观锁重试，`TaskScheduleApplicationService` 统一承载 PENDING->READY/SKIPPED 编排，`PlanStatusSyncApplicationService` 统一承载 Plan 状态推进/终态 finalize/事件发布，`TaskExecutor` 仅消费用例结果并映射监控日志。
 - 兼容层清理：`trigger.service` 过渡包装类已删除，统一由 `trigger.application` 调用 domain。
 
@@ -153,12 +168,17 @@ sequenceDiagram
 ### 5.4 SSE 游标一致性
 
 - `Last-Event-ID` > query `lastEventId`。
-- 连接建立先回放，再实时订阅。
+- 连接建立先回放，再实时订阅；`cursor > 0` 的重连订阅不重复发送引导事件（`message.accepted/planning.started`）。
+- 前端对 SSE 短暂抖动采用静默恢复：`onerror` 且最近 22 秒内收到过事件时，不立刻断开重建；仅在确认失联后才触发指数退避重连与轮询兜底。
+- SSE 响应显式关闭代理缓冲（`X-Accel-Buffering: no`）并设置 `Cache-Control: no-cache, no-transform`。
 
 ## 6. 失败模式与降级策略
 
 - Root 候选规划失败：最多 3 次重试，失败降级单节点 Draft。
-- TaskClient 超时：按配置追加有限重试，超过上限进入 FAILED。
+- Root 候选草案版本兼容：候选 Draft 若仅 `graphDefinition.version` 不为 2 且节点结构可执行，Planner 自动升级为 v2 再继续执行，降低无效重试耗时。
+- Root 候选草案结构非法快速降级：当判定为确定性结构错误（如边引用不存在节点）时，不再继续重试 Root 规划，直接进入单节点候选 Draft。
+- Root 规划软超时快速降级：单次 Root 规划超过 `planner.root.timeout.soft-ms` 视为不可重试错误，立即降级单节点 Draft，避免入口阻塞。
+- TaskClient 超时：按配置追加有限重试，超过上限进入 FAILED（是否阻断 Plan 由节点 `failurePolicy` 决定）。
 - Plan 黑板写回冲突：读取最新 Plan 后有限重试。
 - SSE 通知丢失：依赖事件表回放补偿。
 - V3 会话编排无可用 Agent：明确返回 `暂无可用 Agent`。
@@ -178,18 +198,21 @@ sequenceDiagram
 - `GET /api/v3/chat/sessions/{id}/stream`
 - `GET /api/v3/chat/plans/{id}/routing`
 
-### 8.2 下线（V2）
+### 8.2 已清理（旧入口）
 
-- `GET /api/v2/agents/active`（已下线，返回迁移提示）
-- `POST /api/v2/agents`（已下线，返回迁移提示）
-- `POST /api/v2/sessions`（已下线，返回迁移提示）
-- `POST /api/v2/sessions/{id}/turns`（已下线，返回迁移提示）
-- `GET /api/v2/plans/{id}/routing`（已下线，返回迁移提示）
+- 已移除：`/api/v2/agents/*`
+- 已移除：`/api/v2/sessions*`
+- 已移除：`/api/v2/plans/{id}/routing`
+- 已移除：`/api/sessions/{id}/chat`
+- 已移除：`/api/plans/{id}/stream`
+- 已移除：`/api/sessions/{id}`、`/api/sessions/{id}/plans`、`/api/sessions/{id}/overview`
+- 已移除：`/api/tasks`、`/api/logs`
 
 策略说明：
 
 - 新前端仅走 V3 聚合协议。
-- V2 编排接口全部下线，统一迁移到 V3。
+- 只读查询统一收口到分页与聚合接口：`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`、`/api/v3/chat/sessions/{id}/history`。
+- 旧版本编排入口不再保留兼容分支。
 
 ## 9. 与其他文档的映射
 

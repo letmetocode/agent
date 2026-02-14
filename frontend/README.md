@@ -52,31 +52,28 @@ VITE_CHAT_TIMEOUT_MS=90000
 - 页面级统一状态组件（空/加载/错误/不可用）
 - 会话页执行上下文聚合（回合、事件流、Plan/Task 进度）
 - 会话入口已支持“新聊天一键开始”，高级设置可按需选择/快速创建 Agent
-- 会话主路径默认走 `/api/v2/*`，旧 `/api/sessions/{id}/chat` 已下线
+- 会话主路径统一走 V3：`/api/v3/chat/*`
+- 会话发送采用乐观提交：点击后立即清空输入框并显示 `PENDING` 用户消息
+- 提交链路支持硬超时兜底与自动恢复；未恢复消息标记 `FAILED` 并可一键重试
 - 任务详情中途控制（暂停/继续/取消/失败重试）
 - 任务结果导出（Markdown/JSON）与分享链接生成、管理、批量失效
 - 日志分页检索（level/taskId/traceId/keyword）
 - 知识库文档详情与检索测试
 - 监控总览 P95/P99/慢任务/SLA 指标展示
+- Workflow Draft 页面支持 SOP 图形化编排（节点拖拽、依赖连线、策略编辑、编译预览、保存）
 - 告警阈值与触发逻辑在后端监控系统固化（Prometheus 规则），前端仅负责展示与跳转排障入口。
 
 ## 已接入后端接口（2026-02）
 
 - 会话与执行：
-  - `GET /api/v2/agents/active`
-  - `POST /api/v2/agents`
-  - `POST /api/v2/sessions`
-  - `POST /api/v2/sessions/{id}/turns`
-  - `GET /api/v2/plans/{id}/routing`
+  - `POST /api/v3/chat/messages`
+  - `GET /api/v3/chat/sessions/{id}/history`
+  - `GET /api/v3/chat/sessions/{id}/stream?planId=...&lastEventId=...`
+  - `GET /api/v3/chat/plans/{id}/routing`
   - `GET /api/sessions/list`
-  - `GET /api/sessions/{id}/overview`
-  - `GET /api/sessions/{id}/turns`
-  - `GET /api/sessions/{id}/messages`
-  - `POST /api/sessions/{id}/chat`（已下线，返回迁移提示）
   - `GET /api/plans/{id}`
   - `GET /api/plans/{id}/tasks`
   - `GET /api/plans/{id}/events`
-  - `GET /api/plans/{id}/stream?lastEventId=...`
 - 任务中心：
   - `GET /api/tasks/paged`
   - `GET /api/tasks/{id}`
@@ -104,16 +101,18 @@ VITE_CHAT_TIMEOUT_MS=90000
   - `GET /api/workflows/drafts`
   - `GET /api/workflows/drafts/{id}`
   - `PUT /api/workflows/drafts/{id}`
+  - `POST /api/workflows/sop-spec/drafts/{id}/compile`
+  - `POST /api/workflows/sop-spec/drafts/{id}/validate`
   - `POST /api/workflows/drafts/{id}/publish`
 
 ## 数据流（核心页面）
 
 1. 首屏：`GET /api/dashboard/overview`
-2. 会话：`GET /api/sessions/{id}/overview|turns|messages`
+2. 会话：`POST /api/v3/chat/messages` + `GET /api/v3/chat/sessions/{id}/history`
 3. 任务：`GET /api/tasks/paged` + `GET /api/tasks/{id}` + `GET /api/tasks/{id}/executions`
 4. 日志：`GET /api/logs/paged`
 5. 资产：`GET /api/agents/vector-stores` + `/api/knowledge-bases/*`
-6. 实时：`GET /api/plans/{id}/stream?lastEventId=...`
+6. 实时：`GET /api/v3/chat/sessions/{id}/stream?planId=...&lastEventId=...`
 
 ## 工程说明
 
@@ -149,21 +148,17 @@ VITE_CHAT_TIMEOUT_MS=90000
   - 预期：页面提示“链接不可用/已失效”，不泄露内部细节。
 
 
-## 会话与规划 V2 手工回归清单
+## 会话与规划 V3 手工回归清单
 
-- Agent 选择路径：
-  - 在 `/sessions` 选择已有 Agent，输入目标启动执行。
-  - 预期：成功创建 Session 与 Turn，并跳转会话详情页。
-- Agent 快速创建路径：
-  - 在 `/sessions` 选择“快速创建 Agent”，填写最小字段后启动。
-  - 预期：先创建 Agent，再创建 Session + Turn。
+- 新聊天路径：
+  - 在 `/sessions` 输入目标并发送。
+  - 预期：调用 `/api/v3/chat/messages`，先返回 `sessionId/turnId/accepted`，`planId` 可在后续 history 中出现。
 - 路由决策展示：
   - 执行后在会话页“引用与异常”区域查看路由摘要。
   - 预期：可看到 `sourceType/fallbackFlag/plannerAttempts`，fallback 时显示原因。
 - 候补草案提示：
   - 触发未命中生产 Definition 场景。
   - 预期：展示候补 Draft 提示，可跳转治理页或查看 Draft。
-
-- 旧接口下线验证：
-  - 直接调用 `/api/sessions/{id}/chat`。
-  - 预期：返回“旧接口已下线，请使用 /api/v2/sessions/{id}/turns”。
+- SSE 断线恢复：
+  - 模拟网络抖动后观察重连。
+  - 预期：前端按 `lastEventId` 恢复，不重复展示引导事件。

@@ -39,10 +39,15 @@ public class ChatV3Controller {
         data.setTurnId(result.getTurnId());
         data.setPlanId(result.getPlanId());
         data.setTurnStatus(result.getTurnStatus());
+        data.setAccepted(result.getAccepted());
+        data.setSubmissionState(result.getSubmissionState());
+        data.setAcceptedAt(result.getAcceptedAt());
         data.setSessionTitle(result.getSessionTitle());
         data.setAssistantMessage(result.getAssistantMessage());
         data.setRoutingDecision(result.getRoutingDecision());
-        data.setStreamPath(String.format("/api/v3/chat/sessions/%d/stream?planId=%d", result.getSessionId(), result.getPlanId()));
+        if (result.getPlanId() != null) {
+            data.setStreamPath(String.format("/api/v3/chat/sessions/%d/stream?planId=%d", result.getSessionId(), result.getPlanId()));
+        }
         data.setHistoryPath(String.format("/api/v3/chat/sessions/%d/history", result.getSessionId()));
 
         return success(data);
