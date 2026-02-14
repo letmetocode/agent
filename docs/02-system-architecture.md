@@ -118,6 +118,7 @@ sequenceDiagram
 - 编译接口：`POST /api/workflows/sop-spec/drafts/{id}/compile`、`POST /api/workflows/sop-spec/drafts/{id}/validate`。
 - 发布保护：Draft 含 `sopSpec` 时，发布前校验 `compileHash` 与当前 Runtime Graph 一致性，不一致则拒绝发布。
 - 规则单源：`GraphDslPolicyService` 统一承载 Graph DSL v2 基础校验、`nodeSignature` 计算与 Graph 哈希算法。
+- 治理端编辑体验：支持分组批量设置与分组策略可视化编辑，编辑态提供循环依赖路径提示、定位高亮、回边移除建议与“自动修复预演”。
 - Planner 仅接受 `graphDefinition.version = 2`，并在创建 Plan 前统一执行归一化与校验。
 - 图最小结构：`nodes + edges + groups`；`groups` 支持空数组，`edges` 支持组到组/组到节点展开。
 - 节点依赖策略支持：`joinPolicy(all|any|quorum)`、`failurePolicy(failFast|failSafe)`、`quorum`。
@@ -139,6 +140,11 @@ sequenceDiagram
     Stream-->>UI: message.accepted/planning.started/task.progress/task.completed
     Stream-->>UI: answer.finalizing/answer.final
 ```
+
+补充约束：
+
+- `ChatSseEventMapper` 对任务流事件 `metadata` 做统一归一化，标准字段固定输出 `nodeId/taskName`。
+- 历史字段（如 `taskNodeId`）保留透传，前端读取以标准字段为主、历史字段为兜底。
 
 ### 4.4 路由决策查询（V3）
 
@@ -174,6 +180,7 @@ sequenceDiagram
 - 连接建立先回放，再实时订阅；`cursor > 0` 的重连订阅不重复发送引导事件（`message.accepted/planning.started`）。
 - 前端对 SSE 短暂抖动采用静默恢复：`onerror` 且最近 22 秒内收到过事件时，不立刻断开重建；仅在确认失联后才触发指数退避重连与轮询兜底。
 - SSE 响应显式关闭代理缓冲（`X-Accel-Buffering: no`）并设置 `Cache-Control: no-cache, no-transform`。
+- 任务/计划事件元数据统一输出 `nodeId/taskName`，降低前端事件解析分支复杂度。
 - 前端执行进度面板支持事件按类型/节点过滤、按时间/类型/节点分组，以及连续重复事件折叠。
 
 ## 6. 失败模式与降级策略
@@ -193,6 +200,9 @@ sequenceDiagram
 - 关键审计事件：`ROUTING_DECIDED`、`TURN_FINALIZED`、`CHAT_V3_ACCEPTED`
 - 告警规则：Planner / Executor-Terminal / SSE 已固化至 `docs/dev-ops/observability/prometheus/*`
 - 告警目录支持按 `env` 进行 dashboard 占位符自动替换（`prod/staging`）并在启动时巡检未替换项。
+- 告警目录支持定时链接巡检作业（可配置开关）：对 `dashboard/runbook` 做可达性探测并输出汇总告警日志。
+- 巡检状态提供快照接口：`GET /api/observability/alerts/probe-status`，包含失败率趋势与 `env/module` 维度聚合结果。
+- 巡检趋势支持窗口筛选：`window` 查询参数返回最近 N 次快照，并按 `trend-delta-threshold` 计算 `UP/DOWN/FLAT`。
 
 ## 8. 对外 API 分层策略
 
@@ -205,6 +215,8 @@ sequenceDiagram
 - `GET /api/v3/chat/sessions/{id}/history`
 - `GET /api/v3/chat/sessions/{id}/stream`
 - `GET /api/v3/chat/plans/{id}/routing`
+- `GET /api/observability/alerts/catalog`
+- `GET /api/observability/alerts/probe-status?window={N}`
 
 鉴权约束：
 - 除白名单外，以上 `/api/**` 均需有效登录态。

@@ -344,6 +344,14 @@ body,
   background: var(--primary-50);
 }
 
+.chat-history-drawer .ant-drawer-header {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.chat-history-drawer .ant-drawer-body {
+  padding: var(--space-3);
+}
+
 .json-block {
   margin: var(--space-2) 0 0;
   padding: var(--space-3);
@@ -373,7 +381,7 @@ body,
   height: 520px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  overflow: hidden;
+  overflow: auto;
   background: #fff;
   position: relative;
 }

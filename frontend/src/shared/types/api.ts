@@ -344,6 +344,42 @@ export interface ObservabilityAlertCatalogItemDTO {
   dashboard?: string;
 }
 
+export interface ObservabilityAlertProbeStatusDTO {
+  enabled: boolean;
+  status: 'PASS' | 'WARN' | 'IDLE' | 'DISABLED' | string;
+  lastRunAt?: string;
+  alertCount?: number;
+  checkedLinks?: number;
+  failedLinks?: number;
+  failureRate?: number;
+  failureRateTrend?: 'UP' | 'DOWN' | 'FLAT' | 'NA' | string;
+  issueCount?: number;
+  issues?: string[];
+  envStats?: Record<
+    string,
+    {
+      checkedLinks: number;
+      failedLinks: number;
+      failureRate: number;
+    }
+  >;
+  moduleStats?: Record<
+    string,
+    {
+      checkedLinks: number;
+      failedLinks: number;
+      failureRate: number;
+    }
+  >;
+  recentRuns?: Array<{
+    executedAt: string;
+    status: string;
+    checkedLinks: number;
+    failedLinks: number;
+    failureRate: number;
+  }>;
+}
+
 export interface DashboardOverviewDTO {
   taskStats?: {
     total: number;

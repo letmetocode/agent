@@ -1,8 +1,13 @@
-import { Alert, Button, Card, Col, List, Progress, Row, Space, Statistic, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Col, List, Progress, Row, Select, Space, Statistic, Tag, Typography, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { agentApi } from '@/shared/api/agentApi';
-import type { DashboardOverviewDTO, ObservabilityAlertCatalogItemDTO, TaskDetailDTO } from '@/shared/types/api';
+import type {
+  DashboardOverviewDTO,
+  ObservabilityAlertCatalogItemDTO,
+  ObservabilityAlertProbeStatusDTO,
+  TaskDetailDTO
+} from '@/shared/types/api';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { StateView } from '@/shared/ui/StateView';
 
@@ -30,7 +35,58 @@ const severityColor: Record<string, string> = {
   warning: 'gold'
 };
 
+const probeStatusColor: Record<string, string> = {
+  PASS: 'green',
+  WARN: 'red',
+  IDLE: 'default',
+  DISABLED: 'default'
+};
+
+const probeTrendColor: Record<string, string> = {
+  UP: 'red',
+  DOWN: 'green',
+  FLAT: 'blue',
+  NA: 'default'
+};
+
+const PROBE_WINDOW_OPTIONS = [
+  { label: '近 3 次', value: 3 },
+  { label: '近 5 次', value: 5 },
+  { label: '近 10 次', value: 10 },
+  { label: '近 20 次', value: 20 }
+];
+
 const isHttpLink = (value?: string) => typeof value === 'string' && /^https?:\/\//i.test(value.trim());
+
+const safeTime = (value?: string) => {
+  if (!value) {
+    return '-';
+  }
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+  return new Date(timestamp).toLocaleString();
+};
+
+const parseAlertNameFromIssue = (issue: string): string => {
+  const text = String(issue || '').trim();
+  if (!text) {
+    return '';
+  }
+  const index = text.indexOf('.');
+  if (index <= 0) {
+    return text;
+  }
+  return text.slice(0, index);
+};
+
+const formatRate = (value?: number) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '0.00%';
+  }
+  return `${value.toFixed(2)}%`;
+};
 
 export const ObservabilityOverviewPage = () => {
   const navigate = useNavigate();
@@ -38,6 +94,8 @@ export const ObservabilityOverviewPage = () => {
   const [error, setError] = useState<string>();
   const [overview, setOverview] = useState<DashboardOverviewDTO>();
   const [alertCatalog, setAlertCatalog] = useState<ObservabilityAlertCatalogItemDTO[]>([]);
+  const [alertProbeStatus, setAlertProbeStatus] = useState<ObservabilityAlertProbeStatusDTO>();
+  const [probeWindow, setProbeWindow] = useState<number>(5);
 
   useEffect(() => {
     let canceled = false;
@@ -71,6 +129,27 @@ export const ObservabilityOverviewPage = () => {
       canceled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let canceled = false;
+    const loadProbeStatus = async () => {
+      try {
+        const probeData = await agentApi.getObservabilityAlertProbeStatus({ window: probeWindow });
+        if (!canceled) {
+          setAlertProbeStatus(probeData);
+        }
+      } catch (err) {
+        if (!canceled) {
+          const text = err instanceof Error ? err.message : String(err);
+          message.error(`加载巡检状态失败: ${text}`);
+        }
+      }
+    };
+    void loadProbeStatus();
+    return () => {
+      canceled = true;
+    };
+  }, [probeWindow]);
 
   const drillToLogs = (params?: { level?: string; taskId?: number; traceId?: string; keyword?: string }) => {
     const search = new URLSearchParams();
@@ -109,6 +188,20 @@ export const ObservabilityOverviewPage = () => {
     () => buildFailureSummary((overview?.recentFailedTasks || []) as TaskDetailDTO[]),
     [overview?.recentFailedTasks]
   );
+
+  const probeStatusText = alertProbeStatus?.status || 'IDLE';
+  const probeIssuesPreview = (alertProbeStatus?.issues || []).slice(0, 4);
+  const envBreakdown = Object.entries(alertProbeStatus?.envStats || {}).sort((a, b) => b[1].failureRate - a[1].failureRate);
+  const moduleBreakdown = Object.entries(alertProbeStatus?.moduleStats || {}).sort((a, b) => b[1].failureRate - a[1].failureRate);
+  const recentRuns = alertProbeStatus?.recentRuns || [];
+  const runTrendText = useMemo(() => {
+    if (recentRuns.length < 2) {
+      return '趋势样本不足（至少 2 次巡检）';
+    }
+    const previous = recentRuns[recentRuns.length - 2];
+    const latest = recentRuns[recentRuns.length - 1];
+    return `${safeTime(previous.executedAt)} ${formatRate(previous.failureRate)} -> ${safeTime(latest.executedAt)} ${formatRate(latest.failureRate)}`;
+  }, [recentRuns]);
 
   if (loading) {
     return <StateView type="loading" title="加载监控数据中" />;
@@ -212,6 +305,77 @@ export const ObservabilityOverviewPage = () => {
               </Button>
             }
           >
+            <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }} size={8}>
+              <Space wrap>
+                <Text strong>链接巡检</Text>
+                <Select
+                  size="small"
+                  style={{ width: 120 }}
+                  value={probeWindow}
+                  options={PROBE_WINDOW_OPTIONS}
+                  onChange={(value) => setProbeWindow(value)}
+                />
+                <Tag color={probeStatusColor[probeStatusText] || 'default'}>{probeStatusText}</Tag>
+                <Tag color={probeTrendColor[alertProbeStatus?.failureRateTrend || 'NA'] || 'default'}>
+                  趋势: {alertProbeStatus?.failureRateTrend || 'NA'}
+                </Tag>
+                <Tag>启用: {alertProbeStatus?.enabled ? '是' : '否'}</Tag>
+                <Tag>检查链接: {alertProbeStatus?.checkedLinks || 0}</Tag>
+                <Tag color={alertProbeStatus?.failedLinks ? 'red' : 'green'}>失败: {alertProbeStatus?.failedLinks || 0}</Tag>
+                <Tag>失败率: {formatRate(alertProbeStatus?.failureRate)}</Tag>
+              </Space>
+              <Text type="secondary">最近巡检时间：{safeTime(alertProbeStatus?.lastRunAt)}</Text>
+              <Text type="secondary">趋势对比（近 {probeWindow} 次）：{runTrendText}</Text>
+              {envBreakdown.length > 0 ? (
+                <Space wrap>
+                  <Text type="secondary">按环境：</Text>
+                  {envBreakdown.map(([key, value]) => (
+                    <Tag key={`env-${key}`} color={value.failedLinks > 0 ? 'red' : 'green'}>
+                      {key} {value.failedLinks}/{value.checkedLinks} ({formatRate(value.failureRate)})
+                    </Tag>
+                  ))}
+                </Space>
+              ) : null}
+              {moduleBreakdown.length > 0 ? (
+                <Space wrap>
+                  <Text type="secondary">按模块：</Text>
+                  {moduleBreakdown.map(([key, value]) => (
+                    <Tag key={`module-${key}`} color={value.failedLinks > 0 ? 'red' : 'green'}>
+                      {key} {value.failedLinks}/{value.checkedLinks} ({formatRate(value.failureRate)})
+                    </Tag>
+                  ))}
+                </Space>
+              ) : null}
+              {probeIssuesPreview.length > 0 ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="巡检发现不可达链接（示例）"
+                  description={
+                    <Space direction="vertical" size={2}>
+                      {probeIssuesPreview.map((item) => (
+                        <Space key={item} wrap>
+                          <Text code>{item}</Text>
+                          <Button
+                            size="small"
+                            type="link"
+                            onClick={() => {
+                              const alertName = parseAlertNameFromIssue(item);
+                              if (!alertName) {
+                                return;
+                              }
+                              drillToLogs({ level: 'ERROR', keyword: alertName });
+                            }}
+                          >
+                            下钻日志
+                          </Button>
+                        </Space>
+                      ))}
+                    </Space>
+                  }
+                />
+              ) : null}
+            </Space>
             <List
               dataSource={alertCatalog}
               locale={{ emptyText: '暂无告警目录，请检查 /api/observability/alerts/catalog' }}

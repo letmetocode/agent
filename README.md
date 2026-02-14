@@ -261,6 +261,7 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 后端默认行为：
 - V3 SSE 响应头默认包含 `Cache-Control: no-cache, no-transform` 与 `X-Accel-Buffering: no`，降低中间层缓冲导致的假断流。
 - 断线重连时（`lastEventId > 0`）仅回放漏事件，不重复发送 `message.accepted/planning.started` 引导事件。
+- 任务/计划流事件 `metadata` 统一输出标准字段 `nodeId/taskName`，并保留历史字段（如 `taskNodeId`）兼容。
 
 ### HTTP 入口日志与链路追踪
 
@@ -283,9 +284,17 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 
 - `observability.alert-catalog.dashboard.prod-base-url`（`env=prod` 告警项 dashboard 占位符替换）
 - `observability.alert-catalog.dashboard.staging-base-url`（`env=staging` 告警项 dashboard 占位符替换）
+- `observability.alert-catalog.link-check.enabled`（是否开启定时链接巡检）
+- `observability.alert-catalog.link-check.interval-ms`（巡检间隔）
+- `observability.alert-catalog.link-check.http-timeout-ms`（HTTP 探测超时）
+- `observability.alert-catalog.link-check.history-size`（保留最近巡检快照数量，用于趋势对比）
+- `observability.alert-catalog.link-check.trend-delta-threshold`（失败率趋势阈值，低于阈值按 `FLAT` 处理）
+- `observability.alert-catalog.link-check.max-issue-log-count`（单次日志输出上限）
 
 默认行为：
 - 启动时会巡检告警目录中未替换的 dashboard 占位符，并输出告警日志。
+- 若开启 `link-check.enabled`，后台会定时探测每条告警的 `dashboard/runbook` 可达性并输出汇总日志。
+- 监控总览页会展示巡检状态快照（`status/failureRate/env/module`）及最近趋势，并支持 `window` 时间窗口切换。
 - 监控总览页支持直接打开 dashboard 链接。
 
 ## 文档导航
@@ -309,7 +318,7 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 - `GET /api/workflows/definitions`：查询 Definition 列表。
 - `GET /api/workflows/definitions/{id}`：查询 Definition 详情。
 
-前端 `Workflow Draft` 页面已支持 SOP 图形化编排（节点拖拽、依赖连线、策略编辑、编译预览与保存）。
+前端 `Workflow Draft` 页面已支持 SOP 图形化编排（节点拖拽、依赖连线、策略编辑、分组批量操作、循环依赖路径定位高亮、自动修复预演、编译预览与保存）。
 
 ### Graph DSL v2（SOP 编排）
 
@@ -344,7 +353,7 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 - 历史入口代码已删除，不再提供兼容路由。
 - 只读查询统一为 `/api/v3/chat/sessions/{id}/history`、`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`。
 - 查询性能：`/api/plans/{id}/tasks`、`/api/dashboard/overview` 已使用批量 latestExecution 查询，避免 N+1。
-- 观测闭环：`/api/logs/paged` 已改为 DB 侧分页查询；`GET /api/observability/alerts/catalog` 提供告警目录与 runbook 入口。
+- 观测闭环：`/api/logs/paged` 已改为 DB 侧分页查询；`GET /api/observability/alerts/catalog` 提供告警目录与 runbook 入口；`GET /api/observability/alerts/probe-status` 返回告警目录巡检状态快照（支持 `window` 参数筛选趋势窗口）。
 
 ### 会话编排 V3 最小验证流程
 
@@ -353,6 +362,7 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 - 当 history 出现 `planId` 后订阅流式执行：`GET /api/v3/chat/sessions/{sessionId}/stream?planId={planId}`
 - 回查路由：`GET /api/v3/chat/plans/{planId}/routing`
 - 前端会话页具备自动收敛机制：SSE 断链最多自动重连 3 次，仍失败则自动轮询历史（30s 超时）以同步最终结果。
+- 移动端会话页支持“历史对话”抽屉化入口，保留主聊天区聚焦同时可快速切换会话。
 
 详细回归项见：`docs/04-development-backlog.md`。
 

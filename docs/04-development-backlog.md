@@ -40,6 +40,9 @@
 - SOP 治理分层落地：`sopSpec` 作为治理源数据，保存时自动编译为 Runtime Graph（`graphDefinition`）。
 - SOP 编译/校验接口：`POST /api/workflows/sop-spec/drafts/{id}/compile`、`POST /api/workflows/sop-spec/drafts/{id}/validate`。
 - Workflow Draft 页新增图形化 SOP 编排：节点拖拽、依赖连线、策略编辑、编译预览与保存闭环。
+- SOP 图治理增强：支持分组批量设置/清空、分组策略可视化编辑（`joinPolicy/failurePolicy/quorum/runPolicy`）。
+- SOP 高级校验提示：编辑态即时展示循环依赖路径，并支持连线高亮、节点定位、回边移除建议。
+- SOP 自动修复预演：循环路径支持“先预演再应用”回边移除，展示修复前后循环数变化。
 - 发布一致性保护：Draft 含 `sopSpec` 时，发布阶段强制校验 `compileHash` 与 Runtime Graph 一致。
 - Graph 规则单源化：新增 `GraphDslPolicyService`，治理校验、SOP 编译哈希与 Planner 节点签名统一复用同一策略实现。
 - V3 高级参数可视化：会话页支持 `scenario/agentKey/title/contextOverrides/metaInfo` 可视化编辑并直连请求体。
@@ -48,7 +51,7 @@
 - 测试：`ConversationOrchestratorServiceTest`、`ChatV3ControllerTest`、`ChatRoutingV3ControllerTest`、`SessionConversationDomainServiceTest`、`PlannerServiceRootDraftTest`
 
 **未完成 / 计划优化**
-- `P1`：SOP 图形化编排补齐分组批量操作与高级校验提示（如循环依赖路径可视化）。
+- 暂无（本轮 P1：循环依赖“自动修复预演”已完成）。
 
 ---
 
@@ -75,7 +78,7 @@
 - 测试：`TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest`、`PlanFinalizationDomainServiceTest`、`PlanTransitionDomainServiceTest`、`TaskExecutionDomainServiceTest`、`TaskPromptDomainServiceTest`、`TaskEvaluationDomainServiceTest`、`TaskRecoveryDomainServiceTest`、`TaskAgentSelectionDomainServiceTest`、`TaskBlackboardDomainServiceTest`、`TaskJsonDomainServiceTest`、`TaskPersistencePolicyDomainServiceTest`、`TaskPersistenceApplicationServiceTest`、`TaskDependencyPolicyDomainServiceTest`、`TaskScheduleApplicationServiceTest`、`PlanStatusSyncApplicationServiceTest`、`ApplicationDomainBoundaryTest`
 
 **未完成 / 计划优化**
-- `P1`：图治理后台补齐可视化编辑（groups/joinPolicy/quorum/failurePolicy）。
+- 暂无。
 
 ---
 
@@ -93,13 +96,14 @@
 - SSE 抖动容错：`onerror` 触发时若 22 秒内有心跳/事件，则视为短暂链路波动并静默等待浏览器自动恢复，不立即重建连接。
 - SSE 服务端抗抖：响应头关闭代理缓冲 + 重连订阅仅回放漏事件（不重复引导事件），减少重连噪音与重复状态提示。
 - 执行进度可视化增强：支持流事件按类型/节点过滤、按时间/类型/节点分组、连续重复事件折叠。
+- 流事件 metadata 字段规范化：统一输出 `nodeId/taskName`，并保留历史字段（如 `taskNodeId`）兼容读取，降低前端分支复杂度。
 
 **证据**
-- 测试：`ChatStreamV3ControllerTest`
+- 测试：`ChatStreamV3ControllerTest`、`ChatSseEventMapperTest`
 - 压测脚本：`scripts/chat_e2e_perf.py`（会话发送 -> SSE 终态收敛）
 
 **未完成 / 计划优化**
-- `P1`：流事件中 `metadata` 字段规范化（统一 nodeId/taskName 命名），降低前端兼容分支复杂度。
+- 暂无（本轮 P1：流事件 `metadata` 规范化已完成）。
 
 ---
 
@@ -113,12 +117,16 @@
 - 总览指标支持 P95/P99、慢任务、SLA 违约。
 - 日志检索 DB 侧过滤 + 计数 + 分页。
 - 告警目录环境化：`dashboard` 占位符按 `env=prod/staging` 自动替换，并在启动时巡检未替换项。
+- 告警目录定时巡检作业：可配置按周期探测 `dashboard/runbook` 可达性，并输出异常摘要日志。
+- 监控总览页接入告警目录巡检状态卡片（`enabled/status/failureRate`）与失败项一键日志下钻。
+- 巡检结果支持 `env/module` 维度聚合与最近快照趋势对比。
+- 巡检趋势支持窗口筛选（`window`）与阈值判定（`trend-delta-threshold`），便于抖动降噪。
 
 **证据**
-- 测试：`ConsoleQueryControllerPerformanceTest`、`ObservabilityAlertCatalogControllerTest`
+- 测试：`ConsoleQueryControllerPerformanceTest`、`ObservabilityAlertCatalogControllerTest`、`ObservabilityAlertCatalogLinkProbeServiceTest`
 
 **未完成 / 计划优化**
-- `P1`：告警目录链接健康巡检作业（定时探测 dashboard/runbook 可达性）。
+- 暂无（本轮 P1：巡检趋势窗口筛选与阈值配置已完成）。
 
 ---
 
@@ -139,13 +147,15 @@
 - 执行期主动同步：执行中每 2.5 秒静默同步历史快照，降低 SSE 波动下的前端停滞感。
 - 会话过期收敛：HTTP `401` 统一清理本地登录态并跳转登录页；SSE 增加 `accessToken` 参数透传以兼容统一鉴权。
 - 移动端体验优化：小屏会话页输入区 sticky、消息气泡宽度优化、滚动区高度自适配。
+- 移动端历史抽屉化：小屏会话页支持左侧“历史对话”抽屉，兼顾主聊天区聚焦与会话切换效率。
 - 执行时间线治理：进度栏支持过滤、分组与重复折叠，降低噪声。
+- 图治理编辑器联动校验：节点/分组 `joinPolicy=quorum` 时提供 `quorum` 取值范围约束与即时告警。
 
 **证据**
 - 构建：`cd frontend && npm run build`
 
 **未完成 / 计划优化**
-- `P1`：移动端会话页左侧历史抽屉化（当前仅保留主聊天区）。
+- 暂无（本轮 P1：策略编辑器联动校验已完成）。
 
 ## 4. 旧入口清理结果
 

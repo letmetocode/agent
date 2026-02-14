@@ -13,6 +13,7 @@ import type {
   KnowledgeBaseDetailDTO,
   KnowledgeDocumentDTO,
   ObservabilityAlertCatalogItemDTO,
+  ObservabilityAlertProbeStatusDTO,
   PageResult,
   PlanDetailDTO,
   PlanLogDTO,
@@ -196,6 +197,9 @@ export const agentApi = {
 
   getObservabilityAlertCatalog: async () =>
     unwrap(await http.get<ApiResponse<ObservabilityAlertCatalogItemDTO[]>>('/api/observability/alerts/catalog')),
+
+  getObservabilityAlertProbeStatus: async (params?: { window?: number }) =>
+    unwrap(await http.get<ApiResponse<ObservabilityAlertProbeStatusDTO>>('/api/observability/alerts/probe-status', { params })),
 
   getDashboardOverview: async (params?: { taskLimit?: number; planLimit?: number }) =>
     unwrap(await http.get<ApiResponse<DashboardOverviewDTO>>('/api/dashboard/overview', { params }))

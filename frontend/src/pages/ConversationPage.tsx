@@ -1,5 +1,5 @@
-import { PlusOutlined, SendOutlined, SyncOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Collapse, Empty, Input, List, Segmented, Select, Space, Spin, Switch, Tag, Timeline, Typography, message } from 'antd';
+import { MenuOutlined, PlusOutlined, SendOutlined, SyncOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Collapse, Drawer, Empty, Input, List, Segmented, Select, Space, Spin, Switch, Tag, Timeline, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useSessionStore } from '@/features/session/sessionStore';
@@ -131,8 +131,9 @@ const resolveEventNodeId = (event: ChatStreamEventV3): string | undefined => {
   const metadata = event.metadata && typeof event.metadata === 'object' ? event.metadata : undefined;
   const rawCandidates = [
     metadata ? metadata.nodeId : undefined,
-    metadata ? metadata.taskNodeId : undefined,
-    metadata ? metadata.taskName : undefined
+    metadata ? metadata.taskName : undefined,
+    // 向后兼容历史事件字段（新事件应统一为 nodeId/taskName）
+    metadata ? metadata.taskNodeId : undefined
   ];
   for (const value of rawCandidates) {
     if (typeof value !== 'string') {
@@ -224,6 +225,7 @@ export const ConversationPage = () => {
   const [sessions, setSessions] = useState<SessionDetailDTO[]>([]);
   const [history, setHistory] = useState<ChatHistoryResponseV3 | null>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessageItem[]>([]);
+  const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [activePlanId, setActivePlanId] = useState<number | undefined>();
   const [processEvents, setProcessEvents] = useState<ProcessEventItem[]>([]);
@@ -237,6 +239,9 @@ export const ConversationPage = () => {
   const [eventNodeFilter, setEventNodeFilter] = useState<string>('ALL');
   const [eventGroupMode, setEventGroupMode] = useState<EventGroupMode>('TIME');
   const [collapseEventDuplicates, setCollapseEventDuplicates] = useState(true);
+  const [isMobileLayout, setIsMobileLayout] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 1023px)').matches : false
+  );
 
   const sseRef = useRef<EventSource | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -1237,6 +1242,65 @@ export const ConversationPage = () => {
     );
   };
 
+  const handleStartNewChat = useCallback(() => {
+    setHistoryDrawerOpen(false);
+    navigate('/sessions');
+  }, [navigate]);
+
+  const handleSelectSession = useCallback(
+    (targetSessionId: number) => {
+      setHistoryDrawerOpen(false);
+      navigate(`/sessions/${targetSessionId}`);
+    },
+    [navigate]
+  );
+
+  const renderHistorySessionList = () => (
+    <Space direction="vertical" style={{ width: '100%' }} size={12}>
+      <Button type="primary" icon={<PlusOutlined />} block onClick={handleStartNewChat}>
+        新聊天
+      </Button>
+      {sessionListLoading ? <Spin /> : null}
+      <List
+        size="small"
+        dataSource={recentSessions}
+        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无历史会话" /> }}
+        renderItem={(item) => (
+          <List.Item
+            className={`conversation-plan-item ${sid === item.sessionId ? 'active' : ''}`}
+            onClick={() => handleSelectSession(item.sessionId)}
+          >
+            <List.Item.Meta
+              title={item.title || `Session #${item.sessionId}`}
+              description={`#${item.sessionId} · ${safeTime(item.createdAt)}`}
+            />
+          </List.Item>
+        )}
+      />
+    </Space>
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const mediaQuery = window.matchMedia('(max-width: 1023px)');
+    const sync = (event?: MediaQueryListEvent) => setIsMobileLayout(event ? event.matches : mediaQuery.matches);
+    sync();
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', sync);
+      return () => mediaQuery.removeEventListener('change', sync);
+    }
+    mediaQuery.addListener(sync);
+    return () => mediaQuery.removeListener(sync);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobileLayout) {
+      setHistoryDrawerOpen(false);
+    }
+  }, [isMobileLayout]);
+
   return (
     <div className="page-container conversation-page">
       <div className="chat-toolbar glass-card">
@@ -1248,7 +1312,12 @@ export const ConversationPage = () => {
         </Space>
         <Space size={12} align="center">
           <Typography.Text type="secondary">当前账号：{userId || '未登录'}</Typography.Text>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/sessions')}>
+          {isMobileLayout ? (
+            <Button icon={<MenuOutlined />} onClick={() => setHistoryDrawerOpen(true)}>
+              历史
+            </Button>
+          ) : null}
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleStartNewChat}>
             新聊天
           </Button>
         </Space>
@@ -1268,30 +1337,20 @@ export const ConversationPage = () => {
         />
       ) : null}
 
+      <Drawer
+        className="chat-history-drawer"
+        title="历史对话"
+        placement="left"
+        width={320}
+        open={isMobileLayout && historyDrawerOpen}
+        onClose={() => setHistoryDrawerOpen(false)}
+      >
+        {renderHistorySessionList()}
+      </Drawer>
+
       <div className="chat-layout">
         <Card className="app-card chat-panel chat-left-panel" title="历史对话" extra={<Tag color="blue">{recentSessions.length}</Tag>}>
-          <Space direction="vertical" style={{ width: '100%' }} size={12}>
-            <Button type="primary" icon={<PlusOutlined />} block onClick={() => navigate('/sessions')}>
-              新聊天
-            </Button>
-            {sessionListLoading ? <Spin /> : null}
-            <List
-              size="small"
-              dataSource={recentSessions}
-              locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无历史会话" /> }}
-              renderItem={(item) => (
-                <List.Item
-                  className={`conversation-plan-item ${sid === item.sessionId ? 'active' : ''}`}
-                  onClick={() => navigate(`/sessions/${item.sessionId}`)}
-                >
-                  <List.Item.Meta
-                    title={item.title || `Session #${item.sessionId}`}
-                    description={`#${item.sessionId} · ${safeTime(item.createdAt)}`}
-                  />
-                </List.Item>
-              )}
-            />
-          </Space>
+          {renderHistorySessionList()}
         </Card>
 
         <Card
