@@ -11,6 +11,7 @@ import com.getoffer.domain.task.adapter.repository.ITaskShareLinkRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
 import com.getoffer.domain.task.model.entity.TaskShareLinkEntity;
+import com.getoffer.trigger.application.common.TaskDetailViewAssembler;
 import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.types.enums.ResponseCode;
 import com.getoffer.types.enums.TaskStatusEnum;
@@ -44,6 +45,7 @@ public class TaskActionCommandService {
     private final ITaskExecutionRepository taskExecutionRepository;
     private final ITaskShareLinkRepository taskShareLinkRepository;
     private final ObjectMapper objectMapper;
+    private final TaskDetailViewAssembler taskDetailViewAssembler;
 
     @Value("${app.share.base-url:http://127.0.0.1:8091}")
     private String shareBaseUrl;
@@ -58,12 +60,14 @@ public class TaskActionCommandService {
                                     IAgentPlanRepository agentPlanRepository,
                                     ITaskExecutionRepository taskExecutionRepository,
                                     ITaskShareLinkRepository taskShareLinkRepository,
-                                    ObjectMapper objectMapper) {
+                                    ObjectMapper objectMapper,
+                                    TaskDetailViewAssembler taskDetailViewAssembler) {
         this.agentTaskRepository = agentTaskRepository;
         this.agentPlanRepository = agentPlanRepository;
         this.taskExecutionRepository = taskExecutionRepository;
         this.taskShareLinkRepository = taskShareLinkRepository;
         this.objectMapper = objectMapper;
+        this.taskDetailViewAssembler = taskDetailViewAssembler;
     }
 
     public TaskDetailDTO pause(Long taskId) {
@@ -77,7 +81,7 @@ public class TaskActionCommandService {
                 throw illegal("当前计划状态不支持暂停: " + ex.getMessage());
             }
         }
-        return toTaskDetailDTO(task);
+        return taskDetailViewAssembler.toTaskDetailDTO(task);
     }
 
     public TaskDetailDTO resume(Long taskId) {
@@ -91,7 +95,7 @@ public class TaskActionCommandService {
                 throw illegal("当前计划状态不支持恢复: " + ex.getMessage());
             }
         }
-        return toTaskDetailDTO(task);
+        return taskDetailViewAssembler.toTaskDetailDTO(task);
     }
 
     public TaskDetailDTO cancel(Long taskId) {
@@ -105,7 +109,7 @@ public class TaskActionCommandService {
                 throw illegal("当前计划状态不支持取消: " + ex.getMessage());
             }
         }
-        return toTaskDetailDTO(task);
+        return taskDetailViewAssembler.toTaskDetailDTO(task);
     }
 
     public TaskDetailDTO retryFromFailed(Long taskId) {
@@ -137,7 +141,7 @@ public class TaskActionCommandService {
             agentPlanRepository.update(plan);
         }
 
-        return toTaskDetailDTO(updatedTask);
+        return taskDetailViewAssembler.toTaskDetailDTO(updatedTask);
     }
 
     public Map<String, Object> exportTask(Long taskId, String format) {
@@ -149,7 +153,7 @@ public class TaskActionCommandService {
 
         List<TaskExecutionEntity> executions = taskExecutionRepository.findByTaskIdOrderByAttempt(taskId);
         Map<String, Object> payload = new HashMap<>();
-        payload.put("task", toTaskDetailDTO(task));
+        payload.put("task", taskDetailViewAssembler.toTaskDetailDTO(task));
         payload.put("executions", executions == null ? new ArrayList<>() : executions);
         payload.put("generatedAt", LocalDateTime.now());
 
@@ -292,46 +296,6 @@ public class TaskActionCommandService {
             }
         }
         return sb.toString();
-    }
-
-    private TaskDetailDTO toTaskDetailDTO(AgentTaskEntity task) {
-        TaskDetailDTO dto = new TaskDetailDTO();
-        dto.setTaskId(task.getId());
-        dto.setPlanId(task.getPlanId());
-        dto.setNodeId(task.getNodeId());
-        dto.setName(task.getName());
-        dto.setTaskType(task.getTaskType() == null ? null : task.getTaskType().name());
-        dto.setStatus(task.getStatus() == null ? null : task.getStatus().name());
-        dto.setDependencyNodeIds(task.getDependencyNodeIds());
-        dto.setInputContext(task.getInputContext());
-        dto.setConfigSnapshot(task.getConfigSnapshot());
-        dto.setOutputResult(task.getOutputResult());
-        dto.setMaxRetries(task.getMaxRetries());
-        dto.setCurrentRetry(task.getCurrentRetry());
-        dto.setClaimOwner(task.getClaimOwner());
-        dto.setClaimAt(task.getClaimAt());
-        dto.setLeaseUntil(task.getLeaseUntil());
-        dto.setExecutionAttempt(task.getExecutionAttempt());
-        dto.setLatestExecutionTimeMs(resolveLatestExecutionTimeMs(task.getId()));
-        dto.setVersion(task.getVersion());
-        dto.setCreatedAt(task.getCreatedAt());
-        dto.setUpdatedAt(task.getUpdatedAt());
-        return dto;
-    }
-
-    private Long resolveLatestExecutionTimeMs(Long taskId) {
-        if (taskId == null) {
-            return null;
-        }
-        Integer maxAttempt = taskExecutionRepository.getMaxAttemptNumber(taskId);
-        if (maxAttempt == null || maxAttempt <= 0) {
-            return null;
-        }
-        TaskExecutionEntity latestExecution = taskExecutionRepository.findByTaskIdAndAttempt(taskId, maxAttempt);
-        if (latestExecution == null) {
-            return null;
-        }
-        return latestExecution.getExecutionTimeMs();
     }
 
     private int normalizeTtlHours(Integer expiresHours) {

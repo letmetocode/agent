@@ -78,6 +78,14 @@ logging:
 
 
 app:
+  auth:
+    local:
+      # 开发环境本地账号（建议通过环境变量覆盖）
+      username: ${APP_AUTH_LOCAL_USERNAME:admin}
+      password: ${APP_AUTH_LOCAL_PASSWORD:admin123}
+      display-name: ${APP_AUTH_LOCAL_DISPLAY_NAME:Operator}
+    token:
+      ttl-hours: ${APP_AUTH_TOKEN_TTL_HOURS:24}
   share:
     # 任务分享链接生成时使用的外部访问地址（可通过环境变量覆盖）
     base-url: ${APP_SHARE_BASE_URL:http://127.0.0.1:8091}

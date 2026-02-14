@@ -200,6 +200,20 @@ python3 scripts/chat_e2e_perf.py \
 - `planner.root.fallback.single-node.enabled`
 - `planner.root.fallback.agent-key`（Draft 节点缺省 agentKey，当前默认 `assistant`）
 
+### 最小登录能力
+
+配置位置：`agent-app/src/main/resources/application.yml`
+
+- `app.auth.local.username`（本地登录用户名，默认 `admin`）
+- `app.auth.local.password`（本地登录密码，默认 `admin123`，生产建议环境变量覆盖）
+- `app.auth.local.display-name`（控制台展示昵称）
+- `app.auth.token.ttl-hours`（登录态有效期，单位小时）
+
+默认行为：
+- `ApiAuthFilter` 对 `/api/**` 统一鉴权；白名单仅放行 `/api/auth/login` 与 `/api/share/tasks/**`。
+- 浏览器 SSE 因标准限制无法携带 `Authorization` 头，`/api/v3/chat/sessions/{id}/stream` 支持 `accessToken` query 参数鉴权。
+- 前端收到 `401` 会自动清理本地登录态并跳转 `/login`。
+
 ### 任务分享链接
 
 配置位置：`agent-app/src/main/resources/application*.yml`
@@ -280,6 +294,7 @@ python3 scripts/chat_e2e_perf.py \
 
 - 治理层单一事实源为 `sopSpec`；执行层使用编译产物 `graphDefinition(version=2)`。
 - 发布前会校验 `compileHash` 与当前 Runtime Graph 一致性，不一致则阻断发布并提示重新编译保存。
+- `GraphDslPolicyService` 作为 Graph 规则单源，统一提供 Graph DSL v2 基础校验、`nodeSignature` 计算与 `compileHash` 哈希算法。
 - 当前运行时统一以 `graphDefinition.version = 2` 执行；发布与更新 Draft 时会强校验 `version=2`。
 - 候选 Draft（Root 规划产物）允许版本兼容升级：当仅缺失/非 2 但节点结构可执行时，Planner 会自动补齐为 `version=2`（并补齐缺省 `groups/edges`）。
 - 候选 Draft 结构性非法（如边指向不存在节点）会判定为不可重试错误，Root 规划直接快速降级，避免 3 次无效重试。

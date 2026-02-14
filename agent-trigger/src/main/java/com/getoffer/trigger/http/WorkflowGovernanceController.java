@@ -5,6 +5,7 @@ import com.getoffer.domain.planning.adapter.repository.IWorkflowDefinitionReposi
 import com.getoffer.domain.planning.adapter.repository.IWorkflowDraftRepository;
 import com.getoffer.domain.planning.model.entity.WorkflowDefinitionEntity;
 import com.getoffer.domain.planning.model.entity.WorkflowDraftEntity;
+import com.getoffer.domain.planning.service.GraphDslPolicyService;
 import com.getoffer.trigger.application.command.SopSpecCompileService;
 import com.getoffer.types.enums.ResponseCode;
 import com.getoffer.types.enums.WorkflowDefinitionStatusEnum;
@@ -37,7 +38,6 @@ import java.util.stream.Collectors;
 public class WorkflowGovernanceController {
 
     private static final String DEFAULT_OPERATOR = "SYSTEM";
-    private static final int GRAPH_DSL_VERSION = 2;
     private static final String SOP_CONSTRAINT_KEY_SPEC = "sopSpec";
     private static final String SOP_CONSTRAINT_KEY_COMPILE_HASH = "compileHash";
     private static final String SOP_CONSTRAINT_KEY_COMPILE_STATUS = "compileStatus";
@@ -437,90 +437,7 @@ public class WorkflowGovernanceController {
     }
 
     private void validateGraphDslV2(Map<String, Object> graphDefinition, String fieldName) {
-        if (graphDefinition == null || graphDefinition.isEmpty()) {
-            throw new IllegalArgumentException(fieldName + "不能为空");
-        }
-        int version = parseInt(graphDefinition.get("version"), fieldName + ".version");
-        if (version != GRAPH_DSL_VERSION) {
-            throw new IllegalArgumentException(fieldName + ".version仅支持" + GRAPH_DSL_VERSION);
-        }
-
-        Object nodesObj = graphDefinition.get("nodes");
-        if (!(nodesObj instanceof List<?> nodes) || nodes.isEmpty()) {
-            throw new IllegalArgumentException(fieldName + ".nodes不能为空");
-        }
-        for (Object nodeObj : nodes) {
-            if (!(nodeObj instanceof Map<?, ?> node)) {
-                throw new IllegalArgumentException(fieldName + ".nodes元素必须是对象");
-            }
-            String nodeId = trimToNull(node.get("id"));
-            if (nodeId == null) {
-                throw new IllegalArgumentException(fieldName + ".nodes.id不能为空");
-            }
-            String type = trimToNull(node.get("type"));
-            if (type == null) {
-                throw new IllegalArgumentException(fieldName + ".nodes.type不能为空");
-            }
-        }
-
-        Object groupsObj = graphDefinition.get("groups");
-        if (groupsObj != null) {
-            if (!(groupsObj instanceof List<?> groups)) {
-                throw new IllegalArgumentException(fieldName + ".groups必须是数组");
-            }
-            for (Object groupObj : groups) {
-                if (!(groupObj instanceof Map<?, ?> group)) {
-                    throw new IllegalArgumentException(fieldName + ".groups元素必须是对象");
-                }
-                String groupId = trimToNull(group.get("id"));
-                if (groupId == null) {
-                    throw new IllegalArgumentException(fieldName + ".groups.id不能为空");
-                }
-            }
-        }
-
-        Object edgesObj = graphDefinition.get("edges");
-        if (edgesObj != null) {
-            if (!(edgesObj instanceof List<?> edges)) {
-                throw new IllegalArgumentException(fieldName + ".edges必须是数组");
-            }
-            for (Object edgeObj : edges) {
-                if (!(edgeObj instanceof Map<?, ?> edge)) {
-                    throw new IllegalArgumentException(fieldName + ".edges元素必须是对象");
-                }
-                String from = trimToNull(edge.get("from"));
-                String to = trimToNull(edge.get("to"));
-                if (from == null || to == null) {
-                    throw new IllegalArgumentException(fieldName + ".edges.from/to不能为空");
-                }
-            }
-        }
-    }
-
-    private int parseInt(Object value, String fieldName) {
-        if (value == null) {
-            throw new IllegalArgumentException(fieldName + "不能为空");
-        }
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        String text = String.valueOf(value).trim();
-        if (text.isEmpty()) {
-            throw new IllegalArgumentException(fieldName + "不能为空");
-        }
-        try {
-            return Integer.parseInt(text);
-        } catch (NumberFormatException ex) {
-            throw new IllegalArgumentException(fieldName + "必须是整数");
-        }
-    }
-
-    private String trimToNull(Object value) {
-        if (value == null) {
-            return null;
-        }
-        String text = String.valueOf(value).trim();
-        return text.isEmpty() ? null : text;
+        GraphDslPolicyService.validateGraphDslV2(graphDefinition, fieldName);
     }
 
     private Map<String, Object> copyMap(Map<String, Object> source) {

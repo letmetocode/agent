@@ -9,6 +9,7 @@ import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.IPlanTaskEventRepository;
 import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
+import com.getoffer.trigger.application.common.TaskDetailViewAssembler;
 import com.getoffer.trigger.http.QueryController;
 import com.getoffer.types.enums.TaskStatusEnum;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,6 +57,7 @@ public class QueryControllerPerformanceTest {
         this.planTaskEventRepository = mock(IPlanTaskEventRepository.class);
         this.agentToolCatalogRepository = mock(IAgentToolCatalogRepository.class);
         this.vectorStoreRegistryRepository = mock(IVectorStoreRegistryRepository.class);
+        TaskDetailViewAssembler taskDetailViewAssembler = new TaskDetailViewAssembler(taskExecutionRepository);
 
         this.mockMvc = MockMvcBuilders.standaloneSetup(
                 new QueryController(
@@ -65,7 +67,8 @@ public class QueryControllerPerformanceTest {
                         taskExecutionRepository,
                         planTaskEventRepository,
                         agentToolCatalogRepository,
-                        vectorStoreRegistryRepository
+                        vectorStoreRegistryRepository,
+                        taskDetailViewAssembler
                 )
         ).build();
     }

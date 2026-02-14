@@ -1,3 +1,4 @@
+import { SESSION_TOKEN_KEY } from '@/features/session/sessionStore';
 import { storage } from '@/shared/utils/storage';
 import type { ChatStreamEventV3 } from '@/shared/types/api';
 
@@ -24,7 +25,9 @@ export const openChatSseV3 = (
   onError?: (source: EventSource) => void
 ) => {
   const lastEventId = getChatLastEventId(sessionId, planId);
-  const endpoint = `${baseUrl.replace(/\/$/, '')}/api/v3/chat/sessions/${sessionId}/stream?planId=${planId}&lastEventId=${encodeURIComponent(lastEventId)}`;
+  const token = storage.get<string>(SESSION_TOKEN_KEY, '');
+  const accessToken = (token || '').trim();
+  const endpoint = `${baseUrl.replace(/\/$/, '')}/api/v3/chat/sessions/${sessionId}/stream?planId=${planId}&lastEventId=${encodeURIComponent(lastEventId)}${accessToken ? `&accessToken=${encodeURIComponent(accessToken)}` : ''}`;
   const source = new EventSource(endpoint);
 
   const handler = (event: MessageEvent<string>) => {

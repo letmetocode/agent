@@ -19,6 +19,7 @@ import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
 import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
+import com.getoffer.trigger.application.common.TaskDetailViewAssembler;
 import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.types.enums.ResponseCode;
 import com.getoffer.types.enums.TaskStatusEnum;
@@ -51,6 +52,7 @@ public class QueryController {
     private final IPlanTaskEventRepository planTaskEventRepository;
     private final IAgentToolCatalogRepository agentToolCatalogRepository;
     private final IVectorStoreRegistryRepository vectorStoreRegistryRepository;
+    private final TaskDetailViewAssembler taskDetailViewAssembler;
 
     public QueryController(IAgentSessionRepository agentSessionRepository,
                            IAgentPlanRepository agentPlanRepository,
@@ -58,7 +60,8 @@ public class QueryController {
                            ITaskExecutionRepository taskExecutionRepository,
                            IPlanTaskEventRepository planTaskEventRepository,
                            IAgentToolCatalogRepository agentToolCatalogRepository,
-                           IVectorStoreRegistryRepository vectorStoreRegistryRepository) {
+                           IVectorStoreRegistryRepository vectorStoreRegistryRepository,
+                           TaskDetailViewAssembler taskDetailViewAssembler) {
         this.agentSessionRepository = agentSessionRepository;
         this.agentPlanRepository = agentPlanRepository;
         this.agentTaskRepository = agentTaskRepository;
@@ -66,6 +69,7 @@ public class QueryController {
         this.planTaskEventRepository = planTaskEventRepository;
         this.agentToolCatalogRepository = agentToolCatalogRepository;
         this.vectorStoreRegistryRepository = vectorStoreRegistryRepository;
+        this.taskDetailViewAssembler = taskDetailViewAssembler;
     }
 
     @GetMapping("/plans/{id}")
@@ -90,9 +94,9 @@ public class QueryController {
             return illegal("计划不存在");
         }
         List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(planId);
-        Map<Long, Long> latestExecutionTimeMap = resolveLatestExecutionTimeMap(tasks);
+        Map<Long, Long> latestExecutionTimeMap = taskDetailViewAssembler.resolveLatestExecutionTimeMap(tasks);
         List<TaskDetailDTO> data = tasks == null ? Collections.emptyList() : tasks.stream()
-                .map(task -> toTaskDetailDTO(task, latestExecutionTimeMap))
+                .map(task -> taskDetailViewAssembler.toTaskDetailDTO(task, latestExecutionTimeMap))
                 .collect(Collectors.toList());
         return success(data);
     }
@@ -122,7 +126,7 @@ public class QueryController {
         if (task == null) {
             return illegal("任务不存在");
         }
-        return success(toTaskDetailDTO(task));
+        return success(taskDetailViewAssembler.toTaskDetailDTO(task));
     }
 
     @GetMapping("/plans/{id}/events")
@@ -202,14 +206,14 @@ public class QueryController {
                 .collect(Collectors.toMap(AgentTaskEntity::getId, item -> item, (left, right) -> left, java.util.LinkedHashMap::new))
                 .values().stream()
                 .collect(Collectors.toList());
-        Map<Long, Long> latestExecutionTimeMap = resolveLatestExecutionTimeMap(taskProjection);
+        Map<Long, Long> latestExecutionTimeMap = taskDetailViewAssembler.resolveLatestExecutionTimeMap(taskProjection);
 
         List<TaskDetailDTO> recentTasks = recentTaskEntities.stream()
-                .map(task -> toTaskDetailDTO(task, latestExecutionTimeMap))
+                .map(task -> taskDetailViewAssembler.toTaskDetailDTO(task, latestExecutionTimeMap))
                 .collect(Collectors.toList());
 
         List<TaskDetailDTO> recentFailedTasks = recentFailedTaskEntities.stream()
-                .map(task -> toTaskDetailDTO(task, latestExecutionTimeMap))
+                .map(task -> taskDetailViewAssembler.toTaskDetailDTO(task, latestExecutionTimeMap))
                 .collect(Collectors.toList());
 
         List<PlanSummaryDTO> recentPlans = (plans == null ? Collections.<AgentPlanEntity>emptyList() : plans).stream()
@@ -262,66 +266,6 @@ public class QueryController {
         dto.setCreatedAt(plan.getCreatedAt());
         dto.setUpdatedAt(plan.getUpdatedAt());
         return dto;
-    }
-
-    private TaskDetailDTO toTaskDetailDTO(AgentTaskEntity task) {
-        return toTaskDetailDTO(task, null);
-    }
-
-    private TaskDetailDTO toTaskDetailDTO(AgentTaskEntity task, Map<Long, Long> latestExecutionTimeMap) {
-        TaskDetailDTO dto = new TaskDetailDTO();
-        dto.setTaskId(task.getId());
-        dto.setPlanId(task.getPlanId());
-        dto.setNodeId(task.getNodeId());
-        dto.setName(task.getName());
-        dto.setTaskType(task.getTaskType() == null ? null : task.getTaskType().name());
-        dto.setStatus(task.getStatus() == null ? null : task.getStatus().name());
-        dto.setDependencyNodeIds(task.getDependencyNodeIds());
-        dto.setInputContext(task.getInputContext());
-        dto.setConfigSnapshot(task.getConfigSnapshot());
-        dto.setOutputResult(task.getOutputResult());
-        dto.setMaxRetries(task.getMaxRetries());
-        dto.setCurrentRetry(task.getCurrentRetry());
-        dto.setClaimOwner(task.getClaimOwner());
-        dto.setClaimAt(task.getClaimAt());
-        dto.setLeaseUntil(task.getLeaseUntil());
-        dto.setExecutionAttempt(task.getExecutionAttempt());
-        if (latestExecutionTimeMap == null) {
-            dto.setLatestExecutionTimeMs(resolveLatestExecutionTimeMs(task.getId()));
-        } else {
-            dto.setLatestExecutionTimeMs(task.getId() == null ? null : latestExecutionTimeMap.get(task.getId()));
-        }
-        dto.setVersion(task.getVersion());
-        dto.setCreatedAt(task.getCreatedAt());
-        dto.setUpdatedAt(task.getUpdatedAt());
-        return dto;
-    }
-
-    private Map<Long, Long> resolveLatestExecutionTimeMap(List<AgentTaskEntity> tasks) {
-        if (tasks == null || tasks.isEmpty()) {
-            return Collections.emptyMap();
-        }
-        List<Long> taskIds = tasks.stream()
-                .map(AgentTaskEntity::getId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .collect(Collectors.toList());
-        if (taskIds.isEmpty()) {
-            return Collections.emptyMap();
-        }
-        Map<Long, Long> latestMap = taskExecutionRepository.findLatestExecutionTimeByTaskIds(taskIds);
-        return latestMap == null ? Collections.emptyMap() : latestMap;
-    }
-
-    private Long resolveLatestExecutionTimeMs(Long taskId) {
-        if (taskId == null) {
-            return null;
-        }
-        Map<Long, Long> latestMap = taskExecutionRepository.findLatestExecutionTimeByTaskIds(Collections.singletonList(taskId));
-        if (latestMap == null || latestMap.isEmpty()) {
-            return null;
-        }
-        return latestMap.get(taskId);
     }
 
     private TaskExecutionDetailDTO toTaskExecutionDetailDTO(TaskExecutionEntity execution) {

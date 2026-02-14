@@ -55,6 +55,14 @@ logging:
   config: classpath:logback-spring.xml
 
 app:
+  auth:
+    local:
+      # 生产环境建议显式覆盖本地登录账号
+      username: ${APP_AUTH_LOCAL_USERNAME:admin}
+      password: ${APP_AUTH_LOCAL_PASSWORD}
+      display-name: ${APP_AUTH_LOCAL_DISPLAY_NAME:Operator}
+    token:
+      ttl-hours: ${APP_AUTH_TOKEN_TTL_HOURS:24}
   share:
     # 任务分享链接生成时使用的外部访问地址（建议配置为前端生产域名）
     base-url: ${APP_SHARE_BASE_URL:http://127.0.0.1:8091}

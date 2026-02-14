@@ -1,13 +1,10 @@
 package com.getoffer.trigger.application.command;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.getoffer.domain.planning.service.GraphDslPolicyService;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -17,9 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
-import java.util.TreeMap;
 
 /**
  * SOP Spec -> Runtime Graph 编译服务。
@@ -27,7 +22,6 @@ import java.util.TreeMap;
 @Service
 public class SopSpecCompileService {
 
-    private static final int GRAPH_DSL_VERSION = 2;
     private static final String TASK_TYPE_WORKER = "WORKER";
     private static final String TASK_TYPE_CRITIC = "CRITIC";
     private static final String JOIN_POLICY_ALL = "all";
@@ -118,13 +112,13 @@ public class SopSpecCompileService {
         }
 
         Map<String, Object> runtimeGraph = new LinkedHashMap<>();
-        runtimeGraph.put("version", GRAPH_DSL_VERSION);
+        runtimeGraph.put("version", GraphDslPolicyService.GRAPH_DSL_VERSION);
         runtimeGraph.put("nodes", runtimeNodes);
         runtimeGraph.put("edges", runtimeEdges);
         runtimeGraph.put("groups", runtimeGroups);
 
         String compileHash = hashRuntimeGraph(runtimeGraph);
-        String nodeSignature = buildNodeSignature(runtimeNodes, runtimeGroups, runtimeEdges);
+        String nodeSignature = GraphDslPolicyService.computeNodeSignature(runtimeGraph);
         return new CompileResult(runtimeGraph, compileHash, nodeSignature, warnings);
     }
 
@@ -138,16 +132,7 @@ public class SopSpecCompileService {
     }
 
     public String hashRuntimeGraph(Map<String, Object> runtimeGraph) {
-        if (runtimeGraph == null || runtimeGraph.isEmpty()) {
-            return null;
-        }
-        Object canonical = canonicalize(runtimeGraph);
-        try {
-            String json = objectMapper.writeValueAsString(canonical);
-            return sha256Hex(json);
-        } catch (JsonProcessingException ex) {
-            throw new IllegalArgumentException("Runtime Graph序列化失败: " + ex.getMessage(), ex);
-        }
+        return GraphDslPolicyService.hashGraph(runtimeGraph, objectMapper);
     }
 
     private Map<String, StepSpec> parseSteps(List<Map<String, Object>> rawSteps,
@@ -288,77 +273,6 @@ public class SopSpecCompileService {
                 warnings.add("sopSpec.steps.groupId=" + step.groupId() + "未声明分组，已自动补齐默认分组");
             }
             group.nodeIds().add(step.id());
-        }
-    }
-
-    private Object canonicalize(Object value) {
-        if (value instanceof Map<?, ?> map) {
-            Map<String, Object> normalized = new TreeMap<>();
-            for (Map.Entry<?, ?> entry : map.entrySet()) {
-                if (entry.getKey() == null) {
-                    continue;
-                }
-                normalized.put(String.valueOf(entry.getKey()), canonicalize(entry.getValue()));
-            }
-            return normalized;
-        }
-        if (value instanceof List<?> list) {
-            List<Object> normalized = new ArrayList<>(list.size());
-            for (Object item : list) {
-                normalized.add(canonicalize(item));
-            }
-            return normalized;
-        }
-        return value;
-    }
-
-    private String buildNodeSignature(List<Map<String, Object>> nodes,
-                                      List<Map<String, Object>> groups,
-                                      List<Map<String, Object>> edges) {
-        List<String> nodeSignatures = new ArrayList<>();
-        for (Map<String, Object> node : nodes) {
-            String id = Objects.toString(node.get("id"), "");
-            String type = Objects.toString(node.get("type"), "WORKER");
-            String join = Objects.toString(node.get("joinPolicy"), "-");
-            String failure = Objects.toString(node.get("failurePolicy"), "-");
-            String quorum = Objects.toString(node.get("quorum"), "-");
-            nodeSignatures.add(id + ":" + type + ":join=" + join + ":fail=" + failure + ":q=" + quorum);
-        }
-        Collections.sort(nodeSignatures);
-
-        List<String> groupSignatures = new ArrayList<>();
-        for (Map<String, Object> group : groups) {
-            String id = Objects.toString(group.get("id"), "");
-            String join = Objects.toString(group.get("joinPolicy"), "-");
-            String failure = Objects.toString(group.get("failurePolicy"), "-");
-            String quorum = Objects.toString(group.get("quorum"), "-");
-            groupSignatures.add(id + ":join=" + join + ":fail=" + failure + ":q=" + quorum);
-        }
-        Collections.sort(groupSignatures);
-
-        List<String> edgeSignatures = new ArrayList<>();
-        for (Map<String, Object> edge : edges) {
-            edgeSignatures.add(Objects.toString(edge.get("from"), "") + "->" + Objects.toString(edge.get("to"), ""));
-        }
-        Collections.sort(edgeSignatures);
-
-        String raw = "v2#nodes=" + String.join("|", nodeSignatures)
-                + "#groups=" + String.join("|", groupSignatures)
-                + "#edges=" + String.join("|", edgeSignatures);
-        return "sig_" + sha256Hex(raw).substring(0, 24);
-    }
-
-    private String sha256Hex(String content) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(content.getBytes(StandardCharsets.UTF_8));
-            StringBuilder builder = new StringBuilder(hash.length * 2);
-            for (byte b : hash) {
-                builder.append(String.format("%02x", b));
-            }
-            return builder.toString();
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 not available", ex);
         }
     }
 

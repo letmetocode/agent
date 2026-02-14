@@ -11,7 +11,7 @@
 - 核心链路闭环：会话编排（V3）/执行终态/SSE/观测日志。
 - 前端主路径收口为 ChatGPT 风格：新聊天直达、历史左置、进度右置。
 - V1/V2 旧入口代码已清理，仅保留 V3 主链路。
-- 当前范围外：登录与 RBAC（明确延后，不在本轮交付）。
+- 当前范围外：RBAC 与多租户权限体系（明确延后，不在本轮交付）。
 
 ## 3. 业务域台账
 
@@ -21,6 +21,8 @@
 - 优先级：`P0`
 
 **已完成功能**
+- 最小登录契约：`/api/auth/login`、`/api/auth/logout`、`/api/auth/me`，前端登录页切换为账号密码登录。
+- 统一鉴权拦截落地：`ApiAuthFilter` 对 `/api/**` 开启会话校验；白名单仅保留登录与分享读取接口。
 - V3 聚合入口：`POST /api/v3/chat/messages`。
 - V3 历史聚合：`GET /api/v3/chat/sessions/{id}/history`。
 - V3 路由决策：`GET /api/v3/chat/plans/{id}/routing`。
@@ -39,6 +41,7 @@
 - SOP 编译/校验接口：`POST /api/workflows/sop-spec/drafts/{id}/compile`、`POST /api/workflows/sop-spec/drafts/{id}/validate`。
 - Workflow Draft 页新增图形化 SOP 编排：节点拖拽、依赖连线、策略编辑、编译预览与保存闭环。
 - 发布一致性保护：Draft 含 `sopSpec` 时，发布阶段强制校验 `compileHash` 与 Runtime Graph 一致。
+- Graph 规则单源化：新增 `GraphDslPolicyService`，治理校验、SOP 编译哈希与 Planner 节点签名统一复用同一策略实现。
 
 **证据**
 - 测试：`ConversationOrchestratorServiceTest`、`ChatV3ControllerTest`、`ChatRoutingV3ControllerTest`、`SessionConversationDomainServiceTest`、`PlannerServiceRootDraftTest`
@@ -132,6 +135,7 @@
 - 乐观发送：点击发送后立即清空输入框并将用户消息落入聊天区（`PENDING`），降低“未发送出去”的体感。
 - 失败可恢复：自动恢复未命中时将本地消息标记 `FAILED` 并提供重试入口，直接复用同一 `clientMessageId` 幂等提交。
 - 执行期主动同步：执行中每 2.5 秒静默同步历史快照，降低 SSE 波动下的前端停滞感。
+- 会话过期收敛：HTTP `401` 统一清理本地登录态并跳转登录页；SSE 增加 `accessToken` 参数透传以兼容统一鉴权。
 
 **证据**
 - 构建：`cd frontend && npm run build`
@@ -179,5 +183,5 @@
 ## 6. 当前范围声明（强约束）
 
 - 当前阶段聚焦核心业务闭环与性能稳定性。
-- 登录、RBAC、系统配置治理后台为范围外事项。
+- RBAC 与系统配置治理后台为范围外事项。
 - 新增需求需先映射业务域并标注优先级与验收证据。

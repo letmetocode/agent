@@ -43,7 +43,8 @@
 - `trigger` 不直接操作 SQL。
 - `domain` 不依赖 `infrastructure` 实现细节。
 - 并发语义和状态迁移先在领域层定义，再落地仓储 SQL。
-- 当前版本不引入登录与 RBAC；前端默认全功能可见可用。
+- 当前版本引入最小登录能力（本地账号密码 + token 会话），不引入 RBAC 与多租户权限分层。
+- `/api/**` 入口统一经 `ApiAuthFilter` 鉴权（白名单：`/api/auth/login`、`/api/share/tasks/**`）。
 
 ## 3. 统一术语与数据边界
 
@@ -115,6 +116,7 @@ sequenceDiagram
 - 治理分层：`SOP Spec` 为治理层单一事实源；发布/保存时编译为 `Runtime Graph(graphDefinition)` 执行。
 - 编译接口：`POST /api/workflows/sop-spec/drafts/{id}/compile`、`POST /api/workflows/sop-spec/drafts/{id}/validate`。
 - 发布保护：Draft 含 `sopSpec` 时，发布前校验 `compileHash` 与当前 Runtime Graph 一致性，不一致则拒绝发布。
+- 规则单源：`GraphDslPolicyService` 统一承载 Graph DSL v2 基础校验、`nodeSignature` 计算与 Graph 哈希算法。
 - Planner 仅接受 `graphDefinition.version = 2`，并在创建 Plan 前统一执行归一化与校验。
 - 图最小结构：`nodes + edges + groups`；`groups` 支持空数组，`edges` 支持组到组/组到节点展开。
 - 节点依赖策略支持：`joinPolicy(all|any|quorum)`、`failurePolicy(failFast|failSafe)`、`quorum`。
@@ -193,10 +195,17 @@ sequenceDiagram
 
 ### 8.1 推荐（V3）
 
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
 - `POST /api/v3/chat/messages`
 - `GET /api/v3/chat/sessions/{id}/history`
 - `GET /api/v3/chat/sessions/{id}/stream`
 - `GET /api/v3/chat/plans/{id}/routing`
+
+鉴权约束：
+- 除白名单外，以上 `/api/**` 均需有效登录态。
+- SSE 端点 `/api/v3/chat/sessions/{id}/stream` 支持通过 `accessToken` query 参数传递 token（适配浏览器 EventSource 无法自定义 Header 的限制）。
 
 ### 8.2 已清理（旧入口）
 

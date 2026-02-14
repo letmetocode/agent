@@ -6,12 +6,13 @@ import {
   SearchOutlined,
   UserOutlined
 } from '@ant-design/icons';
-import { Avatar, Badge, Breadcrumb, Button, Dropdown, Input, Layout, Menu, Space, Tag, Typography } from 'antd';
+import { Avatar, Badge, Breadcrumb, Button, Dropdown, Input, Layout, Menu, Space, Tag, Typography, message } from 'antd';
 import type { BreadcrumbProps } from 'antd';
 import type { MenuItemType } from 'antd/es/menu/interface';
 import { useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '@/features/session/sessionStore';
+import { agentApi } from '@/shared/api/agentApi';
 
 const { Header, Sider, Content } = Layout;
 const { Text, Title } = Typography;
@@ -104,7 +105,7 @@ const buildBreadcrumbItems = (pathname: string): BreadcrumbProps['items'] => {
 export const AppShell = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { userId, setUserId } = useSessionStore();
+  const { userId, displayName, clearAuth } = useSessionStore();
   const [collapsed, setCollapsed] = useState(false);
 
   const selectedKey = useMemo(() => matchPathKey(location.pathname), [location.pathname]);
@@ -160,10 +161,17 @@ export const AppShell = () => {
                   { key: 'profile', label: '个人设置', onClick: () => navigate('/settings/profile') },
                   {
                     key: 'logout',
-                    label: '清除 userId',
-                    onClick: () => {
-                      setUserId('');
-                      navigate('/login');
+                    label: '退出登录',
+                    onClick: async () => {
+                      try {
+                        await agentApi.authLogout();
+                      } catch {
+                        // ignore
+                      } finally {
+                        clearAuth();
+                        message.success('已退出登录');
+                        navigate('/login');
+                      }
                     }
                   }
                 ]
@@ -171,7 +179,7 @@ export const AppShell = () => {
             >
               <Space style={{ cursor: 'pointer' }}>
                 <Avatar size="small" icon={<UserOutlined />} />
-                <Text>{userId || '未登录'}</Text>
+                <Text>{displayName || userId || '未登录'}</Text>
               </Space>
             </Dropdown>
           </div>

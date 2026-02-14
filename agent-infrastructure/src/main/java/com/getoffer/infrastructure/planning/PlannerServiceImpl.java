@@ -13,6 +13,7 @@ import com.getoffer.domain.planning.model.entity.WorkflowDefinitionEntity;
 import com.getoffer.domain.planning.model.entity.WorkflowDraftEntity;
 import com.getoffer.domain.planning.model.valobj.RootWorkflowDraft;
 import com.getoffer.domain.planning.model.valobj.RoutingDecisionResult;
+import com.getoffer.domain.planning.service.GraphDslPolicyService;
 import com.getoffer.domain.planning.service.PlannerService;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
@@ -99,7 +100,7 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
     private static final Set<String> VIRTUAL_EXIT_NODE_IDS = Set.of(
             "END", "FINISH", "EXIT", "ROOT_END", "SINK"
     );
-    private static final int GRAPH_DSL_VERSION = 2;
+    private static final int GRAPH_DSL_VERSION = GraphDslPolicyService.GRAPH_DSL_VERSION;
     private static final String JOIN_POLICY_ALL = "all";
     private static final String JOIN_POLICY_ANY = "any";
     private static final String JOIN_POLICY_QUORUM = "quorum";
@@ -1166,60 +1167,7 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
     }
 
     private String computeNodeSignature(Map<String, Object> graphDefinition) {
-        int version = getInteger(graphDefinition, "version", "dslVersion", "graphVersion") == null
-                ? -1
-                : getInteger(graphDefinition, "version", "dslVersion", "graphVersion");
-
-        List<Map<String, Object>> nodes = new ArrayList<>(getMapList(graphDefinition, "nodes"));
-        nodes.sort(Comparator.comparing(item -> StringUtils.defaultString(getString(item, "id"))));
-        List<String> nodeSignatures = new ArrayList<>();
-        for (Map<String, Object> node : nodes) {
-            String nodeId = getString(node, "id", "nodeId", "node_id");
-            String type = getString(node, "type", "taskType", "task_type");
-            Map<String, Object> config = getMap(node, "config", "configSnapshot", "config_snapshot", "options");
-            String agentKey = getString(config, "agentKey", "agent_key");
-            Long agentId = getLong(config, "agentId", "agent_id");
-            String groupId = getString(node, "groupId", "group_id");
-            String joinPolicy = getString(node, "joinPolicy", "join_policy", "dependencyJoinPolicy");
-            String failurePolicy = getString(node, "failurePolicy", "failure_policy");
-            Integer quorum = getInteger(node, "quorum", "joinQuorum");
-            nodeSignatures.add(nodeId + ":" + StringUtils.defaultIfBlank(type, "WORKER") + ":"
-                    + StringUtils.defaultIfBlank(agentKey, "-") + ":" + (agentId == null ? "-" : agentId)
-                    + ":g=" + StringUtils.defaultIfBlank(groupId, "-")
-                    + ":join=" + StringUtils.defaultIfBlank(joinPolicy, "-")
-                    + ":fail=" + StringUtils.defaultIfBlank(failurePolicy, "-")
-                    + ":q=" + (quorum == null ? "-" : quorum));
-        }
-
-        List<Map<String, Object>> groups = new ArrayList<>(getMapList(graphDefinition, "groups"));
-        groups.sort(Comparator.comparing(item -> StringUtils.defaultString(getString(item, "id", "groupId", "group_id"))));
-        List<String> groupSignatures = new ArrayList<>();
-        for (Map<String, Object> group : groups) {
-            String groupId = getString(group, "id", "groupId", "group_id");
-            String joinPolicy = getString(group, "joinPolicy", "join_policy", "dependencyJoinPolicy");
-            String failurePolicy = getString(group, "failurePolicy", "failure_policy");
-            Integer quorum = getInteger(group, "quorum", "joinQuorum");
-            List<String> members = readStringList(group, "nodes", "nodeIds", "members");
-            members.sort(String::compareTo);
-            groupSignatures.add(StringUtils.defaultIfBlank(groupId, "-")
-                    + ":join=" + StringUtils.defaultIfBlank(joinPolicy, "-")
-                    + ":fail=" + StringUtils.defaultIfBlank(failurePolicy, "-")
-                    + ":q=" + (quorum == null ? "-" : quorum)
-                    + ":members=" + String.join(";", members));
-        }
-
-        List<Map<String, Object>> edges = new ArrayList<>(getMapList(graphDefinition, "edges"));
-        edges.sort(Comparator.comparing(item -> StringUtils.defaultString(getString(item, "from"))
-                + "->" + StringUtils.defaultString(getString(item, "to"))));
-        List<String> edgeSignatures = new ArrayList<>();
-        for (Map<String, Object> edge : edges) {
-            edgeSignatures.add(StringUtils.defaultString(getString(edge, "from"))
-                    + "->" + StringUtils.defaultString(getString(edge, "to")));
-        }
-        return "v=" + version
-                + "#nodes=" + String.join("|", nodeSignatures)
-                + "#groups=" + String.join("|", groupSignatures)
-                + "#edges=" + String.join(",", edgeSignatures);
+        return GraphDslPolicyService.computeNodeSignature(graphDefinition);
     }
 
     private String stableJson(Map<String, Object> source) {
@@ -2055,17 +2003,7 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
     }
 
     private String hashGraph(Map<String, Object> graphDefinition) {
-        if (graphDefinition == null || graphDefinition.isEmpty()) {
-            return null;
-        }
-        try {
-            String canonical = jsonCodec.writeValue(new TreeMap<>(graphDefinition));
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(canonical.getBytes(StandardCharsets.UTF_8));
-            return bytesToHex(hash);
-        } catch (Exception ex) {
-            return null;
-        }
+        return GraphDslPolicyService.hashGraph(graphDefinition, jsonCodec.getObjectMapper());
     }
 
     private String bytesToHex(byte[] bytes) {

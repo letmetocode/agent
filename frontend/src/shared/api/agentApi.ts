@@ -1,5 +1,9 @@
 import { CHAT_HTTP_TIMEOUT_MS, http } from './http';
 import type {
+  AuthLoginRequestDTO,
+  AuthLoginResponseDTO,
+  AuthLogoutResponseDTO,
+  AuthMeResponseDTO,
   AgentToolDTO,
   ApiResponse,
   ChatHistoryResponseV3,
@@ -41,6 +45,15 @@ const unwrapWithCodeCheck = <T>(res: { data: ApiResponse<T> }): T => {
 };
 
 export const agentApi = {
+  authLogin: async (payload: AuthLoginRequestDTO) =>
+    unwrapWithCodeCheck(await http.post<ApiResponse<AuthLoginResponseDTO>>('/api/auth/login', payload)),
+
+  authLogout: async () =>
+    unwrapWithCodeCheck(await http.post<ApiResponse<AuthLogoutResponseDTO>>('/api/auth/logout')),
+
+  authMe: async () =>
+    unwrapWithCodeCheck(await http.get<ApiResponse<AuthMeResponseDTO>>('/api/auth/me')),
+
   submitChatMessageV3: async (
     payload: ChatMessageSubmitRequestV3,
     options?: { timeoutMs?: number; signal?: AbortSignal }

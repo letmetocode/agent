@@ -170,7 +170,7 @@ export const ConversationPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const sid = sessionId ? Number(sessionId) : undefined;
 
-  const { userId, bookmarks, addBookmark } = useSessionStore();
+  const { userId, authStatus, bookmarks, addBookmark } = useSessionStore();
 
   const [sessionListLoading, setSessionListLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -465,7 +465,7 @@ export const ConversationPage = () => {
   );
 
   const loadSessions = useCallback(async () => {
-    if (!userId) {
+    if (!userId || authStatus !== 'AUTHENTICATED') {
       setSessions([]);
       return;
     }
@@ -478,7 +478,7 @@ export const ConversationPage = () => {
     } finally {
       setSessionListLoading(false);
     }
-  }, [userId]);
+  }, [authStatus, userId]);
 
   const startHistoryPolling = useCallback(
     (targetSessionId: number) => {
@@ -753,7 +753,7 @@ export const ConversationPage = () => {
 
       return false;
     },
-    [addBookmark, connectStream, loadSessions, navigate, resolveHistoryState, setSearchParams, sid, userId]
+    [addBookmark, authStatus, connectStream, loadSessions, navigate, resolveHistoryState, setSearchParams, sid, userId]
   );
 
   const loadHistory = useCallback(
@@ -902,8 +902,8 @@ export const ConversationPage = () => {
   };
 
   const sendMessage = async (options?: { content?: string; clientMessageId?: string; retry?: boolean }) => {
-    if (!userId) {
-      message.warning('请先设置 userId');
+    if (!userId || authStatus !== 'AUTHENTICATED') {
+      message.warning('请先登录');
       navigate('/login');
       return;
     }
@@ -1106,22 +1106,22 @@ export const ConversationPage = () => {
           <Typography.Text type="secondary">ChatGPT 风格入口：直接发消息，复杂执行细节放在右侧进度栏。</Typography.Text>
         </Space>
         <Space size={12} align="center">
-          <Typography.Text type="secondary">当前 userId：{userId || '未设置'}</Typography.Text>
+          <Typography.Text type="secondary">当前账号：{userId || '未登录'}</Typography.Text>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/sessions')}>
             新聊天
           </Button>
         </Space>
       </div>
 
-      {!userId ? (
+      {!userId || authStatus !== 'AUTHENTICATED' ? (
         <Alert
           type="warning"
           showIcon
-          message="尚未设置开发用户"
+          message="尚未登录"
           description={
             <Space>
-              <Typography.Text type="secondary">请先设置 userId，才能创建会话并执行任务。</Typography.Text>
-              <Link to="/login">前往设置</Link>
+              <Typography.Text type="secondary">请先登录，才能创建会话并执行任务。</Typography.Text>
+              <Link to="/login">前往登录</Link>
             </Space>
           }
         />

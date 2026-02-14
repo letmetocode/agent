@@ -8,6 +8,7 @@ import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.IPlanTaskEventRepository;
 import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
 import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
+import com.getoffer.trigger.application.common.TaskDetailViewAssembler;
 import com.getoffer.trigger.http.ConsoleQueryController;
 import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,6 +54,7 @@ public class ConsoleQueryControllerPerformanceTest {
         this.planTaskEventRepository = mock(IPlanTaskEventRepository.class);
         this.taskExecutionRepository = mock(ITaskExecutionRepository.class);
         this.vectorStoreRegistryRepository = mock(IVectorStoreRegistryRepository.class);
+        TaskDetailViewAssembler taskDetailViewAssembler = new TaskDetailViewAssembler(taskExecutionRepository);
 
         this.mockMvc = MockMvcBuilders.standaloneSetup(
                 new ConsoleQueryController(
@@ -60,8 +62,8 @@ public class ConsoleQueryControllerPerformanceTest {
                         agentPlanRepository,
                         agentTaskRepository,
                         planTaskEventRepository,
-                        taskExecutionRepository,
-                        vectorStoreRegistryRepository
+                        vectorStoreRegistryRepository,
+                        taskDetailViewAssembler
                 )
         ).build();
     }

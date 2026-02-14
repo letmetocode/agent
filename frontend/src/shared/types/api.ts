@@ -4,6 +4,30 @@ export interface ApiResponse<T> {
   data: T;
 }
 
+export interface AuthLoginRequestDTO {
+  username: string;
+  password: string;
+}
+
+export interface AuthLoginResponseDTO {
+  userId: string;
+  displayName: string;
+  token: string;
+  expiresAt: string;
+}
+
+export interface AuthLogoutResponseDTO {
+  success: boolean;
+  message: string;
+}
+
+export interface AuthMeResponseDTO {
+  userId: string;
+  displayName: string;
+  isOperator: boolean;
+  lastLoginAt?: string;
+}
+
 export interface PageResult<T> {
   items: T[];
   page: number;

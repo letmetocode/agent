@@ -11,10 +11,9 @@ import com.getoffer.domain.session.adapter.repository.IAgentSessionRepository;
 import com.getoffer.domain.session.model.entity.AgentSessionEntity;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.IPlanTaskEventRepository;
-import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
-import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
+import com.getoffer.trigger.application.common.TaskDetailViewAssembler;
 import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import com.getoffer.types.enums.ResponseCode;
 import com.getoffer.types.enums.TaskStatusEnum;
@@ -50,21 +49,21 @@ public class ConsoleQueryController {
     private final IAgentPlanRepository agentPlanRepository;
     private final IAgentTaskRepository agentTaskRepository;
     private final IPlanTaskEventRepository planTaskEventRepository;
-    private final ITaskExecutionRepository taskExecutionRepository;
     private final IVectorStoreRegistryRepository vectorStoreRegistryRepository;
+    private final TaskDetailViewAssembler taskDetailViewAssembler;
 
     public ConsoleQueryController(IAgentSessionRepository agentSessionRepository,
                                   IAgentPlanRepository agentPlanRepository,
                                   IAgentTaskRepository agentTaskRepository,
                                   IPlanTaskEventRepository planTaskEventRepository,
-                                  ITaskExecutionRepository taskExecutionRepository,
-                                  IVectorStoreRegistryRepository vectorStoreRegistryRepository) {
+                                  IVectorStoreRegistryRepository vectorStoreRegistryRepository,
+                                  TaskDetailViewAssembler taskDetailViewAssembler) {
         this.agentSessionRepository = agentSessionRepository;
         this.agentPlanRepository = agentPlanRepository;
         this.agentTaskRepository = agentTaskRepository;
         this.planTaskEventRepository = planTaskEventRepository;
-        this.taskExecutionRepository = taskExecutionRepository;
         this.vectorStoreRegistryRepository = vectorStoreRegistryRepository;
+        this.taskDetailViewAssembler = taskDetailViewAssembler;
     }
 
     @GetMapping("/sessions/list")
@@ -167,8 +166,10 @@ public class ConsoleQueryController {
         int fromIndex = Math.min((normalizedPage - 1) * normalizedSize, total);
         int toIndex = Math.min(fromIndex + normalizedSize, total);
 
-        List<TaskDetailDTO> items = sorted.subList(fromIndex, toIndex).stream()
-                .map(this::toTaskDetailDTO)
+        List<AgentTaskEntity> pagedTasks = sorted.subList(fromIndex, toIndex);
+        Map<Long, Long> latestExecutionTimeMap = taskDetailViewAssembler.resolveLatestExecutionTimeMap(pagedTasks);
+        List<TaskDetailDTO> items = pagedTasks.stream()
+                .map(task -> taskDetailViewAssembler.toTaskDetailDTO(task, latestExecutionTimeMap))
                 .collect(Collectors.toList());
 
         return success(pagedResult(normalizedPage, normalizedSize, total, items));
@@ -341,6 +342,7 @@ public class ConsoleQueryController {
             item.put("snippet", String.format("针对问题“%s”的候选片段 %d", query, idx + 1));
             item.put("score", Math.max(0.55, 0.92 - (idx * 0.14)));
             item.put("source", entity.getName());
+            item.put("mock", true);
             results.add(item);
         }
 
@@ -349,6 +351,7 @@ public class ConsoleQueryController {
         result.put("total", results.size());
         result.put("results", results);
         result.put("testedAt", LocalDateTime.now());
+        result.put("mock", true);
         return success(result);
     }
 
@@ -383,18 +386,6 @@ public class ConsoleQueryController {
             return "FAILED".equals(status) ? EventLevel.ERROR : EventLevel.INFO;
         }
         return EventLevel.INFO;
-    }
-
-    private boolean containsLogKeyword(Map<String, Object> logItem, String keyword) {
-        String joined = String.format("%s %s %s %s %s %s",
-                String.valueOf(logItem.get("eventName")),
-                String.valueOf(logItem.get("eventType")),
-                String.valueOf(logItem.get("taskId")),
-                String.valueOf(logItem.get("level")),
-                String.valueOf(logItem.get("traceId")),
-                String.valueOf(logItem.get("eventData"))
-        ).toLowerCase(Locale.ROOT);
-        return joined.contains(keyword);
     }
 
     private boolean containsTaskKeyword(AgentTaskEntity task, String keyword) {
@@ -455,43 +446,6 @@ public class ConsoleQueryController {
         dto.setMetaInfo(session.getMetaInfo());
         dto.setCreatedAt(session.getCreatedAt());
         return dto;
-    }
-
-    private TaskDetailDTO toTaskDetailDTO(AgentTaskEntity task) {
-        TaskDetailDTO dto = new TaskDetailDTO();
-        dto.setTaskId(task.getId());
-        dto.setPlanId(task.getPlanId());
-        dto.setNodeId(task.getNodeId());
-        dto.setName(task.getName());
-        dto.setTaskType(task.getTaskType() == null ? null : task.getTaskType().name());
-        dto.setStatus(task.getStatus() == null ? null : task.getStatus().name());
-        dto.setDependencyNodeIds(task.getDependencyNodeIds());
-        dto.setInputContext(task.getInputContext());
-        dto.setConfigSnapshot(task.getConfigSnapshot());
-        dto.setOutputResult(task.getOutputResult());
-        dto.setMaxRetries(task.getMaxRetries());
-        dto.setCurrentRetry(task.getCurrentRetry());
-        dto.setClaimOwner(task.getClaimOwner());
-        dto.setClaimAt(task.getClaimAt());
-        dto.setLeaseUntil(task.getLeaseUntil());
-        dto.setExecutionAttempt(task.getExecutionAttempt());
-        dto.setLatestExecutionTimeMs(resolveLatestExecutionTimeMs(task.getId()));
-        dto.setVersion(task.getVersion());
-        dto.setCreatedAt(task.getCreatedAt());
-        dto.setUpdatedAt(task.getUpdatedAt());
-        return dto;
-    }
-
-    private Long resolveLatestExecutionTimeMs(Long taskId) {
-        if (taskId == null) {
-            return null;
-        }
-        Integer maxAttempt = taskExecutionRepository.getMaxAttemptNumber(taskId);
-        if (maxAttempt == null || maxAttempt <= 0) {
-            return null;
-        }
-        TaskExecutionEntity latestExecution = taskExecutionRepository.findByTaskIdAndAttempt(taskId, maxAttempt);
-        return latestExecution == null ? null : latestExecution.getExecutionTimeMs();
     }
 
     private long parseLong(Object value, long fallback) {
