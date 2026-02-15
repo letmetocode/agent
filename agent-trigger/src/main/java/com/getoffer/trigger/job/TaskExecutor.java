@@ -1,13 +1,9 @@
 package com.getoffer.trigger.job;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.getoffer.domain.agent.adapter.factory.IAgentFactory;
 import com.getoffer.domain.agent.adapter.repository.IAgentRegistryRepository;
-import com.getoffer.domain.agent.model.entity.AgentRegistryEntity;
 import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
-import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
 import com.getoffer.domain.task.service.TaskAgentSelectionDomainService;
@@ -19,10 +15,6 @@ import com.getoffer.domain.task.service.TaskJsonDomainService;
 import com.getoffer.domain.task.service.TaskPromptDomainService;
 import com.getoffer.domain.task.service.TaskRecoveryDomainService;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
-import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
-import com.getoffer.types.enums.PlanTaskEventTypeEnum;
-import com.getoffer.types.enums.TaskStatusEnum;
-import com.getoffer.types.enums.TaskTypeEnum;
 import com.getoffer.trigger.application.command.TaskPersistenceApplicationService;
 import com.getoffer.trigger.event.PlanTaskEventPublisher;
 import io.micrometer.core.instrument.Counter;
@@ -34,10 +26,6 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.metadata.ChatResponseMetadata;
-import org.springframework.ai.chat.metadata.Usage;
-import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,20 +37,15 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -73,38 +56,20 @@ import java.util.concurrent.atomic.AtomicLong;
 @Component
 public class TaskExecutor {
 
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<Map<String, Object>>() {};
     private static final String METRIC_EXECUTION_TOTAL = "agent.task.execution.total";
     private static final String METRIC_EXECUTION_DURATION = "agent.task.execution.duration";
     private static final String METRIC_EXECUTION_FAILURE_TOTAL = "agent.task.execution.failure.total";
     private static final int PLAN_CONTEXT_UPDATE_MAX_RETRY = 3;
 
     private final IAgentTaskRepository agentTaskRepository;
-    private final IAgentPlanRepository agentPlanRepository;
-    private final PlanTaskEventPublisher planTaskEventPublisher;
-    private final ITaskExecutionRepository taskExecutionRepository;
-    private final IAgentFactory agentFactory;
-    private final IAgentRegistryRepository agentRegistryRepository;
-    private final TaskAgentSelectionDomainService taskAgentSelectionDomainService;
     private final TaskDispatchDomainService taskDispatchDomainService;
-    private final TaskExecutionDomainService taskExecutionDomainService;
-    private final TaskPromptDomainService taskPromptDomainService;
-    private final TaskEvaluationDomainService taskEvaluationDomainService;
-    private final TaskRecoveryDomainService taskRecoveryDomainService;
-    private final TaskBlackboardDomainService taskBlackboardDomainService;
-    private final TaskJsonDomainService taskJsonDomainService;
-    private final TaskPersistenceApplicationService taskPersistenceApplicationService;
-    private final ObjectMapper objectMapper;
     private final String claimOwner;
     private final int claimBatchSize;
     private final int claimLeaseSeconds;
-    private final int claimHeartbeatSeconds;
     private final int claimMaxPerTick;
     private final boolean claimReadyFirst;
     private final double refiningMaxRatio;
     private final int refiningMinPerTick;
-    private final int executionTimeoutMs;
-    private final int executionTimeoutRetryMax;
     private final ThreadPoolExecutor taskExecutionWorker;
     private final ExecutorService taskCallExecutor;
     private final Semaphore dispatchPermits;
@@ -135,13 +100,9 @@ public class TaskExecutor {
     private final DistributionSummary executionRetrySummary;
     private final Counter expiredRunningDetectedCounter;
     private final Counter expiredRunningCheckErrorCounter;
-    private final List<String> workerFallbackAgentKeys;
-    private final List<String> criticFallbackAgentKeys;
-    private final long defaultAgentCacheTtlMs;
-    private volatile AgentRegistryEntity cachedDefaultAgent;
-    private volatile long cachedDefaultAgentAtMillis;
-    private final boolean auditLogEnabled;
-    private final boolean auditSuccessLogEnabled;
+    private final TaskExecutionRuntimeSupport taskExecutionRuntimeSupport;
+    private final TaskExecutionRunner taskExecutionRunner;
+    private final TaskExecutionRunner.ExecutionSupport executionSupport;
 
     public TaskExecutor(IAgentTaskRepository agentTaskRepository,
                         IAgentPlanRepository agentPlanRepository,
@@ -177,21 +138,7 @@ public class TaskExecutor {
                         @Value("${executor.observability.audit-log-enabled:true}") boolean auditLogEnabled,
                         @Value("${executor.observability.audit-success-log-enabled:false}") boolean auditSuccessLogEnabled) {
         this.agentTaskRepository = agentTaskRepository;
-        this.agentPlanRepository = agentPlanRepository;
-        this.planTaskEventPublisher = planTaskEventPublisher;
-        this.taskExecutionRepository = taskExecutionRepository;
-        this.agentFactory = agentFactory;
-        this.agentRegistryRepository = agentRegistryRepository;
-        this.taskAgentSelectionDomainService = taskAgentSelectionDomainService;
         this.taskDispatchDomainService = taskDispatchDomainService;
-        this.taskExecutionDomainService = taskExecutionDomainService;
-        this.taskPromptDomainService = taskPromptDomainService;
-        this.taskEvaluationDomainService = taskEvaluationDomainService;
-        this.taskRecoveryDomainService = taskRecoveryDomainService;
-        this.taskBlackboardDomainService = taskBlackboardDomainService;
-        this.taskJsonDomainService = taskJsonDomainService;
-        this.taskPersistenceApplicationService = taskPersistenceApplicationService;
-        this.objectMapper = objectMapper;
         this.taskExecutionWorker = taskExecutionWorker;
         this.meterRegistry = meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new);
         this.claimOwner = resolveInstanceId(configuredInstanceId);
@@ -202,9 +149,9 @@ public class TaskExecutor {
         this.refiningMaxRatio = Math.max(0D, Math.min(normalizedRatio, 1D));
         this.refiningMinPerTick = Math.max(refiningMinPerTick, 0);
         this.claimLeaseSeconds = claimLeaseSeconds > 0 ? claimLeaseSeconds : 120;
-        this.claimHeartbeatSeconds = claimHeartbeatSeconds > 0 ? claimHeartbeatSeconds : 30;
-        this.executionTimeoutMs = executionTimeoutMs > 0 ? executionTimeoutMs : 120000;
-        this.executionTimeoutRetryMax = Math.max(executionTimeoutRetryMax, 0);
+        int normalizedClaimHeartbeatSeconds = claimHeartbeatSeconds > 0 ? claimHeartbeatSeconds : 30;
+        int normalizedExecutionTimeoutMs = executionTimeoutMs > 0 ? executionTimeoutMs : 120000;
+        int normalizedExecutionTimeoutRetryMax = Math.max(executionTimeoutRetryMax, 0);
         int maxInflight = Math.max(taskExecutionWorker.getMaximumPoolSize(), 1);
         this.dispatchPermits = new Semaphore(maxInflight);
         this.inFlightTasks = new AtomicInteger(0);
@@ -252,11 +199,65 @@ public class TaskExecutor {
                 .register(meterRegistry);
         this.expiredRunningDetectedCounter = counter("agent.task.expired_running.detected.total");
         this.expiredRunningCheckErrorCounter = counter("agent.task.expired_running.check_error.total");
-        this.workerFallbackAgentKeys = taskAgentSelectionDomainService.parseFallbackAgentKeys(workerFallbackAgentKeys, "worker", "assistant");
-        this.criticFallbackAgentKeys = taskAgentSelectionDomainService.parseFallbackAgentKeys(criticFallbackAgentKeys, "critic", "assistant");
-        this.defaultAgentCacheTtlMs = defaultAgentCacheTtlMs > 0 ? defaultAgentCacheTtlMs : 30000L;
-        this.auditLogEnabled = auditLogEnabled;
-        this.auditSuccessLogEnabled = auditSuccessLogEnabled;
+        List<String> normalizedWorkerFallbackAgentKeys =
+                taskAgentSelectionDomainService.parseFallbackAgentKeys(workerFallbackAgentKeys, "worker", "assistant");
+        List<String> normalizedCriticFallbackAgentKeys =
+                taskAgentSelectionDomainService.parseFallbackAgentKeys(criticFallbackAgentKeys, "critic", "assistant");
+        long normalizedDefaultAgentCacheTtlMs = defaultAgentCacheTtlMs > 0 ? defaultAgentCacheTtlMs : 30000L;
+        this.taskExecutionRuntimeSupport = new TaskExecutionRuntimeSupport(
+                agentTaskRepository,
+                planTaskEventPublisher,
+                taskPersistenceApplicationService,
+                objectMapper,
+                meterRegistry,
+                taskCallExecutor,
+                heartbeatScheduler,
+                this.claimLeaseSeconds,
+                normalizedClaimHeartbeatSeconds,
+                normalizedExecutionTimeoutMs,
+                executionRetrySummary,
+                heartbeatSuccessCounter,
+                heartbeatGuardRejectCounter,
+                heartbeatErrorCounter,
+                claimedUpdateSuccessCounter,
+                claimedUpdateGuardRejectCounter,
+                claimedUpdateErrorCounter,
+                this.claimOwner,
+                auditLogEnabled,
+                auditSuccessLogEnabled
+        );
+        this.taskExecutionRunner = new TaskExecutionRunner();
+        TaskExecutionClientResolver taskExecutionClientResolver = new TaskExecutionClientResolver(
+                agentFactory,
+                agentRegistryRepository,
+                taskAgentSelectionDomainService,
+                normalizedWorkerFallbackAgentKeys,
+                normalizedCriticFallbackAgentKeys,
+                normalizedDefaultAgentCacheTtlMs
+        );
+        TaskExecutionFlowSupport taskExecutionFlowSupport = new TaskExecutionFlowSupport(
+                this.agentTaskRepository,
+                taskExecutionRepository,
+                taskPromptDomainService,
+                taskEvaluationDomainService,
+                taskRecoveryDomainService,
+                taskBlackboardDomainService,
+                taskJsonDomainService,
+                taskPersistenceApplicationService,
+                objectMapper,
+                PLAN_CONTEXT_UPDATE_MAX_RETRY
+        );
+        this.executionSupport = new TaskExecutionSupportAdapter(
+                this.taskExecutionRuntimeSupport,
+                taskDispatchDomainService,
+                agentPlanRepository,
+                taskExecutionDomainService,
+                taskExecutionRepository,
+                taskEvaluationDomainService,
+                normalizedExecutionTimeoutRetryMax,
+                taskExecutionFlowSupport,
+                taskExecutionClientResolver
+        );
         Gauge.builder("agent.task.expired_running.current", expiredRunningGauge, AtomicLong::get)
                 .description("当前过期 RUNNING 任务数量")
                 .register(meterRegistry);
@@ -413,10 +414,9 @@ public class TaskExecutor {
         }
         if (Boolean.TRUE.equals(task.getLeaseReclaimed())) {
             claimReclaimedCounter.increment();
-            emitTaskAudit("claim_reclaimed", task,
-                    "lease_reclaimed=true");
-        } else if (auditLogEnabled && auditSuccessLogEnabled) {
-            emitTaskAudit("claim_acquired", task, "lease_reclaimed=false");
+            taskExecutionRuntimeSupport.auditClaimReclaimed(task);
+        } else {
+            taskExecutionRuntimeSupport.auditClaimAcquired(task);
         }
     }
 
@@ -427,9 +427,7 @@ public class TaskExecutor {
         try {
             taskExecutionWorker.execute(() -> executeClaimedTask(task));
             dispatchSuccessCounter.increment();
-            if (auditLogEnabled && auditSuccessLogEnabled) {
-                emitTaskAudit("dispatch_submitted", task, "-");
-            }
+            taskExecutionRuntimeSupport.auditDispatchSubmitted(task);
             return true;
         } catch (RejectedExecutionException ex) {
             dispatchRejectCounter.increment();
@@ -438,13 +436,13 @@ public class TaskExecutor {
                     taskExecutionWorker.getActiveCount(),
                     taskExecutionWorker.getQueue().size(),
                     ex.getMessage());
-            emitTaskAudit("dispatch_rejected", task, "error_type=rejected");
+            taskExecutionRuntimeSupport.auditDispatchRejected(task);
             return false;
         } catch (Exception ex) {
             dispatchRejectCounter.increment();
             log.warn("Dispatch failed unexpectedly. taskId={}, owner={}, attempt={}, error={}",
                     task.getId(), task.getClaimOwner(), task.getExecutionAttempt(), ex.getMessage());
-            emitTaskAudit("dispatch_error", task, "error_type=" + classifyError(ex));
+            taskExecutionRuntimeSupport.auditDispatchError(task, ex);
             return false;
         }
     }
@@ -452,10 +450,8 @@ public class TaskExecutor {
     private void executeClaimedTask(AgentTaskEntity task) {
         inFlightTasks.incrementAndGet();
         recordClaimToStartLatency(task);
-        if (auditLogEnabled && auditSuccessLogEnabled) {
-            emitTaskAudit("execution_started", task, "-");
-        }
-        publishTaskEvent(PlanTaskEventTypeEnum.TASK_STARTED, task, buildTaskData(task));
+        taskExecutionRuntimeSupport.auditExecutionStarted(task);
+        taskExecutionRuntimeSupport.publishTaskStarted(task);
         try {
             executeTask(task);
         } finally {
@@ -478,453 +474,19 @@ public class TaskExecutor {
         long startedNanos = System.nanoTime();
         String outcome = "unknown";
         String errorType = "none";
-        ScheduledFuture<?> heartbeatFuture = null;
-        TaskExecutionEntity execution = null;
-
         try {
-            if (task == null) {
-                outcome = "skip_null_task";
-                return;
-            }
-            if (!taskDispatchDomainService.hasValidClaim(task)) {
-                outcome = "skip_invalid_claim";
-                log.warn("Skip claimed task execution because claim metadata missing. taskId={}, claimOwner={}, attempt={}",
-                        task.getId(), task.getClaimOwner(), task.getExecutionAttempt());
-                return;
-            }
-            AgentPlanEntity plan = agentPlanRepository.findById(task.getPlanId());
-            if (plan == null) {
-                outcome = "skip_plan_not_found";
-                log.warn("Skip task execution because plan not found. taskId={}, planId={}", task.getId(), task.getPlanId());
-                return;
-            }
-            if (!plan.isExecutable()) {
-                outcome = releaseClaimForNonExecutablePlan(task, plan)
-                        ? "skip_plan_not_executable_released"
-                        : "skip_plan_not_executable_release_failed";
-                log.debug("Skip task execution because plan is not executable. planId={}, status={}, taskId={}",
-                        plan.getId(), plan.getStatus(), task.getId());
-                return;
-            }
-
-            recordRetryDistribution(task);
-            boolean criticTask = isCriticTask(task);
-            boolean refining = task.getCurrentRetry() != null && task.getCurrentRetry() > 0;
-            heartbeatFuture = startHeartbeat(task);
-
-            ChatResponse chatResponse;
-            String response;
-            int timeoutRetryCount = 0;
-            while (true) {
-                long startTime = System.currentTimeMillis();
-                String prompt = criticTask ? buildCriticPrompt(task, plan)
-                        : (refining ? buildRefinePrompt(task, plan) : buildPrompt(task, plan));
-                execution = new TaskExecutionEntity();
-                execution.setTaskId(task.getId());
-                execution.setAttemptNumber(taskExecutionDomainService.resolveAttemptNumber(
-                        taskExecutionRepository.getMaxAttemptNumber(task.getId()),
-                        task
-                ));
-                execution.setPromptSnapshot(prompt);
-
-                String systemPromptSuffix = buildRetrySystemPrompt(task);
-                ChatClient taskClient = resolveTaskClient(task, plan, systemPromptSuffix);
-                try {
-                    chatResponse = callTaskClientWithTimeout(taskClient, prompt);
-                } catch (TaskCallTimeoutException timeoutException) {
-                    persistTimeoutExecution(execution, startTime, timeoutException);
-                    boolean retrying = taskExecutionDomainService.canTimeoutRetry(task, timeoutRetryCount, executionTimeoutRetryMax);
-                    recordTimeoutMetrics(task, retrying);
-                    if (retrying) {
-                        timeoutRetryCount++;
-                        taskExecutionDomainService.applyTimeoutRetry(task, timeoutException.getMessage());
-                        refining = true;
-                        outcome = "timeout_retrying";
-                        errorType = "timeout";
-                        continue;
-                    }
-                    errorType = "timeout";
-                    outcome = "failed";
-                    task.fail(timeoutException.getMessage());
-                    if (safeUpdateClaimedTask(task)) {
-                        publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, buildTaskData(task));
-                        publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, buildTaskLog(task));
-                    }
-                    log.warn("Task execution timed out and exhausted retries. taskId={}, nodeId={}, timeoutMs={}, retryMax={}",
-                            task.getId(), task.getNodeId(), executionTimeoutMs, executionTimeoutRetryMax);
-                    return;
-                }
-
-                response = extractContent(chatResponse);
-                execution.setModelName(extractModelName(chatResponse));
-                execution.setTokenUsage(extractTokenUsage(chatResponse));
-                execution.setLlmResponseRaw(response);
-                execution.setExecutionTime(startTime);
-                break;
-            }
-            if (criticTask) {
-                CriticDecision decision = parseCriticDecision(response);
-                if (decision.pass) {
-                    execution.markAsValid(decision.feedback);
-                } else {
-                    execution.markAsInvalid(decision.feedback);
-                }
-                taskExecutionRepository.save(execution);
-
-                task.startValidation();
-                if (decision.pass) {
-                    task.complete(response);
-                    boolean updated = safeUpdateClaimedTask(task);
-                    outcome = updated ? "completed" : "update_guard_reject";
-                    if (updated) {
-                        publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, buildTaskData(task));
-                        publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, buildTaskLog(task));
-                    }
-                } else {
-                    task.setOutputResult(response);
-                    task.resetToPending();
-                    boolean updated = safeUpdateClaimedTask(task);
-                    outcome = updated ? "critic_rejected" : "update_guard_reject";
-                    if (updated) {
-                        publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, buildTaskLog(task));
-                    }
-                    rollbackTarget(plan, task, decision.feedback);
-                }
-                return;
-            }
-            if (needsValidation(task)) {
-                ValidationResult validation = evaluateValidation(task, response);
-                if (validation.valid) {
-                    execution.markAsValid(validation.feedback);
-                } else {
-                    execution.markAsInvalid(validation.feedback);
-                }
-                taskExecutionRepository.save(execution);
-
-                task.startValidation();
-                if (!validation.valid) {
-                    handleValidationFailure(task, validation.feedback);
-                    outcome = "validation_rejected";
-                    return;
-                }
-                task.complete(response);
-                if (safeUpdateClaimedTask(task)) {
-                    syncBlackboard(plan, task, response);
-                    outcome = "completed";
-                    publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, buildTaskData(task));
-                    publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, buildTaskLog(task));
-                } else {
-                    outcome = "update_guard_reject";
-                }
-            } else {
-                execution.markAsValid("no validator");
-                taskExecutionRepository.save(execution);
-
-                task.startValidation();
-                task.complete(response);
-                if (safeUpdateClaimedTask(task)) {
-                    syncBlackboard(plan, task, response);
-                    outcome = "completed";
-                    publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, buildTaskData(task));
-                    publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, buildTaskLog(task));
-                } else {
-                    outcome = "update_guard_reject";
-                }
+            TaskExecutionRunner.ExecutionResult result = taskExecutionRunner.run(task, executionSupport);
+            if (result != null) {
+                outcome = taskExecutionRuntimeSupport.normalizeExecutionResult(result.outcome());
+                errorType = taskExecutionRuntimeSupport.normalizeAuditErrorType(result.errorType());
             }
         } catch (Exception ex) {
-            errorType = classifyError(ex);
             outcome = "failed";
-            if (execution == null) {
-                execution = new TaskExecutionEntity();
-                execution.setTaskId(task == null ? null : task.getId());
-            }
-            execution.recordError(ex.getMessage());
-            execution.setErrorType(errorType);
-            execution.setExecutionTime(System.currentTimeMillis());
-            safeSaveExecution(execution);
-
-            if (task != null) {
-                task.fail(ex.getMessage());
-                if (safeUpdateClaimedTask(task)) {
-                    publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, buildTaskData(task));
-                    publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, buildTaskLog(task));
-                }
-                log.warn("Task execution failed. taskId={}, nodeId={}, error={}",
-                        task.getId(), task.getNodeId(), ex.getMessage());
-            } else {
-                log.warn("Task execution failed before task initialization. error={}", ex.getMessage());
-            }
+            errorType = taskExecutionRuntimeSupport.classifyError(ex);
+            log.warn("Task execution runner failed unexpectedly. taskId={}, error={}",
+                    task == null ? null : task.getId(), ex.getMessage());
         } finally {
-            stopHeartbeat(heartbeatFuture);
             recordExecutionMetrics(task, outcome, errorType, startedNanos);
-        }
-    }
-
-    private void handleValidationFailure(AgentTaskEntity task, String feedback) {
-        try {
-            task.startRefining();
-            safeUpdateClaimedTask(task);
-        } catch (Exception ex) {
-            String reason = StringUtils.isBlank(feedback) ? ex.getMessage() : feedback;
-            task.fail("Validation failed: " + reason);
-            safeUpdateClaimedTask(task);
-        }
-    }
-
-    private boolean needsValidation(AgentTaskEntity task) {
-        return taskEvaluationDomainService.needsValidation(task);
-    }
-
-    private ValidationResult evaluateValidation(AgentTaskEntity task, String response) {
-        TaskEvaluationDomainService.ValidationResult result = taskEvaluationDomainService.evaluateValidation(task, response);
-        return new ValidationResult(result.valid(), result.feedback());
-    }
-
-    private boolean releaseClaimForNonExecutablePlan(AgentTaskEntity task, AgentPlanEntity plan) {
-        if (task == null) {
-            return false;
-        }
-        try {
-            task.rollbackToDispatchQueue();
-            boolean updated = safeUpdateClaimedTask(task);
-            if (updated) {
-                emitTaskAudit("claimed_release_non_executable_plan", task,
-                        "plan_status=" + (plan == null || plan.getStatus() == null ? "null" : plan.getStatus().name()));
-                publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, buildTaskLog(task));
-            }
-            return updated;
-        } catch (Exception ex) {
-            log.warn("Failed to release claimed task for non-executable plan. taskId={}, planId={}, error={}",
-                    task.getId(), task.getPlanId(), ex.getMessage());
-            emitTaskAudit("claimed_release_non_executable_plan_failed", task, "error_type=" + classifyError(ex));
-            return false;
-        }
-    }
-
-
-    private ChatClient resolveTaskClient(AgentTaskEntity task, AgentPlanEntity plan) {
-        return resolveTaskClient(task, plan, null);
-    }
-
-    /**
-     * 为当前 Task 解析执行用 TaskClient（底层为 ChatClient）。
-     * 优先级：task config(agentId/agentKey) > fallback key 列表 > 首个激活 AgentProfile。
-     */
-    private ChatClient resolveTaskClient(AgentTaskEntity task, AgentPlanEntity plan, String systemPromptSuffix) {
-        TaskAgentSelectionDomainService.SelectionPlan selectionPlan =
-                taskAgentSelectionDomainService.resolveSelectionPlan(task, workerFallbackAgentKeys, criticFallbackAgentKeys);
-        String conversationId = buildConversationId(plan, task);
-
-        if (selectionPlan.configuredAgentId() != null) {
-            return agentFactory.createAgent(selectionPlan.configuredAgentId(), conversationId, systemPromptSuffix);
-        }
-        if (StringUtils.isNotBlank(selectionPlan.configuredAgentKey())) {
-            return agentFactory.createAgent(selectionPlan.configuredAgentKey(), conversationId, systemPromptSuffix);
-        }
-
-        List<String> fallbackKeys = selectionPlan.fallbackKeys();
-        for (String fallbackKey : fallbackKeys) {
-            ChatClient fallbackTaskClient = tryCreateTaskClientByAgentKey(fallbackKey, conversationId, systemPromptSuffix);
-            if (fallbackTaskClient != null) {
-                if (taskAgentSelectionDomainService.shouldWarnFallbackKey(fallbackKey)) {
-                    log.warn("Task fallback agent profile key applied. taskId={}, nodeId={}, taskType={}, agentKey={}",
-                            task.getId(), task.getNodeId(), task.getTaskType(), fallbackKey);
-                }
-                return fallbackTaskClient;
-            }
-        }
-
-        AgentRegistryEntity defaultAgentProfile = resolveDefaultActiveAgentProfile();
-        if (defaultAgentProfile != null) {
-            log.warn("Task fallback to first active agent profile. taskId={}, nodeId={}, taskType={}, agentKey={}",
-                    task.getId(), task.getNodeId(), task.getTaskType(), defaultAgentProfile.getKey());
-            return agentFactory.createAgent(defaultAgentProfile, conversationId, systemPromptSuffix);
-        }
-
-        throw new IllegalStateException("No available active agent profile for task fallback. triedKeys=" + fallbackKeys);
-    }
-
-    private ChatClient tryCreateTaskClientByAgentKey(String agentKey, String conversationId, String systemPromptSuffix) {
-        if (StringUtils.isBlank(agentKey)) {
-            return null;
-        }
-        try {
-            return agentFactory.createAgent(agentKey, conversationId, systemPromptSuffix);
-        } catch (IllegalStateException ex) {
-            if (taskAgentSelectionDomainService.isIgnorableCreateError(ex)) {
-                return null;
-            }
-            throw ex;
-        }
-    }
-
-    private AgentRegistryEntity resolveDefaultActiveAgentProfile() {
-        long now = System.currentTimeMillis();
-        AgentRegistryEntity cached = cachedDefaultAgent;
-        if (cached != null && now - cachedDefaultAgentAtMillis <= defaultAgentCacheTtlMs) {
-            return cached;
-        }
-        List<AgentRegistryEntity> activeAgents = agentRegistryRepository.findByActive(true);
-        if (activeAgents == null || activeAgents.isEmpty()) {
-            cachedDefaultAgent = null;
-            cachedDefaultAgentAtMillis = now;
-            return null;
-        }
-        AgentRegistryEntity selected = taskAgentSelectionDomainService.selectDefaultActiveAgent(activeAgents);
-        cachedDefaultAgent = selected;
-        cachedDefaultAgentAtMillis = now;
-        return selected;
-    }
-
-
-    private String buildConversationId(AgentPlanEntity plan, AgentTaskEntity task) {
-        String planPart = plan.getId() == null ? "plan" : "plan-" + plan.getId();
-        String nodePart = StringUtils.defaultIfBlank(task.getNodeId(), "node");
-        return planPart + ":" + nodePart;
-    }
-
-    private String buildPrompt(AgentTaskEntity task, AgentPlanEntity plan) {
-        return taskPromptDomainService.buildWorkerPrompt(task, plan, this::serializeJsonForDomain);
-    }
-
-    private String buildCriticPrompt(AgentTaskEntity task, AgentPlanEntity plan) {
-        String targetNodeId = taskPromptDomainService.resolveTargetNodeId(task);
-        AgentTaskEntity targetTask = targetNodeId == null ? null
-                : agentTaskRepository.findByPlanIdAndNodeId(plan.getId(), targetNodeId);
-        String targetOutput = targetTask == null ? "" : StringUtils.defaultString(targetTask.getOutputResult());
-        return taskPromptDomainService.buildCriticPrompt(task, plan, targetNodeId, targetOutput, this::serializeJsonForDomain);
-    }
-
-
-    private String buildRefinePrompt(AgentTaskEntity task, AgentPlanEntity plan) {
-        TaskExecutionEntity lastExecution = loadLastExecution(task.getId());
-        String lastResponse = lastExecution == null ? "" : StringUtils.defaultString(lastExecution.getLlmResponseRaw());
-        String feedback = lastExecution == null ? "" : StringUtils.defaultString(lastExecution.getValidationFeedback());
-        String basePrompt = buildPrompt(task, plan);
-        return taskPromptDomainService.buildRefinePrompt(basePrompt, lastResponse, feedback);
-    }
-
-    private TaskExecutionEntity loadLastExecution(Long taskId) {
-        if (taskId == null) {
-            return null;
-        }
-        List<TaskExecutionEntity> executions = taskExecutionRepository.findByTaskIdOrderByAttempt(taskId);
-        if (executions == null || executions.isEmpty()) {
-            return null;
-        }
-        return executions.get(0);
-    }
-
-    private String buildRetrySystemPrompt(AgentTaskEntity task) {
-        return taskPromptDomainService.buildRetrySystemPrompt(task);
-    }
-
-
-    private CriticDecision parseCriticDecision(String response) {
-        Map<String, Object> payload = taskJsonDomainService.parseEmbeddedJsonObject(
-                response,
-                this::parseJsonStrictObject
-        );
-        TaskEvaluationDomainService.CriticDecision decision = taskEvaluationDomainService.parseCriticDecision(response, payload);
-        return new CriticDecision(decision.pass(), decision.feedback());
-    }
-
-
-    private void rollbackTarget(AgentPlanEntity plan, AgentTaskEntity criticTask, String feedback) {
-        String targetNodeId = resolveTargetNodeId(criticTask);
-        if (StringUtils.isBlank(targetNodeId)) {
-            log.warn("Critic rollback skipped: target node not found. planId={}, taskId={}", plan.getId(), criticTask.getId());
-            return;
-        }
-
-        AgentTaskEntity target = agentTaskRepository.findByPlanIdAndNodeId(plan.getId(), targetNodeId);
-        TaskRecoveryDomainService.RecoveryDecision decision =
-                taskRecoveryDomainService.applyCriticFeedback(target, feedback);
-
-        if (decision == TaskRecoveryDomainService.RecoveryDecision.NOT_FOUND) {
-            log.warn("Critic rollback skipped: target task not found. planId={}, nodeId={}", plan.getId(), targetNodeId);
-            return;
-        }
-        if (decision == TaskRecoveryDomainService.RecoveryDecision.ALREADY_FAILED) {
-            return;
-        }
-        if (decision.requiresUpdate()) {
-            safeUpdateTask(target);
-        }
-    }
-
-    private String resolveTargetNodeId(AgentTaskEntity task) {
-        return taskPromptDomainService.resolveTargetNodeId(task);
-    }
-
-    private boolean isCriticTask(AgentTaskEntity task) {
-        return task != null && task.getTaskType() == TaskTypeEnum.CRITIC;
-    }
-
-
-    private void syncBlackboard(AgentPlanEntity plan, AgentTaskEntity task, String output) {
-        if (plan == null || plan.getId() == null || task == null) {
-            return;
-        }
-        Map<String, Object> delta = taskBlackboardDomainService.buildContextDelta(
-                task,
-                output,
-                text -> taskJsonDomainService.parseStrictJsonObject(text, this::parseJsonStrictObject)
-        );
-
-        TaskPersistenceApplicationService.PlanContextUpdateResult result =
-                taskPersistenceApplicationService.updatePlanContextWithRetry(
-                        plan.getId(),
-                        delta,
-                        PLAN_CONTEXT_UPDATE_MAX_RETRY
-                );
-
-        if (result.outcome() == TaskPersistenceApplicationService.PlanContextUpdateOutcome.UPDATED) {
-            plan.setGlobalContext(result.mergedContext());
-            plan.setVersion(result.version());
-            return;
-        }
-
-        if (result.outcome() == TaskPersistenceApplicationService.PlanContextUpdateOutcome.PLAN_NOT_FOUND) {
-            log.warn("Failed to update plan context because plan not found. planId={}", plan.getId());
-            return;
-        }
-
-        if (result.outcome() == TaskPersistenceApplicationService.PlanContextUpdateOutcome.OPTIMISTIC_LOCK_EXHAUSTED) {
-            log.warn("Failed to update plan context after retries. planId={}, attempts={}, error={}",
-                    plan.getId(),
-                    result.attempt(),
-                    result.errorMessage());
-            return;
-        }
-
-        log.warn("Failed to update plan context. planId={}, error={}",
-                plan.getId(),
-                result.errorMessage());
-    }
-
-
-
-    private Map<String, Object> parseJsonStrictObject(String json) {
-        if (StringUtils.isBlank(json)) {
-            return null;
-        }
-        try {
-            return objectMapper.readValue(json, MAP_TYPE);
-        } catch (JsonProcessingException ex) {
-            return null;
-        }
-    }
-
-    private String serializeJsonForDomain(Object value) {
-        return taskJsonDomainService.toJson(value, this::serializeJsonStrict);
-    }
-
-    private String serializeJsonStrict(Object value) {
-        try {
-            return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException ex) {
-            throw new IllegalStateException(ex.getMessage(), ex);
         }
     }
 
@@ -932,66 +494,9 @@ public class TaskExecutor {
         return Counter.builder(name).register(meterRegistry);
     }
 
-    private void recordRetryDistribution(AgentTaskEntity task) {
-        if (task == null) {
-            return;
-        }
-        int retry = task.getCurrentRetry() == null ? 0 : Math.max(task.getCurrentRetry(), 0);
-        executionRetrySummary.record(retry);
-    }
-
-    private ChatResponse callTaskClientWithTimeout(ChatClient taskClient, String prompt) {
-        Future<ChatResponse> future = taskCallExecutor.submit(() -> {
-            ChatClient.CallResponseSpec callResponse = taskClient.prompt(prompt).call();
-            return callResponse == null ? null : callResponse.chatResponse();
-        });
-        try {
-            return future.get(executionTimeoutMs, TimeUnit.MILLISECONDS);
-        } catch (TimeoutException ex) {
-            future.cancel(true);
-            throw new TaskCallTimeoutException("Task execution timed out after " + executionTimeoutMs + " ms", ex);
-        } catch (InterruptedException ex) {
-            future.cancel(true);
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Task execution interrupted", ex);
-        } catch (ExecutionException ex) {
-            Throwable cause = ex.getCause();
-            if (cause instanceof RuntimeException) {
-                throw (RuntimeException) cause;
-            }
-            throw new IllegalStateException(cause == null ? "Task execution failed" : cause.getMessage(), cause);
-        }
-    }
-
-    private void persistTimeoutExecution(TaskExecutionEntity execution,
-                                         long startTime,
-                                         TaskCallTimeoutException timeoutException) {
-        if (execution == null) {
-            return;
-        }
-        execution.recordError(timeoutException.getMessage());
-        execution.markAsInvalid(timeoutException.getMessage());
-        execution.setErrorType("timeout");
-        execution.setExecutionTime(startTime);
-        safeSaveExecution(execution);
-    }
-
-    private void recordTimeoutMetrics(AgentTaskEntity task, boolean retrying) {
-        String taskType = resolveTaskType(task);
-        meterRegistry.counter("agent.task.execution.timeout.total",
-                "task_type", taskType).increment();
-        if (retrying) {
-            meterRegistry.counter("agent.task.execution.timeout.retry.total",
-                    "task_type", taskType).increment();
-        } else {
-            meterRegistry.counter("agent.task.execution.timeout.final_fail.total",
-                    "task_type", taskType).increment();
-        }
-    }
-
     private void recordExecutionMetrics(AgentTaskEntity task, String outcome, String errorType, long startedNanos) {
-        String result = StringUtils.defaultIfBlank(outcome, "unknown");
-        String taskType = resolveTaskType(task);
+        String result = taskExecutionRuntimeSupport.normalizeExecutionResult(outcome);
+        String taskType = taskExecutionRuntimeSupport.resolveTaskType(task);
         long durationNanos = Math.max(0L, System.nanoTime() - startedNanos);
         Timer.builder(METRIC_EXECUTION_DURATION)
                 .tag("result", result)
@@ -1004,256 +509,9 @@ public class TaskExecutor {
         if ("failed".equals(result)) {
             meterRegistry.counter(METRIC_EXECUTION_FAILURE_TOTAL,
                     "task_type", taskType,
-                    "error_type", StringUtils.defaultIfBlank(errorType, "unknown")).increment();
+                    "error_type", taskExecutionRuntimeSupport.normalizeFailureMetricErrorType(errorType)).increment();
         }
-        if (auditLogEnabled && shouldEmitAudit(result)) {
-            emitTaskAudit("execution_" + result, task, "error_type=" + StringUtils.defaultIfBlank(errorType, "none"));
-        }
-    }
-
-    private boolean shouldEmitAudit(String result) {
-        if (auditSuccessLogEnabled) {
-            return true;
-        }
-        return "failed".equals(result)
-                || "validation_rejected".equals(result)
-                || "critic_rejected".equals(result)
-                || "update_guard_reject".equals(result);
-    }
-
-    private String resolveTaskType(AgentTaskEntity task) {
-        if (task == null || task.getTaskType() == null) {
-            return "unknown";
-        }
-        return task.getTaskType().name().toLowerCase();
-    }
-
-    private String classifyError(Throwable throwable) {
-        if (throwable == null) {
-            return "unknown";
-        }
-        String type = throwable.getClass().getSimpleName();
-        String message = StringUtils.defaultString(throwable.getMessage()).toLowerCase();
-        if (message.contains("optimistic lock")) {
-            return "optimistic_lock";
-        }
-        if (message.contains("timeout")) {
-            return "timeout";
-        }
-        if (message.contains("connection") || message.contains("jdbc")
-                || message.contains("sql")) {
-            return "db_error";
-        }
-        if (type.contains("Json") || message.contains("json")) {
-            return "json_error";
-        }
-        return "runtime_error";
-    }
-
-    private String extractModelName(ChatResponse chatResponse) {
-        if (chatResponse == null || chatResponse.getMetadata() == null) {
-            return null;
-        }
-        return chatResponse.getMetadata().getModel();
-    }
-
-    private Map<String, Object> extractTokenUsage(ChatResponse chatResponse) {
-        if (chatResponse == null) {
-            return null;
-        }
-        ChatResponseMetadata metadata = chatResponse.getMetadata();
-        if (metadata == null) {
-            return null;
-        }
-        Usage usage = metadata.getUsage();
-        if (usage == null) {
-            return null;
-        }
-        Map<String, Object> tokenUsage = new HashMap<>();
-        if (usage.getPromptTokens() != null) {
-            tokenUsage.put("prompt_tokens", usage.getPromptTokens());
-        }
-        if (usage.getCompletionTokens() != null) {
-            tokenUsage.put("completion_tokens", usage.getCompletionTokens());
-        }
-        if (usage.getTotalTokens() != null) {
-            tokenUsage.put("total_tokens", usage.getTotalTokens());
-        }
-        Object nativeUsage = usage.getNativeUsage();
-        if (nativeUsage != null) {
-            tokenUsage.put("native_usage", normalizeNativeUsage(nativeUsage));
-        }
-        return tokenUsage.isEmpty() ? null : tokenUsage;
-    }
-
-    private Object normalizeNativeUsage(Object nativeUsage) {
-        if (nativeUsage == null) {
-            return null;
-        }
-        if (nativeUsage instanceof Map<?, ?>) {
-            return nativeUsage;
-        }
-        try {
-            return objectMapper.convertValue(nativeUsage, MAP_TYPE);
-        } catch (IllegalArgumentException ex) {
-            return String.valueOf(nativeUsage);
-        }
-    }
-
-    private String extractContent(ChatResponse chatResponse) {
-        if (chatResponse == null || chatResponse.getResult() == null || chatResponse.getResult().getOutput() == null) {
-            return "";
-        }
-        return StringUtils.defaultString(chatResponse.getResult().getOutput().getText());
-    }
-
-    private Map<String, Object> buildTaskData(AgentTaskEntity task) {
-        Map<String, Object> data = new HashMap<>();
-        if (task == null) {
-            return data;
-        }
-        data.put("planId", task.getPlanId());
-        data.put("taskId", task.getId());
-        data.put("nodeId", task.getNodeId());
-        data.put("status", task.getStatus() == null ? null : task.getStatus().name());
-        data.put("taskType", task.getTaskType() == null ? null : task.getTaskType().name());
-        return data;
-    }
-
-    private Map<String, Object> buildTaskLog(AgentTaskEntity task) {
-        Map<String, Object> data = buildTaskData(task);
-        data.put("output", task == null ? null : task.getOutputResult());
-        return data;
-    }
-
-    private void publishTaskEvent(PlanTaskEventTypeEnum eventType, AgentTaskEntity task, Map<String, Object> data) {
-        if (eventType == null || task == null || task.getPlanId() == null) {
-            return;
-        }
-        try {
-            planTaskEventPublisher.publish(eventType,
-                    task.getPlanId(),
-                    task.getId(),
-                    data == null ? Collections.emptyMap() : data);
-        } catch (Exception ex) {
-            log.warn("Failed to publish task event. planId={}, taskId={}, type={}, error={}",
-                    task.getPlanId(), task.getId(), eventType, ex.getMessage());
-        }
-    }
-
-    private void emitTaskAudit(String event, AgentTaskEntity task, String detail) {
-        if (!auditLogEnabled || StringUtils.isBlank(event)) {
-            return;
-        }
-        String normalizedDetail = StringUtils.defaultIfBlank(detail, "-");
-        if (task == null) {
-            log.info("TASK_AUDIT event={}, taskId=null, planId=null, nodeId=null, owner={}, attempt=null, detail={}",
-                    event, claimOwner, normalizedDetail);
-            return;
-        }
-        log.info("TASK_AUDIT event={}, taskId={}, planId={}, nodeId={}, owner={}, attempt={}, detail={}",
-                event,
-                task.getId(),
-                task.getPlanId(),
-                task.getNodeId(),
-                StringUtils.defaultIfBlank(task.getClaimOwner(), claimOwner),
-                task.getExecutionAttempt(),
-                normalizedDetail);
-    }
-
-    private static final class ValidationResult {
-        private final boolean valid;
-        private final String feedback;
-
-        private ValidationResult(boolean valid, String feedback) {
-            this.valid = valid;
-            this.feedback = feedback;
-        }
-    }
-
-    private static final class CriticDecision {
-        private final boolean pass;
-        private final String feedback;
-
-        private CriticDecision(boolean pass, String feedback) {
-            this.pass = pass;
-            this.feedback = feedback;
-        }
-    }
-
-    private boolean safeUpdateTask(AgentTaskEntity task) {
-        TaskPersistenceApplicationService.TaskUpdateResult result =
-                taskPersistenceApplicationService.updateTask(task);
-        if (result.updated()) {
-            return true;
-        }
-        log.warn("Failed to update task status. taskId={}, error={}",
-                task == null ? null : task.getId(),
-                result.errorMessage());
-        return false;
-    }
-
-    private boolean safeUpdateClaimedTask(AgentTaskEntity task) {
-        TaskPersistenceApplicationService.ClaimedTaskUpdateResult result =
-                taskPersistenceApplicationService.updateClaimedTask(task);
-
-        if (result.outcome() == TaskPersistenceApplicationService.ClaimedTaskUpdateOutcome.UPDATED) {
-            claimedUpdateSuccessCounter.increment();
-            return true;
-        }
-
-        if (result.outcome() == TaskPersistenceApplicationService.ClaimedTaskUpdateOutcome.GUARD_REJECTED) {
-            claimedUpdateGuardRejectCounter.increment();
-            log.debug("Claimed task update skipped by ownership/attempt guard. taskId={}, owner={}, attempt={}, status={}",
-                    task == null ? null : task.getId(),
-                    task == null ? null : task.getClaimOwner(),
-                    task == null ? null : task.getExecutionAttempt(),
-                    task == null ? null : task.getStatus());
-            emitTaskAudit("claimed_update_guard_reject", task,
-                    "status=" + (task == null || task.getStatus() == null ? "null" : task.getStatus().name()));
-            return false;
-        }
-
-        claimedUpdateErrorCounter.increment();
-        log.warn("Failed to update claimed task. taskId={}, owner={}, attempt={}, error={}",
-                task == null ? null : task.getId(),
-                task == null ? null : task.getClaimOwner(),
-                task == null ? null : task.getExecutionAttempt(),
-                result.errorMessage());
-        emitTaskAudit("claimed_update_error", task, "error_type=persistence_error");
-        return false;
-    }
-
-    private ScheduledFuture<?> startHeartbeat(AgentTaskEntity task) {
-        if (task == null || task.getId() == null || StringUtils.isBlank(task.getClaimOwner())
-                || task.getExecutionAttempt() == null || claimHeartbeatSeconds <= 0) {
-            return null;
-        }
-        return heartbeatScheduler.scheduleAtFixedRate(() -> {
-            try {
-                boolean renewed = agentTaskRepository.renewClaimLease(
-                        task.getId(), task.getClaimOwner(), task.getExecutionAttempt(), claimLeaseSeconds);
-                if (!renewed) {
-                    heartbeatGuardRejectCounter.increment();
-                    log.debug("Claim lease renew skipped. taskId={}, owner={}, attempt={}",
-                            task.getId(), task.getClaimOwner(), task.getExecutionAttempt());
-                    emitTaskAudit("lease_renew_guard_reject", task, "renewed=false");
-                } else {
-                    heartbeatSuccessCounter.increment();
-                }
-            } catch (Exception ex) {
-                heartbeatErrorCounter.increment();
-                log.warn("Failed to renew claim lease. taskId={}, owner={}, attempt={}, error={}",
-                        task.getId(), task.getClaimOwner(), task.getExecutionAttempt(), ex.getMessage());
-                emitTaskAudit("lease_renew_error", task, "error_type=" + classifyError(ex));
-            }
-        }, claimHeartbeatSeconds, claimHeartbeatSeconds, TimeUnit.SECONDS);
-    }
-
-    private void stopHeartbeat(ScheduledFuture<?> future) {
-        if (future != null) {
-            future.cancel(false);
-        }
+        taskExecutionRuntimeSupport.auditExecutionResult(task, result, errorType);
     }
 
     @PreDestroy
@@ -1294,20 +552,4 @@ public class TaskExecutor {
         }
     }
 
-    private void safeSaveExecution(TaskExecutionEntity execution) {
-        TaskPersistenceApplicationService.ExecutionSaveResult result =
-                taskPersistenceApplicationService.saveExecution(execution);
-        if (result.saved()) {
-            return;
-        }
-        log.warn("Failed to save task execution. taskId={}, error={}",
-                execution == null ? null : execution.getTaskId(),
-                result.errorMessage());
-    }
-
-    private static final class TaskCallTimeoutException extends RuntimeException {
-        private TaskCallTimeoutException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
 }
