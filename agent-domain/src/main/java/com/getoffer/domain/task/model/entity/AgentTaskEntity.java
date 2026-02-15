@@ -49,7 +49,7 @@ public class AgentTaskEntity {
     private TaskStatusEnum status;
 
     /**
-     * DAG 依赖节点 IDs (解析后的 List)
+     * Workflow Graph 依赖节点 IDs (解析后的 List，历史术语：DAG)
      */
     private List<String> dependencyNodeIds;
 

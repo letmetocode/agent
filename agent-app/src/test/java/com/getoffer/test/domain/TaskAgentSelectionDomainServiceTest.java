@@ -73,4 +73,79 @@ public class TaskAgentSelectionDomainServiceTest {
         Assertions.assertTrue(service.isIgnorableCreateError(new IllegalStateException("Agent is inactive: xxx")));
         Assertions.assertFalse(service.isIgnorableCreateError(new IllegalStateException("other")));
     }
+
+    @Test
+    public void shouldResolveClientByFallbackAgentKey() {
+        TaskAgentSelectionDomainService.SelectionPlan selectionPlan =
+                new TaskAgentSelectionDomainService.SelectionPlan(null, null, List.of("worker", "assistant"));
+
+        TaskAgentSelectionDomainService.ClientSelectionResult<String> result = service.resolveClient(
+                selectionPlan,
+                id -> "id-" + id,
+                key -> {
+                    if ("worker".equals(key)) {
+                        throw new IllegalStateException("Agent not found: worker");
+                    }
+                    return "key-" + key;
+                },
+                () -> null
+        );
+
+        Assertions.assertEquals(TaskAgentSelectionDomainService.ClientSelectionSource.FALLBACK_AGENT_KEY, result.source());
+        Assertions.assertEquals("assistant", result.selectedAgentKey());
+        Assertions.assertEquals("key-assistant", result.client());
+        Assertions.assertEquals(List.of("worker", "assistant"), result.attemptedAgentKeys());
+    }
+
+    @Test
+    public void shouldFallbackToDefaultActiveAgentWhenFallbackKeysUnavailable() {
+        TaskAgentSelectionDomainService.SelectionPlan selectionPlan =
+                new TaskAgentSelectionDomainService.SelectionPlan(null, null, List.of("worker"));
+
+        AgentRegistryEntity defaultAgent = new AgentRegistryEntity();
+        defaultAgent.setId(9L);
+        defaultAgent.setKey("assistant");
+
+        TaskAgentSelectionDomainService.ClientSelectionResult<String> result = service.resolveClient(
+                selectionPlan,
+                id -> "id-" + id,
+                key -> {
+                    if ("worker".equals(key)) {
+                        throw new IllegalStateException("Agent is inactive: worker");
+                    }
+                    return "key-" + key;
+                },
+                () -> defaultAgent
+        );
+
+        Assertions.assertEquals(TaskAgentSelectionDomainService.ClientSelectionSource.DEFAULT_ACTIVE_AGENT, result.source());
+        Assertions.assertEquals("assistant", result.selectedAgentKey());
+        Assertions.assertEquals(9L, result.selectedAgentId());
+        Assertions.assertEquals("key-assistant", result.client());
+        Assertions.assertEquals(List.of("worker", "assistant"), result.attemptedAgentKeys());
+    }
+
+    @Test
+    public void shouldReturnUnavailableWhenNoFallbackAgentResolved() {
+        TaskAgentSelectionDomainService.SelectionPlan selectionPlan =
+                new TaskAgentSelectionDomainService.SelectionPlan(null, null, List.of("worker"));
+
+        AgentRegistryEntity defaultAgent = new AgentRegistryEntity();
+        defaultAgent.setId(10L);
+        defaultAgent.setKey("assistant");
+
+        TaskAgentSelectionDomainService.ClientSelectionResult<String> result = service.resolveClient(
+                selectionPlan,
+                id -> "id-" + id,
+                key -> {
+                    throw new IllegalStateException("Agent not found: " + key);
+                },
+                () -> defaultAgent
+        );
+
+        Assertions.assertEquals(TaskAgentSelectionDomainService.ClientSelectionSource.UNAVAILABLE, result.source());
+        Assertions.assertNull(result.client());
+        Assertions.assertEquals(List.of("worker", "assistant"), result.attemptedAgentKeys());
+        Assertions.assertEquals("worker,assistant", service.joinAgentKeys(result.attemptedAgentKeys()));
+    }
 }

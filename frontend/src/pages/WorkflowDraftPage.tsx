@@ -30,8 +30,8 @@ const { Text } = Typography;
 const STATUS_OPTIONS: Array<{ label: string; value?: string }> = [
   { label: '全部', value: undefined },
   { label: 'DRAFT', value: 'DRAFT' },
-  { label: 'DISABLED', value: 'DISABLED' },
-  { label: 'ACTIVE', value: 'ACTIVE' },
+  { label: 'REVIEWING', value: 'REVIEWING' },
+  { label: 'PUBLISHED', value: 'PUBLISHED' },
   { label: 'ARCHIVED', value: 'ARCHIVED' }
 ];
 
@@ -39,10 +39,10 @@ const statusColor = (status?: string) => {
   switch (status) {
     case 'DRAFT':
       return 'gold';
-    case 'ACTIVE':
+    case 'REVIEWING':
+      return 'processing';
+    case 'PUBLISHED':
       return 'success';
-    case 'DISABLED':
-      return 'default';
     case 'ARCHIVED':
       return 'warning';
     default:

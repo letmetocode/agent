@@ -1,10 +1,12 @@
 package com.getoffer.test;
 
 import lombok.extern.slf4j.Slf4j;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.junit4.SpringRunner;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration;
+import org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration;
 
 /**
  * API 测试类。
@@ -16,9 +18,16 @@ import org.springframework.test.context.junit4.SpringRunner;
  * @since 2025-01-29
  */
 @Slf4j
-@RunWith(SpringRunner.class)
-@SpringBootTest
+@SpringBootTest(classes = ApiTest.TestApplication.class)
 public class ApiTest {
+
+    @SpringBootApplication(exclude = {
+            DataSourceAutoConfiguration.class,
+            DataSourceTransactionManagerAutoConfiguration.class,
+            MybatisAutoConfiguration.class
+    })
+    static class TestApplication {
+    }
 
     /**
      * 基础测试方法。

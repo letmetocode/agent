@@ -14,9 +14,8 @@ import com.getoffer.infrastructure.ai.AgentFactoryImpl;
 import com.getoffer.infrastructure.mcp.McpClientManager;
 import com.getoffer.infrastructure.util.JsonCodec;
 import com.getoffer.types.enums.ToolTypeEnum;
-import org.junit.Assert;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.InMemoryChatMemoryRepository;
@@ -36,8 +35,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.context.junit4.SpringRunner;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -49,8 +47,7 @@ import java.util.Map;
 /**
  * Agent factory integration test: verifies ChatClient creation and memory behavior.
  */
-@RunWith(SpringRunner.class)
-@ContextConfiguration(classes = AgentFactoryIntegrationTest.TestConfig.class)
+@SpringJUnitConfig(classes = AgentFactoryIntegrationTest.TestConfig.class)
 public class AgentFactoryIntegrationTest {
 
     @Autowired
@@ -59,12 +56,12 @@ public class AgentFactoryIntegrationTest {
     @Test
     public void shouldReturnChatClientWithMemory() {
         ChatClient client = agentFactory.createAgent("chat", "conv-1");
-        Assert.assertNotNull(client);
+        Assertions.assertNotNull(client);
 
         client.prompt("My name is Alice.").call().content();
         String response = client.prompt("What is my name?").call().content();
 
-        Assert.assertTrue("Response should contain remembered name", response.contains("Alice"));
+        Assertions.assertTrue(response.contains("Alice"), "Response should contain remembered name");
     }
 
     @Configuration

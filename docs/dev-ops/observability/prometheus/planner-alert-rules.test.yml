@@ -9,7 +9,7 @@ tests:
       - series: 'agent_planner_route_total{env="prod"}'
         values: '0+100x30'
       - series: 'agent_planner_fallback_total{env="prod"}'
-        values: '0+10x30'
+        values: '0+2x30'
     alert_rule_test:
       - eval_time: 20m
         alertname: PlannerFallbackSpikeWarningProd
@@ -34,6 +34,11 @@ tests:
               module: planner
               severity: critical
               env: prod
+            exp_annotations:
+              summary: "[prod] Planner fallback 比例持续偏高"
+              description: "5分钟窗口 fallback/route 比例为 0.8，超过阈值 0.30。"
+              runbook: "docs/dev-ops/observability/planner-alert-runbook.md"
+              dashboard: "TODO: replace-with-prod-dashboard-url"
 
   - interval: 1m
     input_series:
@@ -51,3 +56,8 @@ tests:
               module: planner
               severity: warning
               env: staging
+            exp_annotations:
+              summary: "[staging] Planner fallback 绝对值升高"
+              description: "5分钟窗口 fallback 增量为 55，超过阈值 10。"
+              runbook: "docs/dev-ops/observability/planner-alert-runbook.md"
+              dashboard: "TODO: replace-with-staging-dashboard-url"

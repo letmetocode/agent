@@ -131,11 +131,11 @@ export const KnowledgePage = () => {
         </Col>
 
         <Col xs={24}>
-          <Card className="app-card" title="检索质量检查">
+          <Card className="app-card" title="检索质量检查（待接入）">
             <StateView
               type="empty"
-              title="还未执行检索测试"
-              description="输入查询问题并验证召回结果、相关性分数与引用片段。"
+              title="检索测试能力待接入"
+              description="当前环境尚未接入真实召回链路，进入知识库详情页可查看接入状态提示。"
               actionText="前往知识库详情"
               onAction={() => {
                 if (firstKbId) {

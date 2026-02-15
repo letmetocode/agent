@@ -71,11 +71,18 @@
 - job 壳层化：`PlanStatusDaemon` 编排收口到 `PlanStatusSyncApplicationService`，`TaskSchedulerDaemon` 编排收口到 `TaskScheduleApplicationService`。
 - 终态与状态推进规则下沉到 `PlanFinalizationDomainService`、`PlanTransitionDomainService`，依赖判定规则下沉到 `TaskDependencyPolicyDomainService`。
 - 计划终态收敛支持 Fail-Safe：`PlanStatusSyncApplicationService` 在 FAILED 聚合时按 `TaskFailurePolicyDomainService` 过滤可容忍失败，避免误判计划失败。
+- Fallback 策略收口：`PlannerFallbackPolicyDomainService` 统一 Root 规划降级判定与 fallbackReason 归一；`TaskAgentSelectionDomainService` 统一 Task Agent configured/fallback/default 选路。
+- 执行职责分层第一步：`TaskExecutor` 聚焦调度协调，`TaskExecutionRunner` 承接单任务执行主流程（提示词构造、模型调用、校验、回滚、黑板写回）。
+- 执行支持接口收敛：`TaskExecutionRunner.ExecutionSupport` 按 claim/模型调用/超时/评估/持久化事件等职责拆分子接口，减少单接口耦合。
+- 执行支持适配器独立化：`TaskExecutionSupportAdapter` 从 `TaskExecutor` 内部实现抽离为独立类，降低执行器主类体积并明确 Runner 依赖边界。
+- 适配器中转瘦身：claim/plan 查询/attempt 计算/validation/timeout 重试判定等能力由 `TaskExecutionSupportAdapter` 直接依赖 domain/repository，不再经 `TaskExecutor` 方法中转。
+- 执行流支持组件化：`TaskExecutionFlowSupport` 承接提示词构造、评估解析、回滚与黑板写回，`TaskExecutionSupportAdapter` 仅做编排委托与少量桥接。
+- 客户端选路组件化：`TaskExecutionClientResolver` 承接 TaskClient 选路与默认 Agent 缓存，`TaskExecutionSupportAdapter` 不再依赖 `TaskExecutor.resolveTaskClient` 中转。
 - `trigger.service` 兼容包装类已删除（统一 `trigger.application` -> `domain`）。
 - 并发压测常态化：`scripts/chat_e2e_perf.py` 支持登录态压测、SLO 预算文件校验与失败退出码；新增基线脚本 `scripts/perf/run_chat_e2e_baseline.sh`。
 
 **证据**
-- 测试：`TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest`、`PlanFinalizationDomainServiceTest`、`PlanTransitionDomainServiceTest`、`TaskExecutionDomainServiceTest`、`TaskPromptDomainServiceTest`、`TaskEvaluationDomainServiceTest`、`TaskRecoveryDomainServiceTest`、`TaskAgentSelectionDomainServiceTest`、`TaskBlackboardDomainServiceTest`、`TaskJsonDomainServiceTest`、`TaskPersistencePolicyDomainServiceTest`、`TaskPersistenceApplicationServiceTest`、`TaskDependencyPolicyDomainServiceTest`、`TaskScheduleApplicationServiceTest`、`PlanStatusSyncApplicationServiceTest`、`ApplicationDomainBoundaryTest`
+- 测试：`TaskExecutorPlanBoundaryTest`、`TaskExecutionRunnerTest`、`TurnResultServiceTest`、`PlanStatusDaemonTest`、`PlanFinalizationDomainServiceTest`、`PlanTransitionDomainServiceTest`、`TaskExecutionDomainServiceTest`、`TaskPromptDomainServiceTest`、`TaskEvaluationDomainServiceTest`、`TaskRecoveryDomainServiceTest`、`TaskAgentSelectionDomainServiceTest`、`TaskBlackboardDomainServiceTest`、`TaskJsonDomainServiceTest`、`TaskPersistencePolicyDomainServiceTest`、`TaskPersistenceApplicationServiceTest`、`TaskDependencyPolicyDomainServiceTest`、`TaskScheduleApplicationServiceTest`、`PlanStatusSyncApplicationServiceTest`、`ApplicationDomainBoundaryTest`
 
 **未完成 / 计划优化**
 - 暂无。

@@ -14,6 +14,7 @@ import com.getoffer.domain.planning.model.entity.WorkflowDraftEntity;
 import com.getoffer.domain.planning.model.valobj.RootWorkflowDraft;
 import com.getoffer.domain.planning.model.valobj.RoutingDecisionResult;
 import com.getoffer.domain.planning.service.GraphDslPolicyService;
+import com.getoffer.domain.planning.service.PlannerFallbackPolicyDomainService;
 import com.getoffer.domain.planning.service.PlannerService;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
@@ -78,22 +79,14 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
     private static final int DEFAULT_PRIORITY = 0;
     private static final String DEFAULT_TENANT = "DEFAULT";
     private static final String DEFAULT_CREATOR = "SYSTEM";
-    private static final String SOURCE_TYPE_AUTO_MISS_ROOT = "AUTO_MISS_ROOT";
-    private static final String SOURCE_TYPE_AUTO_MISS_FALLBACK = "AUTO_MISS_FALLBACK";
-    private static final String FALLBACK_REASON_ROOT_PLANNING_FAILED = "ROOT_PLANNING_FAILED";
-    private static final String FALLBACK_REASON_ROOT_PLANNER_SOFT_TIMEOUT = "ROOT_PLANNER_SOFT_TIMEOUT";
-    private static final String FALLBACK_REASON_ROOT_PLANNER_DISABLED = "ROOT_PLANNER_DISABLED";
-    private static final String FALLBACK_REASON_ROOT_PLANNER_MISSING = "ROOT_PLANNER_MISSING";
+    private static final String SOURCE_TYPE_AUTO_MISS_ROOT = PlannerFallbackPolicyDomainService.SOURCE_TYPE_AUTO_MISS_ROOT;
+    private static final String SOURCE_TYPE_AUTO_MISS_FALLBACK = PlannerFallbackPolicyDomainService.SOURCE_TYPE_AUTO_MISS_FALLBACK;
+    private static final String FALLBACK_REASON_ROOT_PLANNING_FAILED = PlannerFallbackPolicyDomainService.FALLBACK_REASON_ROOT_PLANNING_FAILED;
+    private static final String FALLBACK_REASON_ROOT_PLANNER_SOFT_TIMEOUT = PlannerFallbackPolicyDomainService.FALLBACK_REASON_ROOT_PLANNER_SOFT_TIMEOUT;
+    private static final String FALLBACK_REASON_ROOT_PLANNER_DISABLED = PlannerFallbackPolicyDomainService.FALLBACK_REASON_ROOT_PLANNER_DISABLED;
+    private static final String FALLBACK_REASON_ROOT_PLANNER_MISSING = PlannerFallbackPolicyDomainService.FALLBACK_REASON_ROOT_PLANNER_MISSING;
     private static final String METRIC_PLANNER_ROUTE_TOTAL = "agent.planner.route.total";
     private static final String METRIC_PLANNER_FALLBACK_TOTAL = "agent.planner.fallback.total";
-    private static final Set<String> PLANNER_FALLBACK_REASON_TAG_WHITELIST = Set.of(
-            "AUTO_MISS_FALLBACK",
-            FALLBACK_REASON_ROOT_PLANNING_FAILED,
-            FALLBACK_REASON_ROOT_PLANNER_SOFT_TIMEOUT,
-            FALLBACK_REASON_ROOT_PLANNER_DISABLED,
-            FALLBACK_REASON_ROOT_PLANNER_MISSING,
-            "UNKNOWN"
-    );
     private static final Set<String> VIRTUAL_ENTRY_NODE_IDS = Set.of(
             "START", "BEGIN", "ENTRY", "ROOT_START", "SOURCE"
     );
@@ -126,6 +119,7 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
     private final long rootSoftTimeoutMs;
     private final ExecutorService rootPlanningExecutor;
     private final MeterRegistry meterRegistry;
+    private final PlannerFallbackPolicyDomainService plannerFallbackPolicyDomainService;
 
     public PlannerServiceImpl(IWorkflowDefinitionRepository workflowDefinitionRepository,
                               IWorkflowDraftRepository workflowDraftRepository,
@@ -147,7 +141,8 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
                 300L,
                 true,
                 "assistant",
-                DEFAULT_ROOT_SOFT_TIMEOUT_MS);
+                DEFAULT_ROOT_SOFT_TIMEOUT_MS,
+                PlannerFallbackPolicyDomainService.defaultInstance());
     }
 
     public PlannerServiceImpl(IWorkflowDefinitionRepository workflowDefinitionRepository,
@@ -178,7 +173,41 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
                 rootRetryBackoffMs,
                 fallbackSingleNodeEnabled,
                 fallbackAgentKey,
-                DEFAULT_ROOT_SOFT_TIMEOUT_MS);
+                DEFAULT_ROOT_SOFT_TIMEOUT_MS,
+                PlannerFallbackPolicyDomainService.defaultInstance());
+    }
+
+    public PlannerServiceImpl(IWorkflowDefinitionRepository workflowDefinitionRepository,
+                              IWorkflowDraftRepository workflowDraftRepository,
+                              IRoutingDecisionRepository routingDecisionRepository,
+                              IAgentPlanRepository agentPlanRepository,
+                              IAgentTaskRepository agentTaskRepository,
+                              JsonCodec jsonCodec,
+                              IRootWorkflowDraftPlanner rootWorkflowDraftPlanner,
+                              IAgentRegistryRepository agentRegistryRepository,
+                              boolean rootPlannerEnabled,
+                              String rootAgentKey,
+                              int rootMaxAttempts,
+                              long rootRetryBackoffMs,
+                              boolean fallbackSingleNodeEnabled,
+                              String fallbackAgentKey,
+                              long rootSoftTimeoutMs) {
+        this(workflowDefinitionRepository,
+                workflowDraftRepository,
+                routingDecisionRepository,
+                agentPlanRepository,
+                agentTaskRepository,
+                jsonCodec,
+                rootWorkflowDraftPlanner,
+                agentRegistryRepository,
+                rootPlannerEnabled,
+                rootAgentKey,
+                rootMaxAttempts,
+                rootRetryBackoffMs,
+                fallbackSingleNodeEnabled,
+                fallbackAgentKey,
+                rootSoftTimeoutMs,
+                PlannerFallbackPolicyDomainService.defaultInstance());
     }
 
     @Autowired
@@ -196,7 +225,8 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
                               @Value("${planner.root.retry.backoff-ms:300}") long rootRetryBackoffMs,
                               @Value("${planner.root.fallback.single-node.enabled:true}") boolean fallbackSingleNodeEnabled,
                               @Value("${planner.root.fallback.agent-key:assistant}") String fallbackAgentKey,
-                              @Value("${planner.root.timeout.soft-ms:15000}") long rootSoftTimeoutMs) {
+                              @Value("${planner.root.timeout.soft-ms:15000}") long rootSoftTimeoutMs,
+                              PlannerFallbackPolicyDomainService plannerFallbackPolicyDomainService) {
         this.workflowDefinitionRepository = workflowDefinitionRepository;
         this.workflowDraftRepository = workflowDraftRepository;
         this.routingDecisionRepository = routingDecisionRepository;
@@ -220,6 +250,10 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
             return thread;
         });
         this.meterRegistry = Metrics.globalRegistry;
+        if (plannerFallbackPolicyDomainService == null) {
+            throw new IllegalArgumentException("plannerFallbackPolicyDomainService must not be null");
+        }
+        this.plannerFallbackPolicyDomainService = plannerFallbackPolicyDomainService;
     }
 
     @Override
@@ -423,14 +457,19 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
                 lastError = ex;
                 boolean nonRetryable = isNonRetryableRootPlanningError(ex);
                 boolean softTimeout = isRootPlannerSoftTimeout(ex);
-                if (softTimeout) {
-                    fallbackReason = FALLBACK_REASON_ROOT_PLANNER_SOFT_TIMEOUT;
-                }
+                PlannerFallbackPolicyDomainService.RootPlanningFailureDecision failureDecision =
+                        plannerFallbackPolicyDomainService.decideOnRootPlanningFailure(
+                                attempt,
+                                rootMaxAttempts,
+                                nonRetryable,
+                                softTimeout
+                        );
+                fallbackReason = failureDecision.fallbackReason();
                 log.warn("Root candidate planning failed. sessionId={}, attempt={}/{}, nonRetryable={}, softTimeout={}, reason={}",
                         sessionId, attempt, rootMaxAttempts, nonRetryable, softTimeout, ex.getMessage());
-                if (nonRetryable) {
-                    log.warn("Root candidate planning encountered non-retryable error. skip remaining retries. sessionId={}, attempt={}",
-                            sessionId, attempt);
+                if (!failureDecision.shouldRetry()) {
+                    log.warn("Root candidate planning stops retrying. sessionId={}, attempt={}, maxAttempts={}, nonRetryable={}, softTimeout={}",
+                            sessionId, attempt, rootMaxAttempts, nonRetryable, softTimeout);
                     break;
                 }
                 sleepBackoff(attempt);
@@ -928,13 +967,10 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
         if (agentRegistryRepository == null) {
             return StringUtils.defaultIfBlank(fallbackAgentKey, rootAgentKey);
         }
-        List<String> candidates = new ArrayList<>();
-        if (StringUtils.isNotBlank(fallbackAgentKey)) {
-            candidates.add(fallbackAgentKey);
-        }
-        if (StringUtils.isNotBlank(rootAgentKey) && !StringUtils.equals(rootAgentKey, fallbackAgentKey)) {
-            candidates.add(rootAgentKey);
-        }
+        List<String> candidates = plannerFallbackPolicyDomainService.buildRootFallbackAgentCandidates(
+                fallbackAgentKey,
+                rootAgentKey
+        );
         for (String candidate : candidates) {
             if (isAgentKeyActive(candidate)) {
                 return candidate;
@@ -1880,19 +1916,13 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
         if (draft == null) {
             return 0;
         }
-        if (StringUtils.equals(SOURCE_TYPE_AUTO_MISS_ROOT, draft.getSourceType())) {
-            return 1;
-        }
-        if (StringUtils.equals(SOURCE_TYPE_AUTO_MISS_FALLBACK, draft.getSourceType())
-                && (StringUtils.equalsIgnoreCase(fallbackReason, FALLBACK_REASON_ROOT_PLANNING_FAILED)
-                || StringUtils.equalsIgnoreCase(fallbackReason, FALLBACK_REASON_ROOT_PLANNER_SOFT_TIMEOUT))) {
-            Integer attempts = getInteger(draft.getConstraints(), "rootPlanningAttempts", "plannerAttempts");
-            if (attempts != null && attempts > 0) {
-                return attempts;
-            }
-            return rootMaxAttempts;
-        }
-        return 0;
+        Integer attempts = getInteger(draft.getConstraints(), "rootPlanningAttempts", "plannerAttempts");
+        return plannerFallbackPolicyDomainService.resolvePlannerAttempts(
+                draft.getSourceType(),
+                fallbackReason,
+                attempts,
+                rootMaxAttempts
+        );
     }
 
     private RoutingDecisionEntity buildRoutingDecisionEntity(Long sessionId,
@@ -1947,14 +1977,7 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
     }
 
     private String normalizeFallbackReasonTag(String fallbackReason) {
-        if (StringUtils.isBlank(fallbackReason)) {
-            return "UNKNOWN";
-        }
-        String normalized = fallbackReason.trim().toUpperCase(Locale.ROOT);
-        if (PLANNER_FALLBACK_REASON_TAG_WHITELIST.contains(normalized)) {
-            return normalized;
-        }
-        return "OTHER";
+        return plannerFallbackPolicyDomainService.normalizeFallbackReasonTag(fallbackReason);
     }
 
     private Long extractTurnId(Map<String, Object> extraContext) {

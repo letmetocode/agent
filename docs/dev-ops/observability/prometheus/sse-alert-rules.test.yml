@@ -45,6 +45,11 @@ tests:
               module: sse
               severity: critical
               env: prod
+            exp_annotations:
+              summary: "[prod] SSE 推送失败比例持续偏高"
+              description: "5 分钟窗口 push_fail/push_attempt 比例为 0.06，超过阈值 0.02。"
+              runbook: "docs/dev-ops/observability/sse-alert-runbook.md"
+              dashboard: "TODO: replace-with-prod-dashboard-url"
 
   - interval: 1m
     input_series:
@@ -62,6 +67,11 @@ tests:
               module: sse
               severity: critical
               env: prod
+            exp_annotations:
+              summary: "[prod] SSE 回放命中率持续偏低"
+              description: "5 分钟窗口 replay hit/batch 比例为 0.05，低于阈值 0.10。"
+              runbook: "docs/dev-ops/observability/sse-alert-runbook.md"
+              dashboard: "TODO: replace-with-prod-dashboard-url"
 
   - interval: 1m
     input_series:
@@ -79,6 +89,11 @@ tests:
               module: sse
               severity: critical
               env: prod
+            exp_annotations:
+              summary: "[prod] SSE 回放耗时持续偏高"
+              description: "5 分钟窗口 replay 平均耗时为 2.4 秒，超过阈值 1.20 秒。"
+              runbook: "docs/dev-ops/observability/sse-alert-runbook.md"
+              dashboard: "TODO: replace-with-prod-dashboard-url"
 
   - interval: 1m
     input_series:
@@ -104,6 +119,11 @@ tests:
               module: sse
               severity: warning
               env: staging
+            exp_annotations:
+              summary: "[staging] SSE 推送失败比例升高"
+              description: "5 分钟窗口 push_fail/push_attempt 比例为 0.07，超过阈值 0.05。"
+              runbook: "docs/dev-ops/observability/sse-alert-runbook.md"
+              dashboard: "TODO: replace-with-staging-dashboard-url"
       - eval_time: 25m
         alertname: SseReplayHitRatioLowWarningStaging
         exp_alerts:
@@ -113,6 +133,11 @@ tests:
               module: sse
               severity: warning
               env: staging
+            exp_annotations:
+              summary: "[staging] SSE 回放命中率偏低"
+              description: "5 分钟窗口 replay hit/batch 比例为 0.1，低于阈值 0.20。"
+              runbook: "docs/dev-ops/observability/sse-alert-runbook.md"
+              dashboard: "TODO: replace-with-staging-dashboard-url"
       - eval_time: 25m
         alertname: SseReplayAvgDurationHighWarningStaging
         exp_alerts:
@@ -122,3 +147,8 @@ tests:
               module: sse
               severity: warning
               env: staging
+            exp_annotations:
+              summary: "[staging] SSE 回放耗时偏高"
+              description: "5 分钟窗口 replay 平均耗时为 2 秒，超过阈值 1.50 秒。"
+              runbook: "docs/dev-ops/observability/sse-alert-runbook.md"
+              dashboard: "TODO: replace-with-staging-dashboard-url"

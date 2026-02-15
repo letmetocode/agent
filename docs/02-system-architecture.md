@@ -52,6 +52,7 @@
 - `Task`：Plan 内节点任务（可被 claim 执行）。
 - `Workflow Definition`：生产定义，版本不可变。
 - `Workflow Draft`：候选草案与治理对象。
+- `Workflow Graph`：运行时图定义（`graphDefinition.version=2`），由治理层 `SOP Spec` 编译生成；历史术语 `SOP/DRG/DAG` 统一映射到该语义。
 - `Routing Decision`：路由命中/兜底决策审计记录。
 - `AgentProfile`：`agent_registry` 中的执行配置。
 
@@ -112,7 +113,7 @@ sequenceDiagram
     Result->>DB: save final assistant message(if absent)
 ```
 
-### 4.2.1 Graph DSL v2（SOP 图运行时）
+### 4.2.1 Workflow Graph DSL v2（SOP Spec 编译产物）
 
 - 治理分层：`SOP Spec` 为治理层单一事实源；发布/保存时编译为 `Runtime Graph(graphDefinition)` 执行。
 - 编译接口：`POST /api/workflows/sop-spec/drafts/{id}/compile`、`POST /api/workflows/sop-spec/drafts/{id}/validate`。
@@ -154,8 +155,8 @@ sequenceDiagram
 ## 5. 一致性与并发策略
 
 - 领域充血：`SessionTurnEntity`、`AgentPlanEntity`、`AgentTaskEntity` 新增状态迁移与 claim/lease 领域行为，应用层仅编排不写规则。
-- 领域服务落位：`SessionConversationDomainService`、`PlanFinalizationDomainService`、`PlanTransitionDomainService`、`TaskDispatchDomainService`、`TaskExecutionDomainService`、`TaskPromptDomainService`、`TaskEvaluationDomainService`、`TaskRecoveryDomainService`、`TaskAgentSelectionDomainService`、`TaskBlackboardDomainService`、`TaskJsonDomainService`、`TaskPersistencePolicyDomainService`、`TaskDependencyPolicyDomainService`、`TaskFailurePolicyDomainService` 承载会话策略、终态汇总、Plan 聚合迁移与 Task 执行/提示词/判定/回滚/Agent 选择/黑板写回/JSON 解析/持久化/依赖判定/失败容忍策略规则。
-- 应用层编排：`TaskPersistenceApplicationService` 统一承载 `Task`/`TaskExecution` 写入与 `Plan.globalContext` 乐观锁重试，`TaskScheduleApplicationService` 统一承载 PENDING->READY/SKIPPED 编排，`PlanStatusSyncApplicationService` 统一承载 Plan 状态推进/终态 finalize/事件发布，`TaskExecutor` 仅消费用例结果并映射监控日志。
+- 领域服务落位：`SessionConversationDomainService`、`PlanFinalizationDomainService`、`PlanTransitionDomainService`、`PlannerFallbackPolicyDomainService`、`TaskDispatchDomainService`、`TaskExecutionDomainService`、`TaskPromptDomainService`、`TaskEvaluationDomainService`、`TaskRecoveryDomainService`、`TaskAgentSelectionDomainService`、`TaskBlackboardDomainService`、`TaskJsonDomainService`、`TaskPersistencePolicyDomainService`、`TaskDependencyPolicyDomainService`、`TaskFailurePolicyDomainService` 承载会话策略、终态汇总、Plan 聚合迁移与 Root 规划降级策略、Task 执行/提示词/判定/回滚/Agent 选择/黑板写回/JSON 解析/持久化/依赖判定/失败容忍策略规则。
+- 应用层编排：`TaskPersistenceApplicationService` 统一承载 `Task`/`TaskExecution` 写入与 `Plan.globalContext` 乐观锁重试，`TaskScheduleApplicationService` 统一承载 PENDING->READY/SKIPPED 编排，`PlanStatusSyncApplicationService` 统一承载 Plan 状态推进/终态 finalize/事件发布；执行链路中 `TaskExecutor` 负责 claim/dispatch 协调，`TaskExecutionRunner` 负责单任务执行流程，并通过分组化 `ExecutionSupport` 子接口（claim/调用/超时/评估/持久化事件）+ `TaskExecutionSupportAdapter` + `TaskExecutionFlowSupport` + `TaskExecutionClientResolver` 解耦执行依赖。
 - 兼容层清理：`trigger.service` 过渡包装类已删除，统一由 `trigger.application` 调用 domain。
 
 ### 5.1 Plan/Task 乐观锁
@@ -189,7 +190,9 @@ sequenceDiagram
 - Root 候选草案版本兼容：候选 Draft 若仅 `graphDefinition.version` 不为 2 且节点结构可执行，Planner 自动升级为 v2 再继续执行，降低无效重试耗时。
 - Root 候选草案结构非法快速降级：当判定为确定性结构错误（如边引用不存在节点）时，不再继续重试 Root 规划，直接进入单节点候选 Draft。
 - Root 规划软超时快速降级：单次 Root 规划超过 `planner.root.timeout.soft-ms` 视为不可重试错误，立即降级单节点 Draft，避免入口阻塞。
+- Root 降级策略收口：`PlannerFallbackPolicyDomainService` 统一 Root 失败重试判定、fallbackReason 归一与指标标签标准化。
 - TaskClient 超时：按配置追加有限重试，超过上限进入 FAILED（是否阻断 Plan 由节点 `failurePolicy` 决定）。
+- Task Agent 降级策略收口：`TaskAgentSelectionDomainService` 统一 configured/fallback/default 三段选路与不可用判定。
 - Plan 黑板写回冲突：读取最新 Plan 后有限重试。
 - SSE 通知丢失：依赖事件表回放补偿。
 - V3 会话编排无可用 Agent：明确返回 `暂无可用 Agent`。

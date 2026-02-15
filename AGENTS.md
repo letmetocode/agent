@@ -39,7 +39,7 @@
 - 未配置自动格式化/静态检查工具，请保持现有风格。
 
 ## 测试指南
-- 使用 JUnit 4 + Spring Boot Test。
+- 使用 JUnit 5 + Spring Boot Test。
 - 测试位于 `agent-app/src/test/java`，命名需匹配 `**/*Test.java`。
 - 测试默认跳过，需显式 `-DskipTests=false` 才会执行。
 - 涉及本轮核心链路建议至少回归：

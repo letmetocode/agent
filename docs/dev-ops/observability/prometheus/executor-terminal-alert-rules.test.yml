@@ -45,6 +45,11 @@ tests:
               module: executor-terminal
               severity: critical
               env: prod
+            exp_annotations:
+              summary: "[prod] Plan finalize 去重比例持续偏高"
+              description: "5 分钟窗口 dedup/attempt 比例为 0.3，超过阈值 0.20。"
+              runbook: "docs/dev-ops/observability/executor-terminal-alert-runbook.md"
+              dashboard: "TODO: replace-with-prod-dashboard-url"
 
   - interval: 1m
     input_series:
@@ -62,6 +67,11 @@ tests:
               module: executor-terminal
               severity: critical
               env: prod
+            exp_annotations:
+              summary: "[prod] claimed update guard 拒绝比例持续偏高"
+              description: "5 分钟窗口 guard_reject 比例为 0.1，超过阈值 0.05。"
+              runbook: "docs/dev-ops/observability/executor-terminal-alert-runbook.md"
+              dashboard: "TODO: replace-with-prod-dashboard-url"
 
   - interval: 1m
     input_series:
@@ -79,6 +89,11 @@ tests:
               module: executor-terminal
               severity: critical
               env: prod
+            exp_annotations:
+              summary: "[prod] Task timeout 最终失败比例持续偏高"
+              description: "5 分钟窗口 timeout_final_fail/execution 比例为 0.05，超过阈值 0.02。"
+              runbook: "docs/dev-ops/observability/executor-terminal-alert-runbook.md"
+              dashboard: "TODO: replace-with-prod-dashboard-url"
 
   - interval: 1m
     input_series:
@@ -96,3 +111,8 @@ tests:
               module: executor-terminal
               severity: warning
               env: staging
+            exp_annotations:
+              summary: "[staging] Plan finalize 去重比例偏高"
+              description: "5 分钟窗口 dedup/attempt 比例为 0.3，超过阈值 0.25。"
+              runbook: "docs/dev-ops/observability/executor-terminal-alert-runbook.md"
+              dashboard: "TODO: replace-with-staging-dashboard-url"

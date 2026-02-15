@@ -52,7 +52,7 @@ public class AgentTaskPO {
     private TaskStatusEnum status;
 
     /**
-     * DAG 依赖节点 IDs (JSONB 数组)
+     * Workflow Graph 依赖节点 IDs (JSONB 数组，历史术语：DAG)
      */
     private String dependencyNodeIds;
 

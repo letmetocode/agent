@@ -74,6 +74,7 @@ export const KnowledgeDetailPage = () => {
       return;
     }
     setTesting(true);
+    setRetrievalResults([]);
     try {
       const result = await agentApi.testKnowledgeRetrieval(numericKbId, query.trim());
       setRetrievalResults(result.results || []);
@@ -131,6 +132,7 @@ export const KnowledgeDetailPage = () => {
         <Col xs={24} xl={10}>
           <Card className="app-card" title="检索测试">
             <Space direction="vertical" style={{ width: '100%' }}>
+              <Text type="secondary">当前环境需接入真实召回链路后才可返回检索结果。</Text>
               <Input
                 prefix={<SearchOutlined />}
                 placeholder="输入问题测试召回效果，例如：失败任务如何回滚？"

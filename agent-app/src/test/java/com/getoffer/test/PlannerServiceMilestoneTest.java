@@ -22,8 +22,8 @@ import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.types.enums.TaskStatusEnum;
 import com.getoffer.types.enums.WorkflowDefinitionStatusEnum;
 import com.getoffer.types.enums.WorkflowDraftStatusEnum;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -65,18 +65,18 @@ public class PlannerServiceMilestoneTest {
 
         AgentPlanEntity plan = plannerService.createPlan(sessionId, userQuery);
 
-        Assert.assertNotNull(plan);
-        Assert.assertNotNull(plan.getId());
-        Assert.assertEquals(sessionId, plan.getSessionId());
-        Assert.assertEquals(userQuery, plan.getPlanGoal());
-        Assert.assertEquals(PlanStatusEnum.READY, plan.getStatus());
+        Assertions.assertNotNull(plan);
+        Assertions.assertNotNull(plan.getId());
+        Assertions.assertEquals(sessionId, plan.getSessionId());
+        Assertions.assertEquals(userQuery, plan.getPlanGoal());
+        Assertions.assertEquals(PlanStatusEnum.READY, plan.getStatus());
 
         List<AgentPlanEntity> storedPlans = agentPlanRepository.findAll();
-        Assert.assertEquals(1, storedPlans.size());
-        Assert.assertEquals(plan.getId(), storedPlans.get(0).getId());
+        Assertions.assertEquals(1, storedPlans.size());
+        Assertions.assertEquals(plan.getId(), storedPlans.get(0).getId());
 
         List<AgentTaskEntity> storedTasks = agentTaskRepository.findByPlanId(plan.getId());
-        Assert.assertEquals(4, storedTasks.size());
+        Assertions.assertEquals(4, storedTasks.size());
 
         Map<String, AgentTaskEntity> taskByNode = storedTasks.stream()
                 .collect(Collectors.toMap(AgentTaskEntity::getNodeId, task -> task));
@@ -87,8 +87,8 @@ public class PlannerServiceMilestoneTest {
         assertDependencies(taskByNode, "review", Set.of("implement"));
 
         for (AgentTaskEntity task : storedTasks) {
-            Assert.assertEquals(plan.getId(), task.getPlanId());
-            Assert.assertEquals(TaskStatusEnum.PENDING, task.getStatus());
+            Assertions.assertEquals(plan.getId(), task.getPlanId());
+            Assertions.assertEquals(TaskStatusEnum.PENDING, task.getStatus());
         }
     }
 
@@ -117,23 +117,23 @@ public class PlannerServiceMilestoneTest {
 
         AgentPlanEntity plan = plannerService.createPlan(1010L, "帮我写个贪吃蛇游戏");
 
-        Assert.assertNotNull(plan.getRouteDecisionId());
-        Assert.assertNotNull(routingDecisionRepository.findById(plan.getRouteDecisionId()));
+        Assertions.assertNotNull(plan.getRouteDecisionId());
+        Assertions.assertNotNull(routingDecisionRepository.findById(plan.getRouteDecisionId()));
 
         Map<String, Object> executionGraph = plan.getExecutionGraph();
-        Assert.assertNotNull(executionGraph);
+        Assertions.assertNotNull(executionGraph);
         List<Map<String, Object>> nodes = (List<Map<String, Object>>) executionGraph.get("nodes");
-        Assert.assertNotNull(nodes);
-        Assert.assertFalse(nodes.isEmpty());
+        Assertions.assertNotNull(nodes);
+        Assertions.assertFalse(nodes.isEmpty());
 
         List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(plan.getId());
-        Assert.assertEquals(nodes.size(), tasks.size());
+        Assertions.assertEquals(nodes.size(), tasks.size());
 
         Map<String, Object> definitionSnapshot = plan.getDefinitionSnapshot();
-        Assert.assertNotNull(definitionSnapshot);
-        Assert.assertEquals("HIT_PRODUCTION", String.valueOf(definitionSnapshot.get("routeType")));
-        Assert.assertFalse("definitionSnapshot 不应包含执行图，避免双事实源",
-                definitionSnapshot.containsKey("graphDefinition"));
+        Assertions.assertNotNull(definitionSnapshot);
+        Assertions.assertEquals("HIT_PRODUCTION", String.valueOf(definitionSnapshot.get("routeType")));
+        Assertions.assertFalse(definitionSnapshot.containsKey("graphDefinition"),
+                "definitionSnapshot 不应包含执行图，避免双事实源");
     }
 
     @Test
@@ -172,22 +172,22 @@ public class PlannerServiceMilestoneTest {
         );
 
         AgentPlanEntity plan = plannerService.createPlan(2001L, "帮我制定一个需求分析到实现的流程");
-        Assert.assertNotNull(plan);
-        Assert.assertEquals(PlanStatusEnum.READY, plan.getStatus());
-        Assert.assertEquals(1, rootAttempts.get());
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(PlanStatusEnum.READY, plan.getStatus());
+        Assertions.assertEquals(1, rootAttempts.get());
 
         List<WorkflowDraftEntity> drafts = workflowDraftRepository.findAll();
-        Assert.assertEquals(1, drafts.size());
+        Assertions.assertEquals(1, drafts.size());
         WorkflowDraftEntity draft = drafts.get(0);
-        Assert.assertEquals(WorkflowDraftStatusEnum.DRAFT, draft.getStatus());
-        Assert.assertEquals("AUTO_MISS_ROOT", draft.getSourceType());
-        Assert.assertNotNull(draft.getDedupHash());
+        Assertions.assertEquals(WorkflowDraftStatusEnum.DRAFT, draft.getStatus());
+        Assertions.assertEquals("AUTO_MISS_ROOT", draft.getSourceType());
+        Assertions.assertNotNull(draft.getDedupHash());
 
         List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(plan.getId());
-        Assert.assertEquals(2, tasks.size());
+        Assertions.assertEquals(2, tasks.size());
         for (AgentTaskEntity task : tasks) {
-            Assert.assertEquals(TaskStatusEnum.PENDING, task.getStatus());
-            Assert.assertEquals("assistant", task.getConfigSnapshot().get("agentKey"));
+            Assertions.assertEquals(TaskStatusEnum.PENDING, task.getStatus());
+            Assertions.assertEquals("assistant", task.getConfigSnapshot().get("agentKey"));
         }
     }
 
@@ -227,32 +227,32 @@ public class PlannerServiceMilestoneTest {
         );
 
         AgentPlanEntity plan = plannerService.createPlan(2002L, "帮我处理一个未知流程问题");
-        Assert.assertNotNull(plan);
-        Assert.assertEquals(PlanStatusEnum.READY, plan.getStatus());
-        Assert.assertEquals(3, rootAttempts.get());
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(PlanStatusEnum.READY, plan.getStatus());
+        Assertions.assertEquals(3, rootAttempts.get());
 
         List<WorkflowDraftEntity> drafts = workflowDraftRepository.findAll();
-        Assert.assertEquals(1, drafts.size());
+        Assertions.assertEquals(1, drafts.size());
         WorkflowDraftEntity draft = drafts.get(0);
-        Assert.assertEquals("AUTO_MISS_FALLBACK", draft.getSourceType());
-        Assert.assertEquals(WorkflowDraftStatusEnum.DRAFT, draft.getStatus());
+        Assertions.assertEquals("AUTO_MISS_FALLBACK", draft.getSourceType());
+        Assertions.assertEquals(WorkflowDraftStatusEnum.DRAFT, draft.getStatus());
 
         List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(plan.getId());
-        Assert.assertEquals(1, tasks.size());
+        Assertions.assertEquals(1, tasks.size());
         AgentTaskEntity fallbackTask = tasks.get(0);
-        Assert.assertEquals("candidate-worker", fallbackTask.getNodeId());
-        Assert.assertEquals("assistant", fallbackTask.getConfigSnapshot().get("agentKey"));
+        Assertions.assertEquals("candidate-worker", fallbackTask.getNodeId());
+        Assertions.assertEquals("assistant", fallbackTask.getConfigSnapshot().get("agentKey"));
     }
 
     private void assertDependencies(Map<String, AgentTaskEntity> taskByNode,
                                     String nodeId,
                                     Set<String> expected) {
         AgentTaskEntity task = taskByNode.get(nodeId);
-        Assert.assertNotNull("Missing task for node " + nodeId, task);
+        Assertions.assertNotNull(task, "Missing task for node " + nodeId);
         List<String> deps = task.getDependencyNodeIds();
-        Assert.assertNotNull("Dependency list must not be null", deps);
-        Assert.assertEquals(expected.size(), deps.size());
-        Assert.assertTrue("Dependency mismatch for node " + nodeId, deps.containsAll(expected));
+        Assertions.assertNotNull(deps, "Dependency list must not be null");
+        Assertions.assertEquals(expected.size(), deps.size());
+        Assertions.assertTrue(deps.containsAll(expected), "Dependency mismatch for node " + nodeId);
     }
 
     private WorkflowDefinitionEntity buildSnakeGameDefinition() {

@@ -11,6 +11,8 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Task Agent 选择领域服务：负责配置优先级、fallback 顺序与默认 Agent 选择策略。
@@ -30,6 +32,96 @@ public class TaskAgentSelectionDomainService {
                 : safeCopy(workerFallbackAgentKeys);
 
         return new SelectionPlan(configuredAgentId, configuredAgentKey, fallbackKeys);
+    }
+
+    public <T> ClientSelectionResult<T> resolveClient(SelectionPlan selectionPlan,
+                                                      Function<Long, T> resolveByAgentId,
+                                                      Function<String, T> resolveByAgentKey,
+                                                      Supplier<AgentRegistryEntity> resolveDefaultActiveAgent) {
+        if (selectionPlan == null) {
+            return ClientSelectionResult.unavailable(Collections.emptyList());
+        }
+
+        if (selectionPlan.configuredAgentId() != null) {
+            T client = resolveByAgentId.apply(selectionPlan.configuredAgentId());
+            return ClientSelectionResult.resolved(
+                    client,
+                    ClientSelectionSource.CONFIGURED_AGENT_ID,
+                    selectionPlan.configuredAgentId(),
+                    null,
+                    Collections.emptyList()
+            );
+        }
+        if (isNotBlank(selectionPlan.configuredAgentKey())) {
+            T client = resolveByAgentKey.apply(selectionPlan.configuredAgentKey());
+            return ClientSelectionResult.resolved(
+                    client,
+                    ClientSelectionSource.CONFIGURED_AGENT_KEY,
+                    null,
+                    selectionPlan.configuredAgentKey(),
+                    Collections.emptyList()
+            );
+        }
+
+        List<String> attemptedKeys = new ArrayList<>();
+        for (String fallbackKey : safeCopy(selectionPlan.fallbackKeys())) {
+            if (!isNotBlank(fallbackKey)) {
+                continue;
+            }
+            attemptedKeys.add(fallbackKey);
+            try {
+                T client = resolveByAgentKey.apply(fallbackKey);
+                if (client != null) {
+                    return ClientSelectionResult.resolved(
+                            client,
+                            ClientSelectionSource.FALLBACK_AGENT_KEY,
+                            null,
+                            fallbackKey,
+                            attemptedKeys
+                    );
+                }
+            } catch (IllegalStateException ex) {
+                if (!isIgnorableCreateError(ex)) {
+                    throw ex;
+                }
+            }
+        }
+
+        AgentRegistryEntity defaultAgent = resolveDefaultActiveAgent == null ? null : resolveDefaultActiveAgent.get();
+        if (defaultAgent != null && isNotBlank(defaultAgent.getKey())) {
+            attemptedKeys.add(defaultAgent.getKey());
+            try {
+                T client = resolveByAgentKey.apply(defaultAgent.getKey());
+                if (client != null) {
+                    return ClientSelectionResult.resolved(
+                            client,
+                            ClientSelectionSource.DEFAULT_ACTIVE_AGENT,
+                            defaultAgent.getId(),
+                            defaultAgent.getKey(),
+                            attemptedKeys
+                    );
+                }
+            } catch (IllegalStateException ex) {
+                if (!isIgnorableCreateError(ex)) {
+                    throw ex;
+                }
+            }
+        }
+
+        return ClientSelectionResult.unavailable(attemptedKeys);
+    }
+
+    public String joinAgentKeys(List<String> agentKeys) {
+        if (agentKeys == null || agentKeys.isEmpty()) {
+            return "-";
+        }
+        List<String> values = new ArrayList<>();
+        for (String item : agentKeys) {
+            if (isNotBlank(item)) {
+                values.add(item.trim());
+            }
+        }
+        return values.isEmpty() ? "-" : String.join(",", values);
     }
 
     public List<String> parseFallbackAgentKeys(String configuredKeys, String... defaults) {
@@ -142,5 +234,51 @@ public class TaskAgentSelectionDomainService {
     public record SelectionPlan(Long configuredAgentId,
                                 String configuredAgentKey,
                                 List<String> fallbackKeys) {
+    }
+
+    public enum ClientSelectionSource {
+        CONFIGURED_AGENT_ID,
+        CONFIGURED_AGENT_KEY,
+        FALLBACK_AGENT_KEY,
+        DEFAULT_ACTIVE_AGENT,
+        UNAVAILABLE
+    }
+
+    public record ClientSelectionResult<T>(T client,
+                                           ClientSelectionSource source,
+                                           Long selectedAgentId,
+                                           String selectedAgentKey,
+                                           List<String> attemptedAgentKeys) {
+
+        public static <T> ClientSelectionResult<T> resolved(T client,
+                                                            ClientSelectionSource source,
+                                                            Long selectedAgentId,
+                                                            String selectedAgentKey,
+                                                            List<String> attemptedAgentKeys) {
+            return new ClientSelectionResult<>(
+                    client,
+                    source,
+                    selectedAgentId,
+                    selectedAgentKey,
+                    copyList(attemptedAgentKeys)
+            );
+        }
+
+        public static <T> ClientSelectionResult<T> unavailable(List<String> attemptedAgentKeys) {
+            return new ClientSelectionResult<>(
+                    null,
+                    ClientSelectionSource.UNAVAILABLE,
+                    null,
+                    null,
+                    copyList(attemptedAgentKeys)
+            );
+        }
+
+        private static List<String> copyList(List<String> values) {
+            if (values == null || values.isEmpty()) {
+                return Collections.emptyList();
+            }
+            return Collections.unmodifiableList(new ArrayList<>(values));
+        }
     }
 }

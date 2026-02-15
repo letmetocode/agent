@@ -39,7 +39,7 @@ VITE_CHAT_TIMEOUT_MS=90000
 - `/tasks/:taskId`：任务详情（时间轴、中途控制、结果与引用）
 - `/assets/tools`：工具与插件
 - `/assets/knowledge`：知识库列表
-- `/assets/knowledge/:kbId`：知识库详情与检索测试
+- `/assets/knowledge/:kbId`：知识库详情与检索测试入口（未接入真实召回链路时返回明确提示）
 - `/observability/overview`：监控总览
 - `/observability/logs`：日志检索
 - `/settings/profile`：个人设置
@@ -58,7 +58,7 @@ VITE_CHAT_TIMEOUT_MS=90000
 - 任务详情中途控制（暂停/继续/取消/失败重试）
 - 任务结果导出（Markdown/JSON）与分享链接生成、管理、批量失效
 - 日志分页检索（level/taskId/traceId/keyword）
-- 知识库文档详情与检索测试
+- 知识库文档详情与检索测试入口（mock 返回已下线）
 - 监控总览 P95/P99/慢任务/SLA 指标展示
 - Workflow Draft 页面支持 SOP 图形化编排（节点拖拽、依赖连线、策略编辑、编译预览、保存）
 - 告警阈值与触发逻辑在后端监控系统固化（Prometheus 规则），前端仅负责展示与跳转排障入口。
@@ -96,7 +96,7 @@ VITE_CHAT_TIMEOUT_MS=90000
   - `GET /api/agents/vector-stores`
   - `GET /api/knowledge-bases/{id}`
   - `GET /api/knowledge-bases/{id}/documents`
-  - `POST /api/knowledge-bases/{id}/retrieval-tests`
+  - `POST /api/knowledge-bases/{id}/retrieval-tests`（当前未接入真实召回链路，返回“未实现”提示）
 - Workflow 治理：
   - `GET /api/workflows/drafts`
   - `GET /api/workflows/drafts/{id}`

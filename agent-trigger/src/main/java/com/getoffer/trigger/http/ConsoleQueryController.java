@@ -26,7 +26,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -333,26 +332,7 @@ public class ConsoleQueryController {
         if (query.isEmpty()) {
             return illegal("检索问题不能为空");
         }
-
-        List<Map<String, Object>> results = new ArrayList<>();
-        String collectionName = entity.getCollectionName() == null ? "default" : entity.getCollectionName();
-        for (int idx = 0; idx < 3; idx++) {
-            Map<String, Object> item = new HashMap<>();
-            item.put("title", String.format("%s-doc-%d", collectionName, idx + 1));
-            item.put("snippet", String.format("针对问题“%s”的候选片段 %d", query, idx + 1));
-            item.put("score", Math.max(0.55, 0.92 - (idx * 0.14)));
-            item.put("source", entity.getName());
-            item.put("mock", true);
-            results.add(item);
-        }
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("query", query);
-        result.put("total", results.size());
-        result.put("results", results);
-        result.put("testedAt", LocalDateTime.now());
-        result.put("mock", true);
-        return success(result);
+        return illegal("检索测试能力尚未接入真实召回链路，请先完成知识库检索引擎配置后再试");
     }
 
     private Map<String, Object> toLogItem(PlanTaskEventEntity event) {

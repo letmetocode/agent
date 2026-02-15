@@ -4,9 +4,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.getoffer.trigger.http.ObservabilityAlertCatalogController;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import java.nio.charset.StandardCharsets;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -39,9 +42,34 @@ public class ObservabilityAlertCatalogControllerTest {
 
     @Test
     public void shouldReplaceDashboardPlaceholderByEnvBaseUrl() throws Exception {
+        String catalogWithPlaceholder = """
+                [
+                  {
+                    "module": "planner",
+                    "alertName": "PlannerFallbackRatioCriticalProd",
+                    "severity": "critical",
+                    "env": "prod",
+                    "summary": "Planner fallback 比例持续偏高",
+                    "ruleFile": "docs/dev-ops/observability/prometheus/planner-alert-rules.yml",
+                    "runbook": "docs/dev-ops/observability/planner-alert-runbook.md",
+                    "dashboard": "TODO: replace-with-prod-dashboard-url"
+                  },
+                  {
+                    "module": "planner",
+                    "alertName": "PlannerFallbackSpikeWarningStaging",
+                    "severity": "warning",
+                    "env": "staging",
+                    "summary": "Planner fallback 绝对值升高",
+                    "ruleFile": "docs/dev-ops/observability/prometheus/planner-alert-rules.yml",
+                    "runbook": "docs/dev-ops/observability/planner-alert-runbook.md",
+                    "dashboard": "TODO: replace-with-staging-dashboard-url"
+                  }
+                ]
+                """;
+
         ObservabilityAlertCatalogController controller = new ObservabilityAlertCatalogController(
                 new ObjectMapper(),
-                new ClassPathResource("observability/alert-catalog.json"),
+                new ByteArrayResource(catalogWithPlaceholder.getBytes(StandardCharsets.UTF_8)),
                 "https://grafana.prod.example.com/d/ops",
                 "https://grafana.staging.example.com/d/ops"
         );

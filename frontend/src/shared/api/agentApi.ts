@@ -183,7 +183,9 @@ export const agentApi = {
     unwrap(await http.get<ApiResponse<KnowledgeDocumentDTO[]>>(`/api/knowledge-bases/${kbId}/documents`)),
 
   testKnowledgeRetrieval: async (kbId: number, query: string) =>
-    unwrap(await http.post<ApiResponse<RetrievalTestResponseDTO>>(`/api/knowledge-bases/${kbId}/retrieval-tests`, { query })),
+    unwrapWithCodeCheck(
+      await http.post<ApiResponse<RetrievalTestResponseDTO>>(`/api/knowledge-bases/${kbId}/retrieval-tests`, { query })
+    ),
 
   getLogsPaged: async (params?: {
     planId?: number;

@@ -1,4 +1,6 @@
-# 本地依赖编排（PostgreSQL + Redis）
+# 本地依赖编排（PostgreSQL + Redis 预留）
+# 说明：截至 2026-02，主业务链路（会话/规划/执行/SSE）未依赖 Redis；
+# Redis 与 Redis Commander 作为缓存能力预留组件保留在编排中。
 # 启动命令：
 #   docker compose --env-file docs/dev-ops/.env -f docs/dev-ops/docker-compose-environment.yml up -d
 name: ${COMPOSE_PROJECT_NAME:-agent-local}
@@ -47,6 +49,7 @@ services:
       - agent-network
 
   redis:
+    # 缓存能力预留（当前主业务路径未使用）
     image: ${REDIS_IMAGE:-redis:7.2-alpine}
     restart: unless-stopped
     environment:
@@ -66,6 +69,7 @@ services:
       - agent-network
 
   redis-admin:
+    # Redis 预留能力的可视化运维入口
     image: ${REDIS_COMMANDER_IMAGE:-spryker/redis-commander:0.8.0}
     restart: unless-stopped
     profiles:

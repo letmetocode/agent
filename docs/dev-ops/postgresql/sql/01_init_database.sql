@@ -266,7 +266,7 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
 
     status              task_status_enum NOT NULL DEFAULT 'PENDING',
 
-    -- DAG 依赖控制
+    -- Workflow Graph 依赖控制（历史术语：DAG）
     dependency_node_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
 
     -- 上下文与配置

@@ -29,10 +29,16 @@
 - 会话规则下沉：`SessionConversationDomainService`（标题/Agent 默认选择/上下文组装/错误语义）。
 - 终态收敛规则下沉：`PlanFinalizationDomainService`（Plan->Turn 终态映射与输出汇总）。
 - Plan 聚合状态推进下沉：`PlanTransitionDomainService`（Task 统计 -> Plan 状态迁移）。
+- Root 降级策略下沉：`PlannerFallbackPolicyDomainService`（重试判定、fallbackReason 归一、指标标签规范化）。
 - Task 持久化策略下沉：`TaskPersistencePolicyDomainService`（乐观锁冲突识别、重试判定、错误归一化）。
 - Task 持久化写用例收口：`TaskPersistenceApplicationService`（claimed update / execution save / plan context retry）。
 - 调度依赖策略接口化：`TaskDependencyPolicy` + `TaskDependencyPolicyDomainService`（PENDING 依赖判定规则）。
 - job 壳层化收口：`TaskScheduleApplicationService`（TaskScheduler 编排）与 `PlanStatusSyncApplicationService`（PlanStatus 编排）。
+- 执行链路分层第一步：`TaskExecutor` 负责 claim/dispatch 协调，`TaskExecutionRunner` 负责单任务执行流程。
+- 执行支持接口分组：`TaskExecutionRunner.ExecutionSupport` 按 claim/模型调用/超时/评估/持久化事件拆分子接口，降低执行链路耦合度。
+- 执行支持适配器独立化：`TaskExecutionSupportAdapter` 从 `TaskExecutor` 内部类抽离为独立类，执行器主类聚焦调度与能力编排。
+- 执行流支持组件化：`TaskExecutionFlowSupport` 承接提示词构造、评估解析、回滚与黑板写回，进一步收敛 `TaskExecutor` 职责。
+- 客户端选路组件化：`TaskExecutionClientResolver` 承接 TaskClient 选路与默认 Agent 缓存（configured/fallback/default），避免执行器内聚合过多运行时选路细节。
 - `trigger.service` 兼容包装类已删除，统一由 `trigger.application` 调用 domain。
 
 
@@ -103,6 +109,10 @@ bash scripts/devops/local-up.sh --with-ops-ui
 # 同时构建并启动应用容器
 bash scripts/devops/local-up.sh --with-app
 ```
+
+Redis 定位说明：
+- Redis / Redis Commander 当前作为缓存能力预留组件保留在本地编排中。
+- 截至 2026-02，主业务链路（会话、规划、执行、SSE）未依赖 Redis 才能运行。
 
 默认端口（可在 `docs/dev-ops/.env` 覆盖）：
 
@@ -320,15 +330,17 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 
 前端 `Workflow Draft` 页面已支持 SOP 图形化编排（节点拖拽、依赖连线、策略编辑、分组批量操作、循环依赖路径定位高亮、自动修复预演、编译预览与保存）。
 
-### Graph DSL v2（SOP 编排）
+### Workflow Graph DSL v2（SOP 编排）
 
 - 治理层单一事实源为 `sopSpec`；执行层使用编译产物 `graphDefinition(version=2)`。
+- 术语约定：历史文档中的 `SOP/DRG/DAG` 在运行时统一映射为 `Workflow Graph`。
 - 发布前会校验 `compileHash` 与当前 Runtime Graph 一致性，不一致则阻断发布并提示重新编译保存。
 - `GraphDslPolicyService` 作为 Graph 规则单源，统一提供 Graph DSL v2 基础校验、`nodeSignature` 计算与 `compileHash` 哈希算法。
 - 当前运行时统一以 `graphDefinition.version = 2` 执行；发布与更新 Draft 时会强校验 `version=2`。
 - 候选 Draft（Root 规划产物）允许版本兼容升级：当仅缺失/非 2 但节点结构可执行时，Planner 会自动补齐为 `version=2`（并补齐缺省 `groups/edges`）。
 - 候选 Draft 结构性非法（如边指向不存在节点）会判定为不可重试错误，Root 规划直接快速降级，避免 3 次无效重试。
 - Root 规划增加软超时（`planner.root.timeout.soft-ms`），超时视为不可重试并直接降级单节点 Draft，缩短入口等待。
+- Root 降级策略统一由 `PlannerFallbackPolicyDomainService` 承载（重试判定、fallbackReason 归一、指标标签规范化）。
 - 最小结构：`{ version, nodes, edges, groups }`，其中 `nodes` 必填，`groups` 可为空数组。
 - 节点/分组可配置依赖汇聚策略：
   - `joinPolicy`: `all | any | quorum`
@@ -404,6 +416,7 @@ bash scripts/perf/run_chat_e2e_baseline.sh
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlannerServiceRootDraftTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=ConversationOrchestratorServiceTest,ChatV3ControllerTest,ChatStreamV3ControllerTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TaskExecutorPlanBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false test`
+  - `mvn -pl agent-app -am -DskipTests=false -Dtest=TaskExecutionRunnerTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=TurnResultServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=SessionConversationDomainServiceTest,PlanFinalizationDomainServiceTest,PlanTransitionDomainServiceTest,TaskExecutionDomainServiceTest,TaskPromptDomainServiceTest,TaskEvaluationDomainServiceTest,TaskRecoveryDomainServiceTest,TaskAgentSelectionDomainServiceTest,TaskBlackboardDomainServiceTest,TaskJsonDomainServiceTest,TaskPersistencePolicyDomainServiceTest,TaskPersistenceApplicationServiceTest,TaskDependencyPolicyDomainServiceTest,TaskScheduleApplicationServiceTest,PlanStatusSyncApplicationServiceTest -Dsurefire.failIfNoSpecifiedTests=false test`
   - `mvn -pl agent-app -am -DskipTests=false -Dtest=PlanStatusDaemonTest -Dsurefire.failIfNoSpecifiedTests=false test`
@@ -424,6 +437,7 @@ Docker 集成测试前置（Docker Desktop on macOS）：
 - 后端冒烟回归：`PlannerServiceRootDraftTest`、`TaskExecutorPlanBoundaryTest`、`TurnResultServiceTest`
 - 前端构建：`frontend` 下 `npm ci && npm run build`
 - Compose 校验：对 `docs/dev-ops/docker-compose-environment.yml` 与 `docker-compose-app.yml` 执行 `docker compose config`
+- Observability 门禁：`bash scripts/devops/observability-gate.sh`（`promtool check/test` + 告警目录 `TODO:` 链接阻断）
 
 ## 术语约定
 

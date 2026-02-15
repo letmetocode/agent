@@ -1,5 +1,7 @@
 # 开发文档索引
 
+> 归档说明：本目录为历史设计快照，不作为当前实施基线。当前基线请以 `docs/01-product-requirements.md`、`docs/02-system-architecture.md`、`docs/03-ui-ux-spec.md`、`docs/04-development-backlog.md` 为准。
+
 本目录已切换为按功能划分的开发文档。  
 每份文档优先说明功能目标、流程图、时序图与具体实现定位，便于开发阶段快速落地。
 

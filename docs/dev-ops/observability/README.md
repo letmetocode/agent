@@ -24,6 +24,16 @@ promtool check rules docs/dev-ops/observability/prometheus/sse-alert-rules.yml
 promtool test rules docs/dev-ops/observability/prometheus/sse-alert-rules.test.yml
 ```
 
+CI 门禁（GitHub Actions）统一执行：
+
+```bash
+bash scripts/devops/observability-gate.sh
+```
+
+门禁包含：
+- 三套 Prometheus 规则 `promtool check/test`
+- 告警目录 `agent-app/src/main/resources/observability/alert-catalog.json` 的 `dashboard` 字段禁止 `TODO:` 占位
+
 ## 发布建议
 
 1. 将规则文件加入 Prometheus `rule_files`。

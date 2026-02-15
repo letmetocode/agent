@@ -35,7 +35,7 @@ jobs:
         run: >
           mvn -B -ntp -pl agent-app -am
           -DskipTests=false
-          -Dtest=PlannerServiceRootDraftTest,TaskExecutorPlanBoundaryTest,TurnResultServiceTest
+          -Dtest=PlannerServiceRootDraftTest,TaskExecutorPlanBoundaryTest,TurnResultServiceTest,ObservabilityAlertCatalogControllerTest,TaskExecutionRunnerTest,PlannerFallbackPolicyDomainServiceTest
           -Dsurefire.failIfNoSpecifiedTests=false
           test
 
@@ -78,3 +78,14 @@ jobs:
         run: |
           docker compose --env-file docs/dev-ops/.env -f docs/dev-ops/docker-compose-environment.yml config > /tmp/compose.environment.rendered.yml
           docker compose --env-file docs/dev-ops/.env -f docs/dev-ops/docker-compose-environment.yml -f docs/dev-ops/docker-compose-app.yml config > /tmp/compose.app.rendered.yml
+
+  observability-gate:
+    name: Observability Rule Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate observability rules and catalog
+        run: bash scripts/devops/observability-gate.sh
