@@ -16,6 +16,7 @@ import com.getoffer.types.enums.MessageRoleEnum;
 import com.getoffer.types.enums.TaskStatusEnum;
 import com.getoffer.types.enums.TurnStatusEnum;
 import com.getoffer.types.enums.WorkflowDefinitionStatusEnum;
+import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -25,6 +26,7 @@ import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
@@ -33,6 +35,7 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.SocketTimeoutException;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -79,8 +82,12 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
     @Autowired
     private ISessionMessageRepository sessionMessageRepository;
 
+    private volatile String accessToken;
+    private volatile Long preparedSessionId;
+
     @Test
     public void shouldFinishPlanAndPushSseEventAfterChatFlow() throws Exception {
+        ensureAuthenticated();
         seedWorkflowDefinition();
 
         ChatResult chat = triggerTurn();
@@ -159,9 +166,12 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
     }
 
     private ChatResult triggerTurn() throws Exception {
+        ensureAuthenticated();
+        Long sessionId = ensureSession("it-user");
         Map<String, Object> request = new HashMap<>();
         request.put("clientMessageId", "it-msg-" + System.nanoTime());
         request.put("userId", "it-user");
+        request.put("sessionId", sessionId);
         request.put("message", "please run integration sse test flow");
 
         ResponseEntity<String> response = postJson("/api/v3/chat/messages", request);
@@ -180,6 +190,9 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
     private ResponseEntity<String> postJson(String path, Object payload) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        if (StringUtils.isNotBlank(accessToken)) {
+            headers.setBearerAuth(accessToken);
+        }
         return restTemplate.postForEntity(
                 "http://127.0.0.1:" + port + path,
                 new HttpEntity<>(payload, headers),
@@ -194,8 +207,10 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
     private Long waitPlanIdByHistory(Long sessionId, Long turnId) throws Exception {
         long deadline = System.currentTimeMillis() + 8000L;
         while (System.currentTimeMillis() <= deadline) {
-            ResponseEntity<String> response = restTemplate.getForEntity(
+            ResponseEntity<String> response = restTemplate.exchange(
                     "http://127.0.0.1:" + port + "/api/v3/chat/sessions/" + sessionId + "/history",
+                    HttpMethod.GET,
+                    authHeaderEntity(),
                     String.class
             );
             JsonNode root = objectMapper.readTree(response.getBody());
@@ -222,10 +237,16 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
                                                     AtomicLong resumedCursor) {
         HttpURLConnection connection = null;
         try {
-            URL url = new URL("http://127.0.0.1:" + port + "/api/v3/chat/sessions/" + sessionId + "/stream?planId=" + planId);
+            String streamUrl = "http://127.0.0.1:" + port + "/api/v3/chat/sessions/" + sessionId
+                    + "/stream?planId=" + planId
+                    + "&accessToken=" + URLEncoder.encode(StringUtils.defaultString(accessToken), StandardCharsets.UTF_8);
+            URL url = new URL(streamUrl);
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             connection.setRequestProperty("Accept", "text/event-stream");
+            if (StringUtils.isNotBlank(accessToken)) {
+                connection.setRequestProperty("Authorization", "Bearer " + accessToken);
+            }
             if (lastEventId != null && lastEventId >= 0L) {
                 connection.setRequestProperty("Last-Event-ID", String.valueOf(lastEventId));
             }
@@ -267,8 +288,10 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
     }
 
     private EventCursorSnapshot collectReplaySnapshot(Long planId) throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity(
+        ResponseEntity<String> response = restTemplate.exchange(
                 "http://127.0.0.1:" + port + "/api/plans/" + planId + "/events?afterEventId=0&limit=500",
+                HttpMethod.GET,
+                authHeaderEntity(),
                 String.class
         );
         Assertions.assertNotNull(response.getBody());
@@ -289,6 +312,53 @@ public class SessionChatPlanSseIntegrationTest extends PostgresIntegrationTestSu
         snapshot.maxEventId = maxEventId;
         snapshot.hasPlanFinished = hasPlanFinished;
         return snapshot;
+    }
+
+    private Long ensureSession(String userId) {
+        if (preparedSessionId != null) {
+            return preparedSessionId;
+        }
+        Long sessionId = jdbcTemplate.queryForObject(
+                "INSERT INTO agent_sessions (user_id, title, agent_key, scenario, is_active, meta_info) " +
+                        "VALUES (?, ?, ?, ?, TRUE, '{}'::jsonb) RETURNING id",
+                Long.class,
+                userId,
+                "it-session",
+                "assistant",
+                "integration"
+        );
+        this.preparedSessionId = sessionId;
+        return sessionId;
+    }
+
+    private void ensureAuthenticated() throws Exception {
+        if (StringUtils.isNotBlank(accessToken)) {
+            return;
+        }
+        Map<String, Object> request = new HashMap<>();
+        request.put("username", "admin");
+        request.put("password", "admin123");
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "http://127.0.0.1:" + port + "/api/auth/login",
+                new HttpEntity<>(request, headers),
+                String.class
+        );
+        Assertions.assertNotNull(response.getBody(), "登录响应不能为空");
+        JsonNode root = objectMapper.readTree(response.getBody());
+        String token = root.path("data").path("token").asText("");
+        Assertions.assertTrue(StringUtils.isNotBlank(token), "登录应返回 accessToken");
+        this.accessToken = token;
+    }
+
+    private HttpEntity<Void> authHeaderEntity() {
+        HttpHeaders headers = new HttpHeaders();
+        if (StringUtils.isNotBlank(accessToken)) {
+            headers.setBearerAuth(accessToken);
+        }
+        return new HttpEntity<>(headers);
     }
 
     private static final class ChatResult {

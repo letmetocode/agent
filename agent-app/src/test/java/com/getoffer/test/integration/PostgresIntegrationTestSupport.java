@@ -9,17 +9,20 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.MountableFile;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public abstract class PostgresIntegrationTestSupport {
 
+    private static final String PROD_INIT_SQL_RELATIVE_PATH = "docs/dev-ops/postgresql/sql/01_init_database.sql";
+
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("agent_it")
-            .withUsername("postgres")
-            .withPassword("postgres")
-            .withInitScript("sql/integration-schema.sql");
+    static final PostgreSQLContainer<?> POSTGRES = createPostgresContainer();
 
     static {
         bridgeDockerApiVersionFromEnv();
@@ -64,6 +67,29 @@ public abstract class PostgresIntegrationTestSupport {
 
     @BeforeEach
     void truncateTables() {
-        jdbcTemplate.execute("TRUNCATE TABLE plan_task_events, task_executions, task_share_links, session_messages, session_turns, agent_tasks, agent_plans, routing_decisions, workflow_drafts, workflow_definitions, agent_sessions RESTART IDENTITY CASCADE");
+        jdbcTemplate.execute("TRUNCATE TABLE quality_evaluation_events, plan_task_events, task_executions, task_share_links, session_messages, session_turns, agent_tasks, agent_plans, routing_decisions, workflow_drafts, workflow_definitions, agent_sessions RESTART IDENTITY CASCADE");
+    }
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        Path initSql = resolveProdInitSqlPath();
+        return new PostgreSQLContainer<>("postgres:16-alpine")
+                .withDatabaseName("agent_it")
+                .withUsername("postgres")
+                .withPassword("postgres")
+                .withCopyFileToContainer(
+                        MountableFile.forHostPath(initSql.toAbsolutePath()),
+                        "/docker-entrypoint-initdb.d/01_init_database.sql");
+    }
+
+    private static Path resolveProdInitSqlPath() {
+        Path current = Paths.get(System.getProperty("user.dir")).toAbsolutePath();
+        for (int i = 0; i < 8 && current != null; i++) {
+            Path candidate = current.resolve(PROD_INIT_SQL_RELATIVE_PATH);
+            if (Files.exists(candidate) && Files.isRegularFile(candidate)) {
+                return candidate;
+            }
+            current = current.getParent();
+        }
+        throw new IllegalStateException("Cannot locate production init sql: " + PROD_INIT_SQL_RELATIVE_PATH);
     }
 }

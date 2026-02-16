@@ -98,7 +98,7 @@ Schema 基线漂移检查（建议在提交前执行）：
 bash scripts/devops/check-schema-drift.sh
 ```
 
-该脚本会校验 `01_init_database.sql` 与 `integration-schema.sql` 中 `CREATE TYPE/CREATE TABLE` 名称集合是否一致，不一致时以非 0 退出并输出差异。
+该脚本会校验集成测试初始化链路是否直接引用 `01_init_database.sql`，并阻断 `integration-schema.sql` 旧双份 schema 文件残留。
 
 ### 1.5) 启动本地依赖（推荐）
 

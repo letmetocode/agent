@@ -146,9 +146,11 @@ public class TaskClaimRepositoryIntegrationTest extends PostgresIntegrationTestS
     }
 
     private AgentPlanEntity savePlan(PlanStatusEnum status) {
+        Long sessionId = saveSession();
+        Long routeDecisionId = saveRoutingDecision(sessionId);
         AgentPlanEntity plan = new AgentPlanEntity();
-        plan.setSessionId(1L);
-        plan.setRouteDecisionId(1L);
+        plan.setSessionId(sessionId);
+        plan.setRouteDecisionId(routeDecisionId);
         plan.setPlanGoal("it-plan-" + status.name());
         plan.setExecutionGraph(Collections.singletonMap("nodes", Collections.emptyList()));
         plan.setDefinitionSnapshot(Collections.singletonMap("routeType", "IT_TEST"));
@@ -174,6 +176,27 @@ public class TaskClaimRepositoryIntegrationTest extends PostgresIntegrationTestS
         task.setExecutionAttempt(0);
         task.setVersion(0);
         return agentTaskRepository.save(task);
+    }
+
+    private Long saveSession() {
+        return jdbcTemplate.queryForObject(
+                "INSERT INTO agent_sessions (user_id, title, agent_key, scenario, is_active, meta_info) " +
+                        "VALUES (?, ?, ?, ?, TRUE, '{}'::jsonb) RETURNING id",
+                Long.class,
+                "it-user",
+                "it-session",
+                "assistant",
+                "integration"
+        );
+    }
+
+    private Long saveRoutingDecision(Long sessionId) {
+        return jdbcTemplate.queryForObject(
+                "INSERT INTO routing_decisions (session_id, decision_type, strategy, reason, metadata) " +
+                        "VALUES (?, 'FALLBACK', 'IT_BASELINE', 'integration baseline decision', '{}'::jsonb) RETURNING id",
+                Long.class,
+                sessionId
+        );
     }
 
     private Set<Long> toIdSet(List<AgentTaskEntity> tasks) {
