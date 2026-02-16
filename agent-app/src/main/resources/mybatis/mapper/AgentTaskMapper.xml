@@ -113,6 +113,75 @@
         ORDER BY created_at ASC
     </select>
 
+    <select id="countAll" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM agent_tasks
+    </select>
+
+    <select id="countByStatus" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM agent_tasks
+        WHERE status = #{status}::task_status_enum
+    </select>
+
+    <select id="selectRecent" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tasks
+        ORDER BY updated_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectRecentByStatus" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tasks
+        WHERE status = #{status}::task_status_enum
+        ORDER BY updated_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <sql id="Task_Filter_Where">
+        <where>
+            <if test="planId != null">
+                AND plan_id = #{planId}
+            </if>
+            <if test="status != null">
+                AND status = #{status}::task_status_enum
+            </if>
+            <if test="planIds != null and planIds.size > 0">
+                AND plan_id IN
+                <foreach collection="planIds" item="item" open="(" separator="," close=")">
+                    #{item}
+                </foreach>
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    LOWER(COALESCE(name, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+                    OR LOWER(COALESCE(node_id, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+                    OR LOWER(COALESCE(output_result, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+                    OR LOWER(COALESCE(claim_owner, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+                    OR LOWER(COALESCE(CAST(status AS TEXT), '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+                    OR LOWER(COALESCE(CAST(task_type AS TEXT), '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+                    OR CAST(id AS TEXT) LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+        </where>
+    </sql>
+
+    <select id="countByFilters" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM agent_tasks
+        <include refid="Task_Filter_Where"/>
+    </select>
+
+    <select id="selectByFiltersPaged" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tasks
+        <include refid="Task_Filter_Where"/>
+        ORDER BY updated_at DESC, id DESC
+        OFFSET #{offset}
+        LIMIT #{limit}
+    </select>
+
     <select id="selectReadyTasks" resultMap="BaseResultMap">
         SELECT <include refid="Base_Column_List"/>
         FROM agent_tasks

@@ -11,8 +11,11 @@ import com.getoffer.types.enums.TaskStatusEnum;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 
-import java.util.List;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -140,6 +143,78 @@ public class AgentTaskRepositoryImpl implements IAgentTaskRepository {
     @Override
     public List<AgentTaskEntity> findByStatus(TaskStatusEnum status) {
         return agentTaskDao.selectByStatus(status).stream()
+                .map(this::toEntity)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public long countAll() {
+        Long count = agentTaskDao.countAll();
+        return count == null ? 0L : count;
+    }
+
+    @Override
+    public long countByStatus(TaskStatusEnum status) {
+        if (status == null) {
+            return 0L;
+        }
+        Long count = agentTaskDao.countByStatus(status);
+        return count == null ? 0L : count;
+    }
+
+    @Override
+    public List<AgentTaskEntity> findRecent(int limit) {
+        if (limit <= 0) {
+            return Collections.emptyList();
+        }
+        return agentTaskDao.selectRecent(limit).stream()
+                .map(this::toEntity)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<AgentTaskEntity> findRecentByStatus(TaskStatusEnum status, int limit) {
+        if (status == null || limit <= 0) {
+            return Collections.emptyList();
+        }
+        return agentTaskDao.selectRecentByStatus(status, limit).stream()
+                .map(this::toEntity)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public long countByFilters(TaskStatusEnum status, String keyword, Long planId, List<Long> planIds) {
+        List<Long> scopedPlanIds = normalizePlanIds(planIds);
+        if (planIds != null && scopedPlanIds.isEmpty()) {
+            return 0L;
+        }
+        Long count = agentTaskDao.countByFilters(status, normalizeKeyword(keyword), planId, scopedPlanIds);
+        return count == null ? 0L : count;
+    }
+
+    @Override
+    public List<AgentTaskEntity> findByFiltersPaged(TaskStatusEnum status,
+                                                    String keyword,
+                                                    Long planId,
+                                                    List<Long> planIds,
+                                                    int offset,
+                                                    int limit) {
+        if (limit <= 0) {
+            return Collections.emptyList();
+        }
+        List<Long> scopedPlanIds = normalizePlanIds(planIds);
+        if (planIds != null && scopedPlanIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        int safeOffset = Math.max(0, offset);
+        return agentTaskDao.selectByFiltersPaged(
+                        status,
+                        normalizeKeyword(keyword),
+                        planId,
+                        scopedPlanIds,
+                        safeOffset,
+                        limit
+                ).stream()
                 .map(this::toEntity)
                 .collect(Collectors.toList());
     }
@@ -343,5 +418,24 @@ public class AgentTaskRepositoryImpl implements IAgentTaskRepository {
                 .runningLikeCount(po.getRunningLikeCount())
                 .terminalCount(po.getTerminalCount())
                 .build();
+    }
+
+    private String normalizeKeyword(String keyword) {
+        if (keyword == null) {
+            return null;
+        }
+        String normalized = keyword.trim().toLowerCase(Locale.ROOT);
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private List<Long> normalizePlanIds(List<Long> planIds) {
+        if (planIds == null) {
+            return null;
+        }
+        List<Long> normalized = planIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toCollection(ArrayList::new));
+        return normalized.isEmpty() ? Collections.emptyList() : normalized;
     }
 }

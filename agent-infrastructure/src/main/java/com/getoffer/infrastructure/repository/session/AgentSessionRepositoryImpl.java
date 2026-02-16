@@ -8,7 +8,9 @@ import com.getoffer.infrastructure.util.JsonCodec;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
@@ -111,12 +113,57 @@ public class AgentSessionRepositoryImpl implements IAgentSessionRepository {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public long countAll() {
+        Long count = agentSessionDao.countAll();
+        return count == null ? 0L : count;
+    }
+
+    @Override
+    public long countByActive(Boolean isActive) {
+        if (isActive == null) {
+            return 0L;
+        }
+        Long count = agentSessionDao.countByActive(isActive);
+        return count == null ? 0L : count;
+    }
+
     /**
      * 按启用状态查询。
      */
     @Override
     public List<AgentSessionEntity> findByActive(Boolean isActive) {
         return agentSessionDao.selectByActive(isActive).stream()
+                .map(this::toEntity)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public long countByUserIdAndFilters(String userId, Boolean activeOnly, String keyword) {
+        if (userId == null || userId.trim().isEmpty()) {
+            return 0L;
+        }
+        Long count = agentSessionDao.countByUserIdAndFilters(userId, activeOnly, normalizeKeyword(keyword));
+        return count == null ? 0L : count;
+    }
+
+    @Override
+    public List<AgentSessionEntity> findByUserIdAndFiltersPaged(String userId,
+                                                                Boolean activeOnly,
+                                                                String keyword,
+                                                                int offset,
+                                                                int limit) {
+        if (userId == null || userId.trim().isEmpty() || limit <= 0) {
+            return Collections.emptyList();
+        }
+        int safeOffset = Math.max(0, offset);
+        return agentSessionDao.selectByUserIdAndFiltersPaged(
+                        userId,
+                        activeOnly,
+                        normalizeKeyword(keyword),
+                        safeOffset,
+                        limit
+                ).stream()
                 .map(this::toEntity)
                 .collect(Collectors.toList());
     }
@@ -176,5 +223,13 @@ public class AgentSessionRepositoryImpl implements IAgentSessionRepository {
         }
 
         return po;
+    }
+
+    private String normalizeKeyword(String keyword) {
+        if (keyword == null) {
+            return null;
+        }
+        String normalized = keyword.trim().toLowerCase(Locale.ROOT);
+        return normalized.isEmpty() ? null : normalized;
     }
 }

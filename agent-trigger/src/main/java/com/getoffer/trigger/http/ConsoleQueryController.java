@@ -35,7 +35,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * 控制台分页查询与知识库详情 API。
@@ -78,37 +77,23 @@ public class ConsoleQueryController {
         int normalizedPage = page == null ? 1 : Math.max(1, page);
         int normalizedSize = size == null ? 20 : Math.max(1, Math.min(100, size));
         String normalizedKeyword = normalizeKeyword(keyword);
+        int offset = (normalizedPage - 1) * normalizedSize;
 
-        List<AgentSessionEntity> source = Boolean.TRUE.equals(activeOnly)
-                ? agentSessionRepository.findActiveByUserId(userId)
-                : agentSessionRepository.findByUserId(userId);
-        List<AgentSessionEntity> sessions = source == null ? Collections.emptyList() : source;
-
-        if (!normalizedKeyword.isEmpty()) {
-            sessions = sessions.stream()
-                    .filter(item -> String.valueOf(item.getId()).contains(normalizedKeyword)
-                            || safeText(item.getTitle()).toLowerCase(Locale.ROOT).contains(normalizedKeyword))
-                    .collect(Collectors.toList());
+        long totalCount = agentSessionRepository.countByUserIdAndFilters(userId, activeOnly, normalizedKeyword);
+        if (totalCount <= 0) {
+            return success(pagedResult(normalizedPage, normalizedSize, 0, Collections.emptyList()));
         }
-
-        sessions = sessions.stream()
-                .sorted(Comparator.comparing(AgentSessionEntity::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
-                .collect(Collectors.toList());
-
-        int total = sessions.size();
-        int fromIndex = Math.min((normalizedPage - 1) * normalizedSize, total);
-        int toIndex = Math.min(fromIndex + normalizedSize, total);
-        List<SessionDetailDTO> items = sessions.subList(fromIndex, toIndex).stream()
+        List<AgentSessionEntity> sessions = agentSessionRepository.findByUserIdAndFiltersPaged(
+                userId,
+                activeOnly,
+                normalizedKeyword,
+                offset,
+                normalizedSize
+        );
+        List<SessionDetailDTO> items = (sessions == null ? Collections.<AgentSessionEntity>emptyList() : sessions).stream()
                 .map(this::toSessionDetailDTO)
                 .collect(Collectors.toList());
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("items", items);
-        result.put("page", normalizedPage);
-        result.put("size", normalizedSize);
-        result.put("total", total);
-        result.put("totalPages", total == 0 ? 0 : (int) Math.ceil(total / (double) normalizedSize));
-        return success(result);
+        return success(pagedResult(normalizedPage, normalizedSize, toSafeTotal(totalCount), items));
     }
 
     @GetMapping("/tasks/paged")
@@ -121,57 +106,46 @@ public class ConsoleQueryController {
             @RequestParam(value = "size", required = false) Integer size) {
         int normalizedPage = page == null ? 1 : Math.max(1, page);
         int normalizedSize = size == null ? 20 : Math.max(1, Math.min(100, size));
-
-        List<AgentTaskEntity> tasks;
-        if (planId != null) {
-            tasks = agentTaskRepository.findByPlanId(planId);
-        } else {
-            TaskStatusEnum status = parseTaskStatus(statusText);
-            tasks = status == null ? agentTaskRepository.findAll() : agentTaskRepository.findByStatus(status);
-        }
-
-        if (tasks == null || tasks.isEmpty()) {
-            return success(pagedResult(normalizedPage, normalizedSize, 0, Collections.emptyList()));
-        }
+        int offset = (normalizedPage - 1) * normalizedSize;
+        TaskStatusEnum status = parseTaskStatus(statusText);
+        String normalizedKeyword = normalizeKeyword(keyword);
+        List<Long> scopedPlanIds = null;
 
         if (sessionId != null) {
             List<AgentPlanEntity> sessionPlans = agentPlanRepository.findBySessionId(sessionId);
             if (sessionPlans == null || sessionPlans.isEmpty()) {
                 return success(pagedResult(normalizedPage, normalizedSize, 0, Collections.emptyList()));
             }
-            List<Long> sessionPlanIds = sessionPlans.stream()
+            scopedPlanIds = sessionPlans.stream()
                     .map(AgentPlanEntity::getId)
                     .filter(Objects::nonNull)
+                    .distinct()
                     .collect(Collectors.toList());
-            tasks = tasks.stream()
-                    .filter(task -> sessionPlanIds.contains(task.getPlanId()))
-                    .collect(Collectors.toList());
+            if (scopedPlanIds.isEmpty()) {
+                return success(pagedResult(normalizedPage, normalizedSize, 0, Collections.emptyList()));
+            }
         }
 
-        String normalizedKeyword = normalizeKeyword(keyword);
-        if (!normalizedKeyword.isEmpty()) {
-            tasks = tasks.stream()
-                    .filter(task -> containsTaskKeyword(task, normalizedKeyword))
-                    .collect(Collectors.toList());
+        long totalCount = agentTaskRepository.countByFilters(status, normalizedKeyword, planId, scopedPlanIds);
+        if (totalCount <= 0) {
+            return success(pagedResult(normalizedPage, normalizedSize, 0, Collections.emptyList()));
         }
 
-        List<AgentTaskEntity> sorted = tasks.stream()
-                .sorted(Comparator
-                        .comparing(AgentTaskEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
-                        .thenComparing(AgentTaskEntity::getId, Comparator.nullsLast(Comparator.reverseOrder())))
-                .collect(Collectors.toList());
-
-        int total = sorted.size();
-        int fromIndex = Math.min((normalizedPage - 1) * normalizedSize, total);
-        int toIndex = Math.min(fromIndex + normalizedSize, total);
-
-        List<AgentTaskEntity> pagedTasks = sorted.subList(fromIndex, toIndex);
-        Map<Long, Long> latestExecutionTimeMap = taskDetailViewAssembler.resolveLatestExecutionTimeMap(pagedTasks);
-        List<TaskDetailDTO> items = pagedTasks.stream()
+        List<AgentTaskEntity> pagedTasks = agentTaskRepository.findByFiltersPaged(
+                status,
+                normalizedKeyword,
+                planId,
+                scopedPlanIds,
+                offset,
+                normalizedSize
+        );
+        List<AgentTaskEntity> taskItems = pagedTasks == null ? Collections.emptyList() : pagedTasks;
+        Map<Long, Long> latestExecutionTimeMap = taskDetailViewAssembler.resolveLatestExecutionTimeMap(taskItems);
+        List<TaskDetailDTO> items = taskItems.stream()
                 .map(task -> taskDetailViewAssembler.toTaskDetailDTO(task, latestExecutionTimeMap))
                 .collect(Collectors.toList());
 
-        return success(pagedResult(normalizedPage, normalizedSize, total, items));
+        return success(pagedResult(normalizedPage, normalizedSize, toSafeTotal(totalCount), items));
     }
 
     @GetMapping("/logs/paged")
@@ -368,18 +342,6 @@ public class ConsoleQueryController {
         return EventLevel.INFO;
     }
 
-    private boolean containsTaskKeyword(AgentTaskEntity task, String keyword) {
-        String joined = String.format("%s %s %s %s %s %s",
-                safeText(task.getName()),
-                safeText(task.getNodeId()),
-                task.getTaskType() == null ? "" : task.getTaskType().name(),
-                safeText(task.getOutputResult()),
-                safeText(task.getClaimOwner()),
-                task.getStatus() == null ? "" : task.getStatus().name())
-                .toLowerCase(Locale.ROOT);
-        return joined.contains(keyword);
-    }
-
     private TaskStatusEnum parseTaskStatus(String statusText) {
         String normalized = normalizeKeyword(statusText).toUpperCase(Locale.ROOT);
         if (normalized.isEmpty()) {
@@ -401,10 +363,6 @@ public class ConsoleQueryController {
         return "INFO".equals(level) || "WARN".equals(level) || "ERROR".equals(level);
     }
 
-    private String safeText(String text) {
-        return text == null ? "" : text;
-    }
-
     private Map<String, Object> pagedResult(int page, int size, int total, List<?> items) {
         Map<String, Object> result = new HashMap<>();
         result.put("items", items);
@@ -413,6 +371,10 @@ public class ConsoleQueryController {
         result.put("total", total);
         result.put("totalPages", total == 0 ? 0 : (int) Math.ceil(total / (double) size));
         return result;
+    }
+
+    private int toSafeTotal(long total) {
+        return total > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) total;
     }
 
     private SessionDetailDTO toSessionDetailDTO(AgentSessionEntity session) {

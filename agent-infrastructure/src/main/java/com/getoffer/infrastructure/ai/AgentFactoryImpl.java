@@ -27,6 +27,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -155,6 +156,14 @@ public class AgentFactoryImpl implements IAgentFactory {
 
     @Override
     public ChatClient createAgent(String agentKey, String conversationId, String systemPromptSuffix) {
+        return createAgent(agentKey, conversationId, systemPromptSuffix, null);
+    }
+
+    @Override
+    public ChatClient createAgent(String agentKey,
+                                  String conversationId,
+                                  String systemPromptSuffix,
+                                  Map<String, Object> toolPolicy) {
         if (StringUtils.isBlank(agentKey)) {
             throw new IllegalArgumentException("agentKey cannot be blank");
         }
@@ -162,11 +171,19 @@ public class AgentFactoryImpl implements IAgentFactory {
         if (agentProfile == null) {
             throw new IllegalStateException("Agent not found: " + agentKey);
         }
-        return createAgent(agentProfile, conversationId, systemPromptSuffix);
+        return createAgent(agentProfile, conversationId, systemPromptSuffix, toolPolicy);
     }
 
     @Override
     public ChatClient createAgent(Long agentId, String conversationId, String systemPromptSuffix) {
+        return createAgent(agentId, conversationId, systemPromptSuffix, null);
+    }
+
+    @Override
+    public ChatClient createAgent(Long agentId,
+                                  String conversationId,
+                                  String systemPromptSuffix,
+                                  Map<String, Object> toolPolicy) {
         if (agentId == null) {
             throw new IllegalArgumentException("agentId cannot be null");
         }
@@ -174,11 +191,19 @@ public class AgentFactoryImpl implements IAgentFactory {
         if (agentProfile == null) {
             throw new IllegalStateException("Agent not found: " + agentId);
         }
-        return createAgent(agentProfile, conversationId, systemPromptSuffix);
+        return createAgent(agentProfile, conversationId, systemPromptSuffix, toolPolicy);
     }
 
     @Override
     public ChatClient createAgent(AgentRegistryEntity agent, String conversationId, String systemPromptSuffix) {
+        return createAgent(agent, conversationId, systemPromptSuffix, null);
+    }
+
+    @Override
+    public ChatClient createAgent(AgentRegistryEntity agent,
+                                  String conversationId,
+                                  String systemPromptSuffix,
+                                  Map<String, Object> toolPolicy) {
         if (agent == null) {
             throw new IllegalArgumentException("agent cannot be null");
         }
@@ -188,7 +213,8 @@ public class AgentFactoryImpl implements IAgentFactory {
             throw new IllegalStateException("Agent is inactive: " + agentProfile.getKey());
         }
 
-        ResolvedTools tools = resolveTools(agentProfile.getId());
+        ToolPolicy resolvedPolicy = resolveToolPolicy(toolPolicy);
+        ResolvedTools tools = resolveTools(agentProfile.getId(), resolvedPolicy);
         Map<String, Object> toolContext = buildToolContext(agentProfile, conversationId);
         ChatOptions options = buildChatOptions(agentProfile);
         if (legacyOptionsToolWrite && options instanceof OpenAiChatOptions) {
@@ -216,6 +242,13 @@ public class AgentFactoryImpl implements IAgentFactory {
         }
         if (!advisors.isEmpty()) {
             builder.defaultAdvisors(advisors);
+        }
+        if (resolvedPolicy.active()) {
+            log.info("Agent tool policy applied. agentKey={}, mode={}, allowedCount={}, blockedCount={}",
+                    agentProfile.getKey(),
+                    resolvedPolicy.mode(),
+                    resolvedPolicy.allowedToolNames().size(),
+                    resolvedPolicy.blockedToolNames().size());
         }
         return builder.build();
     }
@@ -356,7 +389,7 @@ public class AgentFactoryImpl implements IAgentFactory {
     /**
      * 解析工具。
      */
-    private ResolvedTools resolveTools(Long agentId) {
+    private ResolvedTools resolveTools(Long agentId, ToolPolicy toolPolicy) {
         if (agentId == null) {
             return ResolvedTools.empty();
         }
@@ -371,6 +404,10 @@ public class AgentFactoryImpl implements IAgentFactory {
             if (tool == null || !Boolean.TRUE.equals(tool.getIsActive())) {
                 continue;
             }
+            String toolNameForPolicy = resolvePolicyToolName(tool);
+            if (!toolPolicy.allows(toolNameForPolicy)) {
+                continue;
+            }
             ToolTypeEnum toolType = tool.getType();
             if (toolType == ToolTypeEnum.MCP_FUNCTION) {
                 ToolCallback callback = buildMcpToolCallback(tool);
@@ -383,6 +420,9 @@ public class AgentFactoryImpl implements IAgentFactory {
             if (StringUtils.isNotBlank(toolName)) {
                 toolNames.add(toolName);
             }
+        }
+        if (toolPolicy.strict() && toolPolicy.active() && toolNames.isEmpty() && toolCallbacks.isEmpty()) {
+            throw new IllegalStateException("Tool policy filtered out all tools while strict mode is enabled");
         }
         return new ResolvedTools(new ArrayList<>(toolNames), toolCallbacks);
     }
@@ -435,6 +475,16 @@ public class AgentFactoryImpl implements IAgentFactory {
             }
         }
         return tool.getName();
+    }
+
+    private String resolvePolicyToolName(AgentToolCatalogEntity tool) {
+        if (tool == null) {
+            return null;
+        }
+        if (tool.getType() == ToolTypeEnum.MCP_FUNCTION) {
+            return normalizeToolName(tool.getName());
+        }
+        return normalizeToolName(resolveSpringBeanToolName(tool));
     }
 
     /**
@@ -549,6 +599,99 @@ public class AgentFactoryImpl implements IAgentFactory {
         return null;
     }
 
+    private ToolPolicy resolveToolPolicy(Map<String, Object> rawPolicy) {
+        if (rawPolicy == null || rawPolicy.isEmpty()) {
+            return ToolPolicy.none();
+        }
+        String mode = StringUtils.defaultString(getString(rawPolicy, "mode", "policyMode", "policy_mode"), "allowAll")
+                .trim()
+                .toLowerCase(Locale.ROOT);
+        Set<String> allowed = readToolNameSet(rawPolicy,
+                "allowedToolNames", "allowedTools", "allowlist", "allowList", "whitelist");
+        Set<String> blocked = readToolNameSet(rawPolicy,
+                "blockedToolNames", "blockedTools", "blocklist", "blockList", "denylist", "denyList");
+
+        Boolean disabled = getBoolean(rawPolicy, "disabled", "disableAllTools", "disable_all_tools");
+        Boolean strict = getBoolean(rawPolicy, "strict", "enforceStrict", "enforce_strict");
+        if (Boolean.TRUE.equals(disabled)) {
+            mode = "disabled";
+        } else if ("deny".equals(mode) || "denylist".equals(mode)) {
+            mode = "blocklist";
+        } else if ("allow".equals(mode) || "whitelist".equals(mode)) {
+            mode = "allowlist";
+        } else if (!"allowlist".equals(mode) && !"blocklist".equals(mode) && !"disabled".equals(mode)) {
+            mode = "allowAll";
+        }
+        return new ToolPolicy(mode, allowed, blocked, Boolean.TRUE.equals(strict));
+    }
+
+    private Set<String> readToolNameSet(Map<String, Object> source, String... keys) {
+        if (source == null || source.isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<String> names = new LinkedHashSet<>();
+        for (String key : keys) {
+            Object value = source.get(key);
+            if (value == null) {
+                continue;
+            }
+            if (value instanceof List<?> list) {
+                for (Object item : list) {
+                    String normalized = normalizeToolName(item == null ? null : String.valueOf(item));
+                    if (StringUtils.isNotBlank(normalized)) {
+                        names.add(normalized);
+                    }
+                }
+                if (!names.isEmpty()) {
+                    return names;
+                }
+            }
+            if (value instanceof String text) {
+                String[] split = text.split(",");
+                for (String part : split) {
+                    String normalized = normalizeToolName(part);
+                    if (StringUtils.isNotBlank(normalized)) {
+                        names.add(normalized);
+                    }
+                }
+                if (!names.isEmpty()) {
+                    return names;
+                }
+            }
+        }
+        return names;
+    }
+
+    private Boolean getBoolean(Map<String, Object> source, String... keys) {
+        if (source == null || source.isEmpty()) {
+            return null;
+        }
+        for (String key : keys) {
+            Object value = source.get(key);
+            if (value == null) {
+                continue;
+            }
+            if (value instanceof Boolean bool) {
+                return bool;
+            }
+            String text = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
+            if ("true".equals(text) || "1".equals(text) || "yes".equals(text) || "y".equals(text)) {
+                return true;
+            }
+            if ("false".equals(text) || "0".equals(text) || "no".equals(text) || "n".equals(text)) {
+                return false;
+            }
+        }
+        return null;
+    }
+
+    private String normalizeToolName(String value) {
+        if (StringUtils.isBlank(value)) {
+            return null;
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
+    }
+
     /**
      * 工具解析结果
      */
@@ -591,6 +734,64 @@ public class AgentFactoryImpl implements IAgentFactory {
          */
         List<ToolCallback> getToolCallbacks() {
             return toolCallbacks;
+        }
+    }
+
+    private static final class ToolPolicy {
+        private final String mode;
+        private final Set<String> allowedToolNames;
+        private final Set<String> blockedToolNames;
+        private final boolean strict;
+
+        private ToolPolicy(String mode,
+                           Set<String> allowedToolNames,
+                           Set<String> blockedToolNames,
+                           boolean strict) {
+            this.mode = mode;
+            this.allowedToolNames = allowedToolNames == null ? Collections.emptySet() : allowedToolNames;
+            this.blockedToolNames = blockedToolNames == null ? Collections.emptySet() : blockedToolNames;
+            this.strict = strict;
+        }
+
+        static ToolPolicy none() {
+            return new ToolPolicy("allowAll", Collections.emptySet(), Collections.emptySet(), false);
+        }
+
+        boolean allows(String toolName) {
+            if ("disabled".equals(mode)) {
+                return false;
+            }
+            String normalizedName = toolName == null ? null : toolName.trim().toLowerCase(Locale.ROOT);
+            if (normalizedName == null || normalizedName.isEmpty()) {
+                return !"allowlist".equals(mode);
+            }
+            if ("allowlist".equals(mode)) {
+                return allowedToolNames.contains(normalizedName) && !blockedToolNames.contains(normalizedName);
+            }
+            if ("blocklist".equals(mode) && blockedToolNames.contains(normalizedName)) {
+                return false;
+            }
+            return !blockedToolNames.contains(normalizedName);
+        }
+
+        boolean strict() {
+            return strict;
+        }
+
+        boolean active() {
+            return "allowlist".equals(mode) || "blocklist".equals(mode) || "disabled".equals(mode);
+        }
+
+        String mode() {
+            return mode;
+        }
+
+        Set<String> allowedToolNames() {
+            return allowedToolNames;
+        }
+
+        Set<String> blockedToolNames() {
+            return blockedToolNames;
         }
     }
 }

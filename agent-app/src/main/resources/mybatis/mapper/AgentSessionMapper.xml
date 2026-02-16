@@ -66,11 +66,52 @@
         ORDER BY created_at DESC
     </select>
 
+    <select id="countAll" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM agent_sessions
+    </select>
+
+    <select id="countByActive" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM agent_sessions
+        WHERE is_active = #{isActive}
+    </select>
+
     <select id="selectByActive" parameterType="java.lang.Boolean" resultMap="BaseResultMap">
         SELECT <include refid="Base_Column_List"/>
         FROM agent_sessions
         WHERE is_active = #{isActive}
         ORDER BY created_at DESC
+    </select>
+
+    <sql id="Session_User_Filter_Where">
+        WHERE user_id = #{userId}
+        <if test="activeOnly != null and activeOnly">
+            AND is_active = true
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                CAST(id AS TEXT) LIKE CONCAT('%', #{keyword}, '%')
+                OR LOWER(COALESCE(title, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+                OR LOWER(COALESCE(agent_key, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+                OR LOWER(COALESCE(scenario, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+            )
+        </if>
+    </sql>
+
+    <select id="countByUserIdAndFilters" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM agent_sessions
+        <include refid="Session_User_Filter_Where"/>
+    </select>
+
+    <select id="selectByUserIdAndFiltersPaged" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_sessions
+        <include refid="Session_User_Filter_Where"/>
+        ORDER BY created_at DESC, id DESC
+        OFFSET #{offset}
+        LIMIT #{limit}
     </select>
 
     <update id="closeActiveSessionsByUserId" parameterType="java.lang.String">

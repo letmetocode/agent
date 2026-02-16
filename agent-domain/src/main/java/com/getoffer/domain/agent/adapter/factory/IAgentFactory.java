@@ -3,6 +3,8 @@ package com.getoffer.domain.agent.adapter.factory;
 import com.getoffer.domain.agent.model.entity.AgentRegistryEntity;
 import org.springframework.ai.chat.client.ChatClient;
 
+import java.util.Map;
+
 /**
  * Agent 工厂接口。
  * <p>
@@ -53,6 +55,22 @@ public interface IAgentFactory {
     ChatClient createAgent(String agentKey, String conversationId, String systemPromptSuffix);
 
     /**
+     * 根据业务唯一标识创建Agent，追加系统提示词并应用工具策略。
+     *
+     * @param agentKey 业务唯一标识
+     * @param conversationId 会话ID
+     * @param systemPromptSuffix 追加的系统提示词
+     * @param toolPolicy 工具策略（allowlist/blocklist）
+     * @return ChatClient实例
+     */
+    default ChatClient createAgent(String agentKey,
+                                   String conversationId,
+                                   String systemPromptSuffix,
+                                   Map<String, Object> toolPolicy) {
+        return createAgent(agentKey, conversationId, systemPromptSuffix);
+    }
+
+    /**
      * 根据主键ID创建Agent，追加系统提示词。
      *
      * @param agentId Agent主键ID
@@ -63,6 +81,22 @@ public interface IAgentFactory {
     ChatClient createAgent(Long agentId, String conversationId, String systemPromptSuffix);
 
     /**
+     * 根据主键ID创建Agent，追加系统提示词并应用工具策略。
+     *
+     * @param agentId Agent主键ID
+     * @param conversationId 会话ID
+     * @param systemPromptSuffix 追加的系统提示词
+     * @param toolPolicy 工具策略（allowlist/blocklist）
+     * @return ChatClient实例
+     */
+    default ChatClient createAgent(Long agentId,
+                                   String conversationId,
+                                   String systemPromptSuffix,
+                                   Map<String, Object> toolPolicy) {
+        return createAgent(agentId, conversationId, systemPromptSuffix);
+    }
+
+    /**
      * 根据Agent实体创建Agent，追加系统提示词。
      *
      * @param agent Agent实体对象
@@ -71,4 +105,20 @@ public interface IAgentFactory {
      * @return ChatClient实例
      */
     ChatClient createAgent(AgentRegistryEntity agent, String conversationId, String systemPromptSuffix);
+
+    /**
+     * 根据Agent实体创建Agent，追加系统提示词并应用工具策略。
+     *
+     * @param agent Agent实体对象
+     * @param conversationId 会话ID
+     * @param systemPromptSuffix 追加的系统提示词
+     * @param toolPolicy 工具策略（allowlist/blocklist）
+     * @return ChatClient实例
+     */
+    default ChatClient createAgent(AgentRegistryEntity agent,
+                                   String conversationId,
+                                   String systemPromptSuffix,
+                                   Map<String, Object> toolPolicy) {
+        return createAgent(agent, conversationId, systemPromptSuffix);
+    }
 }

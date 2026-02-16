@@ -12,7 +12,6 @@ import com.getoffer.domain.agent.model.entity.VectorStoreRegistryEntity;
 import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.session.adapter.repository.IAgentSessionRepository;
-import com.getoffer.domain.session.model.entity.AgentSessionEntity;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.IPlanTaskEventRepository;
 import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
@@ -31,10 +30,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -175,31 +172,22 @@ public class QueryController {
         int normalizedTaskLimit = taskLimit == null ? 10 : Math.max(1, Math.min(taskLimit, 100));
         int normalizedPlanLimit = planLimit == null ? 10 : Math.max(1, Math.min(planLimit, 100));
 
-        List<AgentTaskEntity> tasks = agentTaskRepository.findAll();
-        List<AgentPlanEntity> plans = agentPlanRepository.findAll();
-        List<AgentSessionEntity> sessions = agentSessionRepository.findAll();
-
-        Map<String, Object> taskStats = buildTaskStats(tasks);
-        Map<String, Object> planStats = buildPlanStats(plans);
+        Map<String, Object> taskStats = buildTaskStats();
+        Map<String, Object> planStats = buildPlanStats();
         Map<String, Object> sessionStats = new HashMap<>();
-        sessionStats.put("total", sessions == null ? 0 : sessions.size());
-        sessionStats.put("active", sessions == null ? 0 : sessions.stream().filter(item -> Boolean.TRUE.equals(item.getIsActive())).count());
+        sessionStats.put("total", agentSessionRepository.countAll());
+        sessionStats.put("active", agentSessionRepository.countByActive(true));
 
-        List<TaskExecutionEntity> executions = taskExecutionRepository.findAll();
-        Map<String, Object> latencyStats = buildLatencyStats(executions);
-        long slowTaskCount = countExecutionsAbove(executions, 30_000L);
-        long slaBreachCount = countExecutionsAbove(executions, 120_000L);
+        Map<String, Long> quantiles = taskExecutionRepository.summarizeLatencyQuantiles();
+        Map<String, Object> latencyStats = new HashMap<>();
+        latencyStats.put("p50", quantiles.getOrDefault("p50", 0L));
+        latencyStats.put("p95", quantiles.getOrDefault("p95", 0L));
+        latencyStats.put("p99", quantiles.getOrDefault("p99", 0L));
+        long slowTaskCount = taskExecutionRepository.countByExecutionTimeAbove(30_000L);
+        long slaBreachCount = taskExecutionRepository.countByExecutionTimeAbove(120_000L);
 
-        List<AgentTaskEntity> recentTaskEntities = (tasks == null ? Collections.<AgentTaskEntity>emptyList() : tasks).stream()
-                .sorted(Comparator.comparing(AgentTaskEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
-                .limit(normalizedTaskLimit)
-                .collect(Collectors.toList());
-
-        List<AgentTaskEntity> recentFailedTaskEntities = (tasks == null ? Collections.<AgentTaskEntity>emptyList() : tasks).stream()
-                .filter(item -> item.getStatus() == TaskStatusEnum.FAILED)
-                .sorted(Comparator.comparing(AgentTaskEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
-                .limit(normalizedTaskLimit)
-                .collect(Collectors.toList());
+        List<AgentTaskEntity> recentTaskEntities = safeList(agentTaskRepository.findRecent(normalizedTaskLimit));
+        List<AgentTaskEntity> recentFailedTaskEntities = safeList(agentTaskRepository.findRecentByStatus(TaskStatusEnum.FAILED, normalizedTaskLimit));
 
         List<AgentTaskEntity> taskProjection = Stream.concat(recentTaskEntities.stream(), recentFailedTaskEntities.stream())
                 .filter(item -> item != null && item.getId() != null)
@@ -216,8 +204,7 @@ public class QueryController {
                 .map(task -> taskDetailViewAssembler.toTaskDetailDTO(task, latestExecutionTimeMap))
                 .collect(Collectors.toList());
 
-        List<PlanSummaryDTO> recentPlans = (plans == null ? Collections.<AgentPlanEntity>emptyList() : plans).stream()
-                .sorted(Comparator.comparing(AgentPlanEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+        List<PlanSummaryDTO> recentPlans = safeList(agentPlanRepository.findRecent(normalizedPlanLimit)).stream()
                 .limit(normalizedPlanLimit)
                 .map(this::toPlanSummaryDTO)
                 .collect(Collectors.toList());
@@ -298,15 +285,17 @@ public class QueryController {
         return dto;
     }
 
-    private Map<String, Object> buildTaskStats(List<AgentTaskEntity> tasks) {
+    private Map<String, Object> buildTaskStats() {
         Map<String, Object> stats = new HashMap<>();
-        long total = tasks == null ? 0L : tasks.size();
-        long pending = countTasks(tasks, TaskStatusEnum.PENDING);
-        long ready = countTasks(tasks, TaskStatusEnum.READY);
-        long running = countTasks(tasks, TaskStatusEnum.RUNNING) + countTasks(tasks, TaskStatusEnum.VALIDATING) + countTasks(tasks, TaskStatusEnum.REFINING);
-        long completed = countTasks(tasks, TaskStatusEnum.COMPLETED);
-        long failed = countTasks(tasks, TaskStatusEnum.FAILED);
-        long skipped = countTasks(tasks, TaskStatusEnum.SKIPPED);
+        long total = agentTaskRepository.countAll();
+        long pending = agentTaskRepository.countByStatus(TaskStatusEnum.PENDING);
+        long ready = agentTaskRepository.countByStatus(TaskStatusEnum.READY);
+        long running = agentTaskRepository.countByStatus(TaskStatusEnum.RUNNING)
+                + agentTaskRepository.countByStatus(TaskStatusEnum.VALIDATING)
+                + agentTaskRepository.countByStatus(TaskStatusEnum.REFINING);
+        long completed = agentTaskRepository.countByStatus(TaskStatusEnum.COMPLETED);
+        long failed = agentTaskRepository.countByStatus(TaskStatusEnum.FAILED);
+        long skipped = agentTaskRepository.countByStatus(TaskStatusEnum.SKIPPED);
         stats.put("total", total);
         stats.put("pending", pending);
         stats.put("ready", ready);
@@ -317,67 +306,22 @@ public class QueryController {
         return stats;
     }
 
-    private Map<String, Object> buildPlanStats(List<AgentPlanEntity> plans) {
+    private Map<String, Object> buildPlanStats() {
         Map<String, Object> stats = new HashMap<>();
-        long total = plans == null ? 0L : plans.size();
+        long total = agentPlanRepository.countAll();
         stats.put("total", total);
-        stats.put("planning", countPlans(plans, PlanStatusEnum.PLANNING));
-        stats.put("ready", countPlans(plans, PlanStatusEnum.READY));
-        stats.put("running", countPlans(plans, PlanStatusEnum.RUNNING));
-        stats.put("paused", countPlans(plans, PlanStatusEnum.PAUSED));
-        stats.put("completed", countPlans(plans, PlanStatusEnum.COMPLETED));
-        stats.put("failed", countPlans(plans, PlanStatusEnum.FAILED));
-        stats.put("cancelled", countPlans(plans, PlanStatusEnum.CANCELLED));
+        stats.put("planning", agentPlanRepository.countByStatus(PlanStatusEnum.PLANNING));
+        stats.put("ready", agentPlanRepository.countByStatus(PlanStatusEnum.READY));
+        stats.put("running", agentPlanRepository.countByStatus(PlanStatusEnum.RUNNING));
+        stats.put("paused", agentPlanRepository.countByStatus(PlanStatusEnum.PAUSED));
+        stats.put("completed", agentPlanRepository.countByStatus(PlanStatusEnum.COMPLETED));
+        stats.put("failed", agentPlanRepository.countByStatus(PlanStatusEnum.FAILED));
+        stats.put("cancelled", agentPlanRepository.countByStatus(PlanStatusEnum.CANCELLED));
         return stats;
     }
 
-    private long countTasks(List<AgentTaskEntity> tasks, TaskStatusEnum status) {
-        if (tasks == null || tasks.isEmpty()) {
-            return 0L;
-        }
-        return tasks.stream().filter(item -> item != null && item.getStatus() == status).count();
-    }
-
-    private long countPlans(List<AgentPlanEntity> plans, PlanStatusEnum status) {
-        if (plans == null || plans.isEmpty()) {
-            return 0L;
-        }
-        return plans.stream().filter(item -> item != null && item.getStatus() == status).count();
-    }
-
-    private Map<String, Object> buildLatencyStats(List<TaskExecutionEntity> executions) {
-        List<Long> times = (executions == null ? Collections.<TaskExecutionEntity>emptyList() : executions).stream()
-                .map(TaskExecutionEntity::getExecutionTimeMs)
-                .filter(Objects::nonNull)
-                .filter(item -> item > 0)
-                .sorted()
-                .collect(Collectors.toList());
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("p50", percentile(times, 0.50));
-        stats.put("p95", percentile(times, 0.95));
-        stats.put("p99", percentile(times, 0.99));
-        return stats;
-    }
-
-    private long countExecutionsAbove(List<TaskExecutionEntity> executions, long thresholdMs) {
-        if (executions == null || executions.isEmpty()) {
-            return 0L;
-        }
-        return executions.stream()
-                .map(TaskExecutionEntity::getExecutionTimeMs)
-                .filter(Objects::nonNull)
-                .filter(item -> item >= thresholdMs)
-                .count();
-    }
-
-    private long percentile(List<Long> sortedValues, double percentile) {
-        if (sortedValues == null || sortedValues.isEmpty()) {
-            return 0L;
-        }
-        int size = sortedValues.size();
-        int index = (int) Math.ceil(percentile * size) - 1;
-        int normalizedIndex = Math.max(0, Math.min(size - 1, index));
-        return sortedValues.get(normalizedIndex);
+    private <T> List<T> safeList(List<T> source) {
+        return source == null ? Collections.emptyList() : source;
     }
 
     private Map<String, Object> toAgentTool(AgentToolCatalogEntity tool) {

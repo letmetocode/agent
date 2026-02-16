@@ -51,9 +51,35 @@ public interface AgentSessionDao {
     List<AgentSessionPO> selectAll();
 
     /**
+     * 统计会话总数。
+     */
+    Long countAll();
+
+    /**
+     * 按激活状态统计会话数量。
+     */
+    Long countByActive(@Param("isActive") Boolean isActive);
+
+    /**
      * 根据激活状态查询
      */
     List<AgentSessionPO> selectByActive(@Param("isActive") Boolean isActive);
+
+    /**
+     * 按用户维度统计会话数量（支持激活态与关键字过滤）。
+     */
+    Long countByUserIdAndFilters(@Param("userId") String userId,
+                                 @Param("activeOnly") Boolean activeOnly,
+                                 @Param("keyword") String keyword);
+
+    /**
+     * 按用户维度分页查询会话（支持激活态与关键字过滤）。
+     */
+    List<AgentSessionPO> selectByUserIdAndFiltersPaged(@Param("userId") String userId,
+                                                       @Param("activeOnly") Boolean activeOnly,
+                                                       @Param("keyword") String keyword,
+                                                       @Param("offset") Integer offset,
+                                                       @Param("limit") Integer limit);
 
     /**
      * 关闭用户的所有活跃会话

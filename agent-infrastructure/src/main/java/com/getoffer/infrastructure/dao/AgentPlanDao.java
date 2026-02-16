@@ -64,6 +64,21 @@ public interface AgentPlanDao {
     List<AgentPlanPO> selectAll();
 
     /**
+     * 统计计划总数。
+     */
+    Long countAll();
+
+    /**
+     * 按状态统计计划数量。
+     */
+    Long countByStatus(@Param("status") PlanStatusEnum status);
+
+    /**
+     * 查询最近更新计划。
+     */
+    List<AgentPlanPO> selectRecent(@Param("limit") Integer limit);
+
+    /**
      * 根据 Workflow Definition ID 查询
      */
     List<AgentPlanPO> selectByWorkflowDefinitionId(@Param("workflowDefinitionId") Long workflowDefinitionId);

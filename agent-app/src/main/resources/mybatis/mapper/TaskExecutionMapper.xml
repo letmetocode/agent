@@ -73,6 +73,23 @@
         ORDER BY created_at DESC
     </select>
 
+    <select id="countByExecutionTimeAbove" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM task_executions
+        WHERE execution_time_ms IS NOT NULL
+          AND execution_time_ms >= #{thresholdMs}
+    </select>
+
+    <select id="selectLatencyQuantiles" resultType="java.util.HashMap">
+        SELECT
+            COALESCE(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY execution_time_ms), 0)::BIGINT AS p50,
+            COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY execution_time_ms), 0)::BIGINT AS p95,
+            COALESCE(PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY execution_time_ms), 0)::BIGINT AS p99
+        FROM task_executions
+        WHERE execution_time_ms IS NOT NULL
+          AND execution_time_ms > 0
+    </select>
+
     <select id="getMaxAttemptNumber" parameterType="java.lang.Long" resultType="java.lang.Integer">
         SELECT COALESCE(MAX(attempt_number), 0)
         FROM task_executions

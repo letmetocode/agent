@@ -10,7 +10,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * 单任务执行客户端解析组件：负责 TaskClient 选路与默认 Agent 缓存。
@@ -44,14 +47,16 @@ final class TaskExecutionClientResolver {
     }
 
     ChatClient resolveTaskClient(AgentTaskEntity task, AgentPlanEntity plan, String systemPromptSuffix) {
+        Map<String, Object> toolPolicy = resolveToolPolicy(task);
+        String effectiveSystemPrompt = buildToolPolicyAwareSystemPrompt(systemPromptSuffix, toolPolicy);
         TaskAgentSelectionDomainService.SelectionPlan selectionPlan =
                 taskAgentSelectionDomainService.resolveSelectionPlan(task, workerFallbackAgentKeys, criticFallbackAgentKeys);
         String conversationId = buildConversationId(plan, task);
         TaskAgentSelectionDomainService.ClientSelectionResult<ChatClient> selected =
                 taskAgentSelectionDomainService.resolveClient(
                         selectionPlan,
-                        agentId -> agentFactory.createAgent(agentId, conversationId, systemPromptSuffix),
-                        agentKey -> agentFactory.createAgent(agentKey, conversationId, systemPromptSuffix),
+                        agentId -> agentFactory.createAgent(agentId, conversationId, effectiveSystemPrompt, toolPolicy),
+                        agentKey -> agentFactory.createAgent(agentKey, conversationId, effectiveSystemPrompt, toolPolicy),
                         this::resolveDefaultActiveAgentProfile
                 );
         if (selected.source() == TaskAgentSelectionDomainService.ClientSelectionSource.FALLBACK_AGENT_KEY
@@ -61,6 +66,14 @@ final class TaskExecutionClientResolver {
         } else if (selected.source() == TaskAgentSelectionDomainService.ClientSelectionSource.DEFAULT_ACTIVE_AGENT) {
             log.warn("Task fallback to first active agent profile. taskId={}, nodeId={}, taskType={}, agentKey={}",
                     task.getId(), task.getNodeId(), task.getTaskType(), selected.selectedAgentKey());
+        }
+        if (!toolPolicy.isEmpty()) {
+            log.info("Task tool policy enforced. taskId={}, nodeId={}, mode={}, allowed={}, blocked={}",
+                    task == null ? null : task.getId(),
+                    task == null ? null : task.getNodeId(),
+                    resolveMode(toolPolicy),
+                    resolveToolList(toolPolicy, "allowedToolNames", "allowedTools", "allowlist", "allowList"),
+                    resolveToolList(toolPolicy, "blockedToolNames", "blockedTools", "blocklist", "blockList"));
         }
         if (selected.source() == TaskAgentSelectionDomainService.ClientSelectionSource.UNAVAILABLE
                 || selected.client() == null) {
@@ -92,5 +105,79 @@ final class TaskExecutionClientResolver {
         String planPart = plan.getId() == null ? "plan" : "plan-" + plan.getId();
         String nodePart = StringUtils.defaultIfBlank(task.getNodeId(), "node");
         return planPart + ":" + nodePart;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> resolveToolPolicy(AgentTaskEntity task) {
+        if (task == null || task.getConfigSnapshot() == null || task.getConfigSnapshot().isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Object value = task.getConfigSnapshot().get("toolPolicy");
+        if (value == null) {
+            value = task.getConfigSnapshot().get("tool_policy");
+        }
+        if (value instanceof Map<?, ?> mapValue) {
+            return (Map<String, Object>) mapValue;
+        }
+        return Collections.emptyMap();
+    }
+
+    private String buildToolPolicyAwareSystemPrompt(String originSuffix, Map<String, Object> toolPolicy) {
+        if (toolPolicy == null || toolPolicy.isEmpty()) {
+            return originSuffix;
+        }
+        String mode = resolveMode(toolPolicy);
+        String allowed = resolveToolList(toolPolicy, "allowedToolNames", "allowedTools", "allowlist", "allowList");
+        String blocked = resolveToolList(toolPolicy, "blockedToolNames", "blockedTools", "blocklist", "blockList");
+        StringBuilder policyPrompt = new StringBuilder();
+        policyPrompt.append("工具调用策略：mode=").append(mode);
+        if (!allowed.isEmpty()) {
+            policyPrompt.append("；仅允许工具=").append(allowed);
+        }
+        if (!blocked.isEmpty()) {
+            policyPrompt.append("；禁止工具=").append(blocked);
+        }
+        policyPrompt.append("。请严格遵守工具白名单/黑名单约束，不得调用未授权工具。");
+
+        if (StringUtils.isBlank(originSuffix)) {
+            return policyPrompt.toString();
+        }
+        return originSuffix + "\n" + policyPrompt;
+    }
+
+    private String resolveMode(Map<String, Object> policy) {
+        if (policy == null || policy.isEmpty()) {
+            return "allowAll";
+        }
+        Object mode = policy.get("mode");
+        if (mode == null) {
+            mode = policy.get("policyMode");
+        }
+        return mode == null ? "allowAll" : String.valueOf(mode).trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String resolveToolList(Map<String, Object> policy, String... keys) {
+        if (policy == null || policy.isEmpty() || keys == null) {
+            return "";
+        }
+        for (String key : keys) {
+            Object value = policy.get(key);
+            if (value == null) {
+                continue;
+            }
+            if (value instanceof List<?> list) {
+                return list.stream()
+                        .filter(item -> item != null)
+                        .map(String::valueOf)
+                        .map(String::trim)
+                        .filter(item -> !item.isEmpty())
+                        .reduce((left, right) -> left + "," + right)
+                        .orElse("");
+            }
+            if (value instanceof String text) {
+                return text.trim();
+            }
+        }
+        return "";
     }
 }

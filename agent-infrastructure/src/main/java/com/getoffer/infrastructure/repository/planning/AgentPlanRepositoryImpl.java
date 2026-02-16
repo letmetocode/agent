@@ -9,6 +9,7 @@ import com.getoffer.types.enums.PlanStatusEnum;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -138,6 +139,31 @@ public class AgentPlanRepositoryImpl implements IAgentPlanRepository {
     @Override
     public List<AgentPlanEntity> findAll() {
         return agentPlanDao.selectAll().stream()
+                .map(this::toEntity)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public long countAll() {
+        Long count = agentPlanDao.countAll();
+        return count == null ? 0L : count;
+    }
+
+    @Override
+    public long countByStatus(PlanStatusEnum status) {
+        if (status == null) {
+            return 0L;
+        }
+        Long count = agentPlanDao.countByStatus(status);
+        return count == null ? 0L : count;
+    }
+
+    @Override
+    public List<AgentPlanEntity> findRecent(int limit) {
+        if (limit <= 0) {
+            return Collections.emptyList();
+        }
+        return agentPlanDao.selectRecent(limit).stream()
                 .map(this::toEntity)
                 .collect(Collectors.toList());
     }

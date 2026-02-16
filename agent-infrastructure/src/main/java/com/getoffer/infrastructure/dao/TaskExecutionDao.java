@@ -5,6 +5,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 任务执行记录 DAO
@@ -50,6 +51,16 @@ public interface TaskExecutionDao {
      * 查询所有执行记录
      */
     List<TaskExecutionPO> selectAll();
+
+    /**
+     * 统计执行耗时大于等于阈值的记录数。
+     */
+    Long countByExecutionTimeAbove(@Param("thresholdMs") Long thresholdMs);
+
+    /**
+     * 汇总执行耗时分位数（p50/p95/p99）。
+     */
+    Map<String, Object> selectLatencyQuantiles();
 
     /**
      * 获取任务的最大尝试次数

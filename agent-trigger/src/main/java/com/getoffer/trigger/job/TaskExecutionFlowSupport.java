@@ -94,6 +94,16 @@ final class TaskExecutionFlowSupport {
         return new TaskExecutionRunner.CriticDecision(decision.pass(), decision.feedback());
     }
 
+    TaskExecutionRunner.ValidationResult evaluateValidation(AgentTaskEntity task, String response) {
+        Map<String, Object> payload = taskJsonDomainService.parseEmbeddedJsonObject(
+                response,
+                this::parseJsonStrictObject
+        );
+        TaskEvaluationDomainService.ValidationResult result =
+                taskEvaluationDomainService.evaluateValidation(task, response, payload);
+        return new TaskExecutionRunner.ValidationResult(result.valid(), result.feedback());
+    }
+
     void rollbackTarget(AgentPlanEntity plan, AgentTaskEntity criticTask, String feedback) {
         String targetNodeId = taskPromptDomainService.resolveTargetNodeId(criticTask);
         if (StringUtils.isBlank(targetNodeId)) {

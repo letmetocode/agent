@@ -378,7 +378,13 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
 
         AgentPlanEntity savedPlan = agentPlanRepository.save(plan);
 
-        List<AgentTaskEntity> tasks = unfoldGraph(savedPlan, routedWorkflow.defaultConfig, executionGraph, globalContext);
+        List<AgentTaskEntity> tasks = unfoldGraph(
+                savedPlan,
+                routedWorkflow.defaultConfig,
+                routedWorkflow.toolPolicy,
+                executionGraph,
+                globalContext
+        );
         if (tasks.isEmpty()) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "No executable nodes found in workflow graph");
         }
@@ -402,6 +408,7 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
             routed.graphDefinition = deepCopyMap(definition.getGraphDefinition());
             routed.inputSchema = deepCopyMap(definition.getInputSchema());
             routed.defaultConfig = deepCopyMap(definition.getDefaultConfig());
+            routed.toolPolicy = deepCopyMap(definition.getToolPolicy());
             routed.sourceType = "PRODUCTION_ACTIVE";
             routed.fallbackFlag = false;
             routed.fallbackReason = null;
@@ -421,6 +428,7 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
         routed.graphDefinition = deepCopyMap(draft.getGraphDefinition());
         routed.inputSchema = deepCopyMap(draft.getInputSchema());
         routed.defaultConfig = deepCopyMap(draft.getDefaultConfig());
+        routed.toolPolicy = deepCopyMap(draft.getToolPolicy());
         routed.sourceType = draft.getSourceType();
         routed.fallbackFlag = routed.decisionType == RoutingDecisionTypeEnum.FALLBACK;
         routed.fallbackReason = extractFallbackReason(draft);
@@ -1596,6 +1604,9 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
         if (routedWorkflow != null) {
             context.put("routeType", routedWorkflow.decisionType == null ? null : routedWorkflow.decisionType.name());
             context.put("routeReason", routedWorkflow.reason);
+            if (routedWorkflow.toolPolicy != null && !routedWorkflow.toolPolicy.isEmpty()) {
+                context.put("toolPolicy", deepCopyMap(routedWorkflow.toolPolicy));
+            }
             if (routedWorkflow.definition != null) {
                 context.put("workflowDefinitionId", routedWorkflow.definition.getId());
                 context.put("definitionKey", routedWorkflow.definition.getDefinitionKey());
@@ -1616,6 +1627,7 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
 
     private List<AgentTaskEntity> unfoldGraph(AgentPlanEntity plan,
                                               Map<String, Object> defaultConfig,
+                                              Map<String, Object> workflowToolPolicy,
                                               Map<String, Object> executionGraph,
                                               Map<String, Object> globalContext) {
         List<Map<String, Object>> nodes = getMapList(executionGraph, "nodes");
@@ -1659,6 +1671,10 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
 
             Map<String, Object> configSnapshot = mergeConfig(defaultConfig, node);
             configSnapshot.put("graphPolicy", resolveGraphPolicyForNode(node, groupPolicyById));
+            Map<String, Object> effectiveToolPolicy = resolveEffectiveToolPolicy(workflowToolPolicy, configSnapshot);
+            if (!effectiveToolPolicy.isEmpty()) {
+                configSnapshot.put("toolPolicy", effectiveToolPolicy);
+            }
             task.setConfigSnapshot(configSnapshot);
             task.setMaxRetries(resolveMaxRetries(configSnapshot));
             task.setCurrentRetry(0);
@@ -1697,6 +1713,39 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
             merged.putAll(nodeConfig);
         }
         return merged;
+    }
+
+    private Map<String, Object> resolveEffectiveToolPolicy(Map<String, Object> workflowToolPolicy,
+                                                           Map<String, Object> configSnapshot) {
+        Map<String, Object> effective = normalizeToolPolicy(workflowToolPolicy);
+        Map<String, Object> nodeToolPolicy = normalizeToolPolicy(getMap(configSnapshot, "toolPolicy", "tool_policy"));
+        if (!nodeToolPolicy.isEmpty()) {
+            effective.putAll(nodeToolPolicy);
+        }
+        List<String> allowList = readStringList(effective,
+                "allowedToolNames", "allowedTools", "allowlist", "allowList", "whitelist");
+        List<String> blockList = readStringList(effective,
+                "blockedToolNames", "blockedTools", "blocklist", "blockList", "denylist");
+        if (!allowList.isEmpty()) {
+            effective.put("allowedToolNames", allowList);
+        }
+        if (!blockList.isEmpty()) {
+            effective.put("blockedToolNames", blockList);
+        }
+        return effective;
+    }
+
+    private Map<String, Object> normalizeToolPolicy(Map<String, Object> rawPolicy) {
+        if (rawPolicy == null || rawPolicy.isEmpty()) {
+            return new HashMap<>();
+        }
+        Map<String, Object> normalized = deepCopyMap(rawPolicy);
+        String mode = getString(normalized, "mode", "policyMode", "policy_mode");
+        if (StringUtils.isBlank(mode)) {
+            mode = "allowAll";
+        }
+        normalized.put("mode", mode.trim());
+        return normalized;
     }
 
     private Map<String, Map<String, Object>> buildGroupPolicyById(List<Map<String, Object>> groups) {
@@ -2021,6 +2070,9 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
         snapshot.put("fallbackFlag", routedWorkflow.fallbackFlag);
         snapshot.put("fallbackReason", routedWorkflow.fallbackReason);
         snapshot.put("plannerAttempts", routedWorkflow.plannerAttempts);
+        if (routedWorkflow.toolPolicy != null && !routedWorkflow.toolPolicy.isEmpty()) {
+            snapshot.put("toolPolicy", deepCopyMap(routedWorkflow.toolPolicy));
+        }
         snapshot.put("executionGraphHash", hashGraph(routedWorkflow.graphDefinition));
         return snapshot;
     }
@@ -2066,5 +2118,6 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
         private Map<String, Object> graphDefinition;
         private Map<String, Object> inputSchema;
         private Map<String, Object> defaultConfig;
+        private Map<String, Object> toolPolicy;
     }
 }

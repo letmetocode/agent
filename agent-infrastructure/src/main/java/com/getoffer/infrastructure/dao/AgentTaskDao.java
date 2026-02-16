@@ -65,6 +65,45 @@ public interface AgentTaskDao {
     List<AgentTaskPO> selectByStatus(@Param("status") TaskStatusEnum status);
 
     /**
+     * 统计任务总数。
+     */
+    Long countAll();
+
+    /**
+     * 按状态统计任务数量。
+     */
+    Long countByStatus(@Param("status") TaskStatusEnum status);
+
+    /**
+     * 查询最近更新任务。
+     */
+    List<AgentTaskPO> selectRecent(@Param("limit") Integer limit);
+
+    /**
+     * 按状态查询最近更新任务。
+     */
+    List<AgentTaskPO> selectRecentByStatus(@Param("status") TaskStatusEnum status,
+                                           @Param("limit") Integer limit);
+
+    /**
+     * 按过滤条件统计任务。
+     */
+    Long countByFilters(@Param("status") TaskStatusEnum status,
+                        @Param("keyword") String keyword,
+                        @Param("planId") Long planId,
+                        @Param("planIds") List<Long> planIds);
+
+    /**
+     * 按过滤条件分页查询任务。
+     */
+    List<AgentTaskPO> selectByFiltersPaged(@Param("status") TaskStatusEnum status,
+                                           @Param("keyword") String keyword,
+                                           @Param("planId") Long planId,
+                                           @Param("planIds") List<Long> planIds,
+                                           @Param("offset") Integer offset,
+                                           @Param("limit") Integer limit);
+
+    /**
      * 查询就绪的任务 (用于调度器)
      */
     List<AgentTaskPO> selectReadyTasks();

@@ -188,8 +188,7 @@ final class TaskExecutionSupportAdapter implements TaskExecutionRunner.Execution
 
     @Override
     public TaskExecutionRunner.ValidationResult evaluateValidation(AgentTaskEntity task, String response) {
-        TaskEvaluationDomainService.ValidationResult result = taskEvaluationDomainService.evaluateValidation(task, response);
-        return new TaskExecutionRunner.ValidationResult(result.valid(), result.feedback());
+        return taskExecutionFlowSupport.evaluateValidation(task, response);
     }
 
     @Override

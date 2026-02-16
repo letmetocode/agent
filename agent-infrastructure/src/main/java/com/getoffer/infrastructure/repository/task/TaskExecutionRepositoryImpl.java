@@ -114,6 +114,28 @@ public class TaskExecutionRepositoryImpl implements ITaskExecutionRepository {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public long countByExecutionTimeAbove(long thresholdMs) {
+        if (thresholdMs < 0) {
+            return 0L;
+        }
+        Long count = taskExecutionDao.countByExecutionTimeAbove(thresholdMs);
+        return count == null ? 0L : count;
+    }
+
+    @Override
+    public Map<String, Long> summarizeLatencyQuantiles() {
+        Map<String, Object> raw = taskExecutionDao.selectLatencyQuantiles();
+        if (raw == null || raw.isEmpty()) {
+            return Map.of("p50", 0L, "p95", 0L, "p99", 0L);
+        }
+        return Map.of(
+                "p50", toLong(raw.get("p50")),
+                "p95", toLong(raw.get("p95")),
+                "p99", toLong(raw.get("p99"))
+        );
+    }
+
     /**
      * 获取 max attempt number。
      */
@@ -217,5 +239,19 @@ public class TaskExecutionRepositoryImpl implements ITaskExecutionRepository {
         }
 
         return po;
+    }
+
+    private long toLong(Object value) {
+        if (value == null) {
+            return 0L;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (Exception ignore) {
+            return 0L;
+        }
     }
 }

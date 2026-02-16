@@ -224,6 +224,22 @@ CREATE TABLE task_executions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE quality_evaluation_events (
+    id BIGSERIAL PRIMARY KEY,
+    plan_id BIGINT NOT NULL,
+    task_id BIGINT NOT NULL,
+    execution_id BIGINT,
+    evaluator_type VARCHAR(32) NOT NULL,
+    experiment_key VARCHAR(128),
+    experiment_variant VARCHAR(32),
+    schema_version VARCHAR(32),
+    score NUMERIC(8,4),
+    is_pass BOOLEAN,
+    feedback TEXT,
+    payload JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE task_share_links (
     id BIGSERIAL PRIMARY KEY,
     task_id BIGINT NOT NULL,
@@ -284,6 +300,9 @@ CREATE INDEX idx_plans_session_id ON agent_plans(session_id);
 CREATE INDEX idx_tasks_plan_id ON agent_tasks(plan_id);
 CREATE INDEX idx_tasks_scheduling ON agent_tasks(plan_id, status);
 CREATE INDEX idx_tasks_claim_scan ON agent_tasks(status, lease_until, plan_id, created_at);
+CREATE INDEX idx_quality_eval_plan_created ON quality_evaluation_events(plan_id, created_at DESC);
+CREATE INDEX idx_quality_eval_experiment_variant ON quality_evaluation_events(experiment_key, experiment_variant, created_at DESC);
+CREATE INDEX idx_quality_eval_task_execution ON quality_evaluation_events(task_id, execution_id);
 CREATE INDEX idx_task_share_links_task_created ON task_share_links(task_id, created_at DESC);
 CREATE INDEX idx_task_share_links_revoked_expire ON task_share_links(revoked, expires_at);
 CREATE INDEX idx_plan_task_events_plan_id_id ON plan_task_events(plan_id, id);

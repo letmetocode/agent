@@ -105,6 +105,24 @@
         ORDER BY created_at DESC
     </select>
 
+    <select id="countAll" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM agent_plans
+    </select>
+
+    <select id="countByStatus" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM agent_plans
+        WHERE status = #{status}::plan_status_enum
+    </select>
+
+    <select id="selectRecent" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_plans
+        ORDER BY updated_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
     <select id="selectByWorkflowDefinitionId" parameterType="java.lang.Long" resultMap="BaseResultMap">
         SELECT <include refid="Base_Column_List"/>
         FROM agent_plans

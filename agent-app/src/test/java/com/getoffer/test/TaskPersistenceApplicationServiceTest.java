@@ -3,14 +3,18 @@ package com.getoffer.test;
 import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
+import com.getoffer.domain.task.adapter.repository.IQualityEvaluationEventRepository;
 import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
+import com.getoffer.domain.task.model.entity.QualityEvaluationEventEntity;
 import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
 import com.getoffer.domain.task.service.TaskBlackboardDomainService;
 import com.getoffer.domain.task.service.TaskPersistencePolicyDomainService;
 import com.getoffer.trigger.application.command.TaskPersistenceApplicationService;
+import com.getoffer.types.enums.TaskTypeEnum;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -27,6 +31,7 @@ public class TaskPersistenceApplicationServiceTest {
     private final IAgentTaskRepository taskRepository = mock(IAgentTaskRepository.class);
     private final ITaskExecutionRepository executionRepository = mock(ITaskExecutionRepository.class);
     private final IAgentPlanRepository planRepository = mock(IAgentPlanRepository.class);
+    private final IQualityEvaluationEventRepository qualityEventRepository = mock(IQualityEvaluationEventRepository.class);
 
     private final TaskPersistenceApplicationService service = new TaskPersistenceApplicationService(
             taskRepository,
@@ -34,6 +39,15 @@ public class TaskPersistenceApplicationServiceTest {
             planRepository,
             new TaskBlackboardDomainService(),
             new TaskPersistencePolicyDomainService()
+    );
+
+    private final TaskPersistenceApplicationService qualityAwareService = new TaskPersistenceApplicationService(
+            taskRepository,
+            executionRepository,
+            planRepository,
+            new TaskBlackboardDomainService(),
+            new TaskPersistencePolicyDomainService(),
+            qualityEventRepository
     );
 
     @Test
@@ -95,6 +109,82 @@ public class TaskPersistenceApplicationServiceTest {
 
         Assertions.assertFalse(result.saved());
         Assertions.assertEquals("db unavailable", result.errorMessage());
+    }
+
+    @Test
+    public void shouldPersistQualityEvaluationEventWhenExecutionSaved() {
+        AgentTaskEntity task = new AgentTaskEntity();
+        task.setId(301L);
+        task.setPlanId(401L);
+        task.setTaskType(TaskTypeEnum.WORKER);
+        Map<String, Object> config = new HashMap<>();
+        config.put("qualityExperimentKey", "exp-quality");
+        config.put("qualityExperimentRolloutPercent", 100);
+        task.setConfigSnapshot(config);
+        when(taskRepository.findById(301L)).thenReturn(task);
+
+        TaskExecutionEntity execution = new TaskExecutionEntity();
+        execution.setId(901L);
+        execution.setTaskId(301L);
+        execution.setAttemptNumber(1);
+        execution.setIsValid(false);
+        execution.setValidationFeedback("score=0.71, threshold=0.8");
+
+        when(qualityEventRepository.save(any(QualityEvaluationEventEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        TaskPersistenceApplicationService.ExecutionSaveResult result = qualityAwareService.saveExecution(execution);
+
+        Assertions.assertTrue(result.saved());
+        ArgumentCaptor<QualityEvaluationEventEntity> captor = ArgumentCaptor.forClass(QualityEvaluationEventEntity.class);
+        verify(qualityEventRepository, times(1)).save(captor.capture());
+        QualityEvaluationEventEntity event = captor.getValue();
+        Assertions.assertEquals(401L, event.getPlanId());
+        Assertions.assertEquals(301L, event.getTaskId());
+        Assertions.assertEquals(901L, event.getExecutionId());
+        Assertions.assertEquals("WORKER_VALIDATOR", event.getEvaluatorType());
+        Assertions.assertEquals("exp-quality", event.getExperimentKey());
+        Assertions.assertEquals("B", event.getExperimentVariant());
+        Assertions.assertEquals("v1", event.getSchemaVersion());
+        Assertions.assertEquals(0.71D, event.getScore());
+        Assertions.assertFalse(event.getPass());
+        Assertions.assertEquals("score=0.71, threshold=0.8", event.getFeedback());
+        Assertions.assertEquals(100.0D, event.getPayload().get("rolloutPercent"));
+        Assertions.assertNotNull(event.getPayload().get("bucket"));
+    }
+
+    @Test
+    public void shouldUseControlVariantWhenQualityExperimentDisabled() {
+        AgentTaskEntity task = new AgentTaskEntity();
+        task.setId(302L);
+        task.setPlanId(402L);
+        task.setTaskType(TaskTypeEnum.CRITIC);
+        Map<String, Object> config = new HashMap<>();
+        config.put("qualityExperimentEnabled", false);
+        config.put("qualityExperimentKey", "exp-disabled");
+        task.setConfigSnapshot(config);
+        when(taskRepository.findById(302L)).thenReturn(task);
+
+        TaskExecutionEntity execution = new TaskExecutionEntity();
+        execution.setId(902L);
+        execution.setTaskId(302L);
+        execution.setAttemptNumber(1);
+        execution.setIsValid(true);
+        execution.setValidationFeedback("score=0.95");
+
+        when(qualityEventRepository.save(any(QualityEvaluationEventEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        TaskPersistenceApplicationService.ExecutionSaveResult result = qualityAwareService.saveExecution(execution);
+
+        Assertions.assertTrue(result.saved());
+        ArgumentCaptor<QualityEvaluationEventEntity> captor = ArgumentCaptor.forClass(QualityEvaluationEventEntity.class);
+        verify(qualityEventRepository, times(1)).save(captor.capture());
+        QualityEvaluationEventEntity event = captor.getValue();
+        Assertions.assertEquals("CRITIC", event.getEvaluatorType());
+        Assertions.assertEquals("exp-disabled", event.getExperimentKey());
+        Assertions.assertEquals("CONTROL", event.getExperimentVariant());
+        Assertions.assertEquals(Boolean.FALSE, event.getPayload().get("experimentEnabled"));
     }
 
     private AgentPlanEntity buildPlan(Long id, Integer version, Map<String, Object> context) {
