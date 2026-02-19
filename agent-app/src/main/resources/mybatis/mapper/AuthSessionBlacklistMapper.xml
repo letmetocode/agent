@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.getoffer.infrastructure.dao.AuthSessionBlacklistDao">
+
+    <resultMap id="BaseResultMap" type="com.getoffer.infrastructure.dao.po.AuthSessionBlacklistPO">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="jti" property="jti" jdbcType="VARCHAR"/>
+        <result column="user_id" property="userId" jdbcType="VARCHAR"/>
+        <result column="expired_at" property="expiredAt" jdbcType="TIMESTAMP"/>
+        <result column="revoked_at" property="revokedAt" jdbcType="TIMESTAMP"/>
+        <result column="revoke_reason" property="revokeReason" jdbcType="VARCHAR"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <insert id="upsert" parameterType="com.getoffer.infrastructure.dao.po.AuthSessionBlacklistPO">
+        INSERT INTO auth_session_blacklist (
+            jti, user_id, expired_at, revoked_at, revoke_reason, created_at
+        ) VALUES (
+            #{jti}, #{userId}, #{expiredAt}, COALESCE(#{revokedAt}, CURRENT_TIMESTAMP), #{revokeReason}, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (jti)
+        DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            expired_at = EXCLUDED.expired_at,
+            revoked_at = EXCLUDED.revoked_at,
+            revoke_reason = EXCLUDED.revoke_reason
+    </insert>
+
+    <select id="countActiveByJti" resultType="int">
+        SELECT COUNT(1)
+        FROM auth_session_blacklist
+        WHERE jti = #{jti}
+          AND (expired_at IS NULL OR expired_at &gt; #{now})
+    </select>
+
+</mapper>

@@ -377,6 +377,28 @@
   - 风险：治理建设短期影响交付节奏。
   - 回滚：治理策略先“警告模式”运行，再升级为“阻断模式”。
 
+## D. 收敛执行 TODO 清单（更新至 2026-02-19）
+
+### D1 已完成（本轮已落地）
+- [x] Graph 规则单源：`WorkflowGraphPolicyKernel` 接管 Planner/SOP 编译/治理入口，消除多处规则漂移。
+- [x] 鉴权收敛：登录态升级为 `JWT + auth_session_blacklist(jti)`，支持跨实例立即吊销。
+- [x] 治理入口瘦身：`WorkflowGovernanceController` 业务逻辑下沉到 `WorkflowGovernanceApplicationService`。
+- [x] Planner 拆分第一阶段：落地 `WorkflowTaskMaterializationService`、`WorkflowPlanSnapshotService`、`WorkflowDraftLifecycleService`、`WorkflowInputPreparationService`。
+- [x] Planner 拆分第二阶段：落地 `WorkflowRoutingResolveService`（路由解析）+ `WorkflowRoutingDecisionService`（路由落库与指标），`PlannerServiceImpl` 从 1500+ 行收敛到约 400 行。
+- [x] 架构治理门禁：新增 `ArchitectureDependencyRuleTest`（ArchUnit）与 Maven Enforcer（Java/Maven 基线）。
+- [x] Enforcer 规则增强：开启 `banDuplicatePomDependencyVersions` + `requirePluginVersions`，并补齐 `maven-site-plugin` 版本。
+- [x] 生命周期专项测试：新增 `WorkflowDraftLifecycleServiceTest`（去重复用、Root 禁用降级、不可用 agentKey 自动回退）。
+
+### D2 进行中（必须继续收敛）
+- [ ] `TaskExecutionRunner.ExecutionSupport` 接口进一步收口为最小三组（调用域/评估域/持久化域），减少样板透传与耦合扩散。
+- [ ] `QueryController/ConsoleQueryController` 去除全量加载与内存分页，统一 DAO 分页与聚合 SQL。
+- [ ] `toolPolicy` 执行期闭环补齐审计字段（命中 allow/block 的结构化事件）并补回放查询。
+- [ ] A/B 主链路落地（分桶、质量事件关联、查询 API），对齐 PRD 的“输出质量持续提升”闭环。
+
+### D3 待启动（Phase 3 治理化）
+- [ ] 废弃治理：建立非 V3 接口 Deprecation Registry（公告窗口、迁移文档、下线基线）。
+- [ ] Workflow 版本迁移策略：补齐 `v2 -> vNext` 迁移模板、兼容矩阵与回滚脚本规范。
+
 ## 附录：关键证据索引
 - 产品定位与范围：`docs/01-product-requirements.md:10-13`、`docs/01-product-requirements.md:24-39`。
 - 架构与统一术语：`docs/02-system-architecture.md:55`、`docs/02-system-architecture.md:116-127`、`docs/02-system-architecture.md:200-209`。

@@ -360,7 +360,29 @@ CREATE INDEX IF NOT EXISTS idx_quality_eval_task_execution
 COMMENT ON TABLE quality_evaluation_events IS '质量评估事件表：记录验证/批评结果及实验分桶信息';
 
 -- =====================================================
--- 9. 任务分享链接表
+-- 9. 登录态吊销黑名单表（JWT）
+-- =====================================================
+CREATE TABLE IF NOT EXISTS auth_session_blacklist (
+    id                  BIGSERIAL PRIMARY KEY,
+    jti                 VARCHAR(128) NOT NULL,
+    user_id             VARCHAR(100) NOT NULL,
+    expired_at          TIMESTAMP WITH TIME ZONE NOT NULL,
+    revoked_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoke_reason       VARCHAR(128),
+    created_at          TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_auth_session_blacklist_jti UNIQUE (jti)
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_session_blacklist_expired_at
+    ON auth_session_blacklist(expired_at);
+CREATE INDEX IF NOT EXISTS idx_auth_session_blacklist_user
+    ON auth_session_blacklist(user_id, revoked_at DESC);
+
+COMMENT ON TABLE auth_session_blacklist IS 'JWT 登录态吊销黑名单：按 jti 记录已注销 token';
+
+-- =====================================================
+-- 10. 任务分享链接表
 -- =====================================================
 CREATE TABLE IF NOT EXISTS task_share_links (
     id                  BIGSERIAL PRIMARY KEY,
@@ -389,7 +411,7 @@ CREATE INDEX IF NOT EXISTS idx_task_share_links_revoked_expire ON task_share_lin
 COMMENT ON TABLE task_share_links IS '任务分享链接表：存储可审计、可吊销的任务分享令牌元数据';
 
 -- =====================================================
--- 10. Plan/Task 事件表
+-- 11. Plan/Task 事件表
 -- =====================================================
 DROP TYPE IF EXISTS plan_task_event_type_enum CASCADE;
 CREATE TYPE plan_task_event_type_enum AS ENUM ('TASK_STARTED', 'TASK_COMPLETED', 'TASK_LOG', 'PLAN_FINISHED');
@@ -412,7 +434,7 @@ CREATE INDEX IF NOT EXISTS idx_plan_task_events_trace_id ON plan_task_events((ev
 COMMENT ON TABLE plan_task_events IS 'Plan/Task 事件流表：用于 SSE 增量分发与审计';
 
 -- =====================================================
--- 11. Agent 工具目录表
+-- 12. Agent 工具目录表
 -- =====================================================
 CREATE TABLE IF NOT EXISTS agent_tool_catalog (
     id                  BIGSERIAL PRIMARY KEY,
@@ -433,7 +455,7 @@ CREATE TABLE IF NOT EXISTS agent_tool_catalog (
 COMMENT ON TABLE agent_tool_catalog IS 'Agent 工具目录：注册和管理可用的工具/函数';
 
 -- =====================================================
--- 12. Agent 工具关联表
+-- 13. Agent 工具关联表
 -- =====================================================
 CREATE TABLE IF NOT EXISTS agent_tools (
     id                  BIGSERIAL PRIMARY KEY,

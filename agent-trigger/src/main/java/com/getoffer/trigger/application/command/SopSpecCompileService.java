@@ -1,7 +1,7 @@
 package com.getoffer.trigger.application.command;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.getoffer.domain.planning.service.GraphDslPolicyService;
+import com.getoffer.domain.planning.service.WorkflowGraphPolicyKernel;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
@@ -24,12 +24,6 @@ public class SopSpecCompileService {
 
     private static final String TASK_TYPE_WORKER = "WORKER";
     private static final String TASK_TYPE_CRITIC = "CRITIC";
-    private static final String JOIN_POLICY_ALL = "all";
-    private static final String JOIN_POLICY_ANY = "any";
-    private static final String JOIN_POLICY_QUORUM = "quorum";
-    private static final String FAILURE_POLICY_FAIL_FAST = "failFast";
-    private static final String FAILURE_POLICY_FAIL_SAFE = "failSafe";
-
     private final ObjectMapper objectMapper;
 
     public SopSpecCompileService(ObjectMapper objectMapper) {
@@ -112,13 +106,19 @@ public class SopSpecCompileService {
         }
 
         Map<String, Object> runtimeGraph = new LinkedHashMap<>();
-        runtimeGraph.put("version", GraphDslPolicyService.GRAPH_DSL_VERSION);
+        runtimeGraph.put("version", WorkflowGraphPolicyKernel.GRAPH_DSL_VERSION);
         runtimeGraph.put("nodes", runtimeNodes);
         runtimeGraph.put("edges", runtimeEdges);
         runtimeGraph.put("groups", runtimeGroups);
+        runtimeGraph = WorkflowGraphPolicyKernel.normalizeAndValidateGraphDefinition(
+                runtimeGraph,
+                "sopRuntimeGraph",
+                false,
+                null
+        );
 
         String compileHash = hashRuntimeGraph(runtimeGraph);
-        String nodeSignature = GraphDslPolicyService.computeNodeSignature(runtimeGraph);
+        String nodeSignature = WorkflowGraphPolicyKernel.computeNodeSignature(runtimeGraph);
         return new CompileResult(runtimeGraph, compileHash, nodeSignature, warnings);
     }
 
@@ -132,7 +132,7 @@ public class SopSpecCompileService {
     }
 
     public String hashRuntimeGraph(Map<String, Object> runtimeGraph) {
-        return GraphDslPolicyService.hashGraph(runtimeGraph, objectMapper);
+        return WorkflowGraphPolicyKernel.hashGraph(runtimeGraph, objectMapper);
     }
 
     private Map<String, StepSpec> parseSteps(List<Map<String, Object>> rawSteps,
@@ -160,10 +160,18 @@ public class SopSpecCompileService {
             Map<String, Object> config = readObjectMap(raw.get("config"), path + ".config", false);
             List<String> dependsOn = readStringList(raw, path, "dependsOn", "dependencies", "deps");
             String groupId = readOptionalText(raw, "groupId", "group_id");
-            String joinPolicy = normalizeJoinPolicy(readOptionalText(raw, "joinPolicy", "join_policy", "dependencyJoinPolicy"));
-            String failurePolicy = normalizeFailurePolicy(readOptionalText(raw, "failurePolicy", "failure_policy"));
+            String joinPolicy = WorkflowGraphPolicyKernel.normalizeJoinPolicyStrict(
+                    readOptionalText(raw, "joinPolicy", "join_policy", "dependencyJoinPolicy"),
+                    path + ".joinPolicy"
+            );
+            String failurePolicy = WorkflowGraphPolicyKernel.normalizeFailurePolicyStrict(
+                    readOptionalText(raw, "failurePolicy", "failure_policy"),
+                    path + ".failurePolicy"
+            );
             Integer quorum = readInteger(raw, "quorum", "joinQuorum");
-            String runPolicy = normalizeRunPolicy(readOptionalText(raw, "runPolicy", "run_policy"));
+            String runPolicy = WorkflowGraphPolicyKernel.normalizeRunPolicyStrict(
+                    readOptionalText(raw, "runPolicy", "run_policy")
+            );
 
             stepsById.put(id, new StepSpec(
                     id,
@@ -250,10 +258,18 @@ public class SopSpecCompileService {
                     id,
                     readOptionalText(raw, "name", "title", "label"),
                     new LinkedHashSet<>(nodeIds),
-                    normalizeJoinPolicy(readOptionalText(raw, "joinPolicy", "join_policy", "dependencyJoinPolicy")),
-                    normalizeFailurePolicy(readOptionalText(raw, "failurePolicy", "failure_policy")),
+                    WorkflowGraphPolicyKernel.normalizeJoinPolicyStrict(
+                            readOptionalText(raw, "joinPolicy", "join_policy", "dependencyJoinPolicy"),
+                            path + ".joinPolicy"
+                    ),
+                    WorkflowGraphPolicyKernel.normalizeFailurePolicyStrict(
+                            readOptionalText(raw, "failurePolicy", "failure_policy"),
+                            path + ".failurePolicy"
+                    ),
                     readInteger(raw, "quorum", "joinQuorum"),
-                    normalizeRunPolicy(readOptionalText(raw, "runPolicy", "run_policy"))
+                    WorkflowGraphPolicyKernel.normalizeRunPolicyStrict(
+                            readOptionalText(raw, "runPolicy", "run_policy")
+                    )
             ));
         }
         return groupsById;
@@ -354,37 +370,6 @@ public class SopSpecCompileService {
             return TASK_TYPE_CRITIC;
         }
         return null;
-    }
-
-    private String normalizeJoinPolicy(String raw) {
-        if (StringUtils.isBlank(raw)) {
-            return null;
-        }
-        if (JOIN_POLICY_ANY.equalsIgnoreCase(raw)) {
-            return JOIN_POLICY_ANY;
-        }
-        if (JOIN_POLICY_QUORUM.equalsIgnoreCase(raw)) {
-            return JOIN_POLICY_QUORUM;
-        }
-        return JOIN_POLICY_ALL;
-    }
-
-    private String normalizeFailurePolicy(String raw) {
-        if (StringUtils.isBlank(raw)) {
-            return null;
-        }
-        if (FAILURE_POLICY_FAIL_SAFE.equalsIgnoreCase(raw)
-                || "fail_safe".equalsIgnoreCase(raw)) {
-            return FAILURE_POLICY_FAIL_SAFE;
-        }
-        return FAILURE_POLICY_FAIL_FAST;
-    }
-
-    private String normalizeRunPolicy(String raw) {
-        if (StringUtils.isBlank(raw)) {
-            return null;
-        }
-        return raw.trim();
     }
 
     private Integer readInteger(Map<String, Object> source, String... keys) {

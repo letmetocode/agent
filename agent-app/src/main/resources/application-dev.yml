@@ -85,7 +85,15 @@ app:
       password: ${APP_AUTH_LOCAL_PASSWORD:admin123}
       display-name: ${APP_AUTH_LOCAL_DISPLAY_NAME:Operator}
     token:
+      # 兼容旧配置：若未显式配置 jwt.access-ttl-minutes，则按该小时数换算 access token 过期时间
       ttl-hours: ${APP_AUTH_TOKEN_TTL_HOURS:24}
+    jwt:
+      # JWT 签发方
+      issuer: ${APP_AUTH_JWT_ISSUER:agent-app}
+      # Access Token 过期时间（分钟）；<=0 时回退 token.ttl-hours
+      access-ttl-minutes: ${APP_AUTH_JWT_ACCESS_TTL_MINUTES:0}
+      # 开发默认密钥；生产环境禁止使用该默认值
+      secret: ${APP_AUTH_JWT_SECRET:dev-insecure-jwt-secret}
   share:
     # 任务分享链接生成时使用的外部访问地址（可通过环境变量覆盖）
     base-url: ${APP_SHARE_BASE_URL:http://127.0.0.1:8091}
@@ -107,3 +115,9 @@ observability:
     enabled: true
     sample-rate: 1.0
     log-request-body: false
+
+release-control:
+  chat-planning:
+    enabled: ${RELEASE_CHAT_PLANNING_ENABLED:true}
+    traffic-percent: ${RELEASE_CHAT_PLANNING_TRAFFIC_PERCENT:100}
+    kill-switch: ${RELEASE_CHAT_PLANNING_KILL_SWITCH:false}

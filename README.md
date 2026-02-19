@@ -30,6 +30,7 @@
 - 终态收敛规则下沉：`PlanFinalizationDomainService`（Plan->Turn 终态映射与输出汇总）。
 - Plan 聚合状态推进下沉：`PlanTransitionDomainService`（Task 统计 -> Plan 状态迁移）。
 - Root 降级策略下沉：`PlannerFallbackPolicyDomainService`（重试判定、fallbackReason 归一、指标标签规范化）。
+- Planner 路由链路拆分：`WorkflowRoutingResolveService`（命中/候选解析）+ `WorkflowRoutingDecisionService`（决策落库与指标），`PlannerServiceImpl` 聚焦编排。
 - Task 持久化策略下沉：`TaskPersistencePolicyDomainService`（乐观锁冲突识别、重试判定、错误归一化）。
 - Task 持久化写用例收口：`TaskPersistenceApplicationService`（claimed update / execution save / plan context retry）。
 - 调度依赖策略接口化：`TaskDependencyPolicy` + `TaskDependencyPolicyDomainService`（PENDING 依赖判定规则）。
@@ -77,7 +78,7 @@ PostgreSQL 最终版初始化脚本：
 
 - `docs/dev-ops/postgresql/sql/01_init_database.sql`
 
-脚本会初始化核心表、枚举以及基线 AgentProfile（`assistant` 与 `root`），并包含质量评估事件表 `quality_evaluation_events`。
+脚本会初始化核心表、枚举以及基线 AgentProfile（`assistant` 与 `root`），并包含质量评估事件表 `quality_evaluation_events` 与 JWT 吊销黑名单表 `auth_session_blacklist`。
 
 会话与规划 V2 增量迁移脚本：
 
@@ -231,17 +232,21 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 - `planner.root.fallback.single-node.enabled`
 - `planner.root.fallback.agent-key`（Draft 节点缺省 agentKey，当前默认 `assistant`）
 
-### 最小登录能力
+### 最小登录能力（JWT）
 
 配置位置：`agent-app/src/main/resources/application.yml`
 
 - `app.auth.local.username`（本地登录用户名，默认 `admin`）
 - `app.auth.local.password`（本地登录密码，默认 `admin123`，生产建议环境变量覆盖）
 - `app.auth.local.display-name`（控制台展示昵称）
-- `app.auth.token.ttl-hours`（登录态有效期，单位小时）
+- `app.auth.token.ttl-hours`（兼容旧配置：未显式配置 JWT 分钟级 TTL 时使用）
+- `app.auth.jwt.issuer`（JWT 签发方）
+- `app.auth.jwt.access-ttl-minutes`（JWT 访问令牌有效期，分钟）
+- `app.auth.jwt.secret`（JWT HS256 签名密钥，生产必填）
 
 默认行为：
 - `ApiAuthFilter` 对 `/api/**` 统一鉴权；白名单仅放行 `/api/auth/login` 与 `/api/share/tasks/**`。
+- 登录态采用 `JWT + auth_session_blacklist(jti)` 吊销机制，支持多实例一致失效语义。
 - 浏览器 SSE 因标准限制无法携带 `Authorization` 头，`/api/v3/chat/sessions/{id}/stream` 支持 `accessToken` query 参数鉴权。
 - 前端收到 `401` 会自动清理本地登录态并跳转 `/login`。
 
@@ -267,6 +272,14 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 
 - `executor.execution.timeout-ms`（单次 TaskClient 调用超时时间）
 - `executor.execution.timeout-retry-max`（超时后的额外重试次数，默认 1）
+
+### 发布灰度开关（会话规划链路）
+
+配置位置：`agent-app/src/main/resources/application*.yml`
+
+- `release-control.chat-planning.enabled`（会话入口是否允许派发规划任务）
+- `release-control.chat-planning.traffic-percent`（按 `sessionId:turnId` 哈希放量比例）
+- `release-control.chat-planning.kill-switch`（紧急熔断，优先级高于 enabled）
 
 ### SSE 回放参数
 
@@ -346,7 +359,7 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 - 治理层单一事实源为 `sopSpec`；执行层使用编译产物 `graphDefinition(version=2)`。
 - 术语约定：历史文档中的 `SOP/DRG/DAG` 在运行时统一映射为 `Workflow Graph`。
 - 发布前会校验 `compileHash` 与当前 Runtime Graph 一致性，不一致则阻断发布并提示重新编译保存。
-- `GraphDslPolicyService` 作为 Graph 规则单源，统一提供 Graph DSL v2 基础校验、`nodeSignature` 计算与 `compileHash` 哈希算法。
+- `WorkflowGraphPolicyKernel` 作为 Graph 规则内核单源，统一承载 Graph DSL v2 归一化/校验/策略解析；`GraphDslPolicyService` 负责基础校验与签名/哈希算法。
 - 当前运行时统一以 `graphDefinition.version = 2` 执行；发布与更新 Draft 时会强校验 `version=2`。
 - 候选 Draft（Root 规划产物）允许版本兼容升级：当仅缺失/非 2 但节点结构可执行时，Planner 会自动补齐为 `version=2`（并补齐缺省 `groups/edges`）。
 - 候选 Draft 结构性非法（如边指向不存在节点）会判定为不可重试错误，Root 规划直接快速降级，避免 3 次无效重试。

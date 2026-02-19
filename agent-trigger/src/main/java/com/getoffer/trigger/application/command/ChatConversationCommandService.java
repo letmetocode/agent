@@ -21,8 +21,10 @@ import com.getoffer.types.enums.TurnStatusEnum;
 import com.getoffer.types.exception.AppException;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -51,6 +53,9 @@ public class ChatConversationCommandService {
     private final IAgentRegistryRepository agentRegistryRepository;
     private final SessionConversationDomainService sessionConversationDomainService;
     private final Executor commonThreadPoolExecutor;
+    private final boolean chatPlanningEnabled;
+    private final int chatPlanningTrafficPercent;
+    private final boolean chatPlanningKillSwitch;
 
     public ChatConversationCommandService(PlannerService plannerService,
                                           IAgentSessionRepository agentSessionRepository,
@@ -61,6 +66,33 @@ public class ChatConversationCommandService {
                                           IAgentRegistryRepository agentRegistryRepository,
                                           SessionConversationDomainService sessionConversationDomainService,
                                           @Qualifier("commonThreadPoolExecutor") Executor commonThreadPoolExecutor) {
+        this(plannerService,
+                agentSessionRepository,
+                sessionTurnRepository,
+                sessionMessageRepository,
+                agentPlanRepository,
+                routingDecisionRepository,
+                agentRegistryRepository,
+                sessionConversationDomainService,
+                commonThreadPoolExecutor,
+                true,
+                100,
+                false);
+    }
+
+    @Autowired
+    public ChatConversationCommandService(PlannerService plannerService,
+                                          IAgentSessionRepository agentSessionRepository,
+                                          ISessionTurnRepository sessionTurnRepository,
+                                          ISessionMessageRepository sessionMessageRepository,
+                                          IAgentPlanRepository agentPlanRepository,
+                                          IRoutingDecisionRepository routingDecisionRepository,
+                                          IAgentRegistryRepository agentRegistryRepository,
+                                          SessionConversationDomainService sessionConversationDomainService,
+                                          @Qualifier("commonThreadPoolExecutor") Executor commonThreadPoolExecutor,
+                                          @Value("${release-control.chat-planning.enabled:true}") boolean chatPlanningEnabled,
+                                          @Value("${release-control.chat-planning.traffic-percent:100}") int chatPlanningTrafficPercent,
+                                          @Value("${release-control.chat-planning.kill-switch:false}") boolean chatPlanningKillSwitch) {
         this.plannerService = plannerService;
         this.agentSessionRepository = agentSessionRepository;
         this.sessionTurnRepository = sessionTurnRepository;
@@ -70,6 +102,9 @@ public class ChatConversationCommandService {
         this.agentRegistryRepository = agentRegistryRepository;
         this.sessionConversationDomainService = sessionConversationDomainService;
         this.commonThreadPoolExecutor = commonThreadPoolExecutor;
+        this.chatPlanningEnabled = chatPlanningEnabled;
+        this.chatPlanningTrafficPercent = normalizeTrafficPercent(chatPlanningTrafficPercent);
+        this.chatPlanningKillSwitch = chatPlanningKillSwitch;
     }
 
     public ConversationSubmitResult submitMessage(ChatMessageSubmitRequestV3DTO request) {
@@ -235,11 +270,41 @@ public class ChatConversationCommandService {
                                        SessionTurnEntity savedTurn,
                                        String userMessage,
                                        Map<String, Object> extraContext) {
+        if (!allowPlanningForTurn(session, savedTurn)) {
+            throw new AppException(ResponseCode.UN_ERROR.getCode(), "当前链路灰度未放量，请稍后重试");
+        }
         try {
             commonThreadPoolExecutor.execute(() -> runPlanningAsync(session, savedTurn, userMessage, extraContext));
         } catch (Exception ex) {
             throw new AppException(ResponseCode.UN_ERROR.getCode(), "规划任务派发失败，请稍后重试", ex);
         }
+    }
+
+    private boolean allowPlanningForTurn(AgentSessionEntity session, SessionTurnEntity savedTurn) {
+        if (chatPlanningKillSwitch || !chatPlanningEnabled) {
+            return false;
+        }
+        if (chatPlanningTrafficPercent >= 100) {
+            return true;
+        }
+        if (chatPlanningTrafficPercent <= 0) {
+            return false;
+        }
+        if (session == null || savedTurn == null || session.getId() == null || savedTurn.getId() == null) {
+            return true;
+        }
+        int bucket = Math.floorMod((session.getId() + ":" + savedTurn.getId()).hashCode(), 100);
+        return bucket < chatPlanningTrafficPercent;
+    }
+
+    private int normalizeTrafficPercent(int value) {
+        if (value < 0) {
+            return 0;
+        }
+        if (value > 100) {
+            return 100;
+        }
+        return value;
     }
 
     private void runPlanningAsync(AgentSessionEntity session,
