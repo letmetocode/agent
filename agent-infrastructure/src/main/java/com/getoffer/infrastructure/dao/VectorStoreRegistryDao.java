@@ -44,4 +44,9 @@ public interface VectorStoreRegistryDao {
      * 查询所有向量存储
      */
     List<VectorStoreRegistryPO> selectAll();
+
+    /**
+     * 查询最近更新向量存储。
+     */
+    List<VectorStoreRegistryPO> selectRecent(@Param("limit") Integer limit);
 }

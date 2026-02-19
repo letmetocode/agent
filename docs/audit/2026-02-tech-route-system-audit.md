@@ -391,8 +391,12 @@
 - [x] 生命周期专项测试：新增 `WorkflowDraftLifecycleServiceTest`（去重复用、Root 禁用降级、不可用 agentKey 自动回退）。
 
 ### D2 进行中（必须继续收敛）
-- [ ] `QueryController/ConsoleQueryController` 去除全量加载与内存分页，统一 DAO 分页与聚合 SQL。
-- [ ] `toolPolicy` 执行期闭环补齐审计字段（命中 allow/block 的结构化事件）并补回放查询。
+- [x] `QueryController/ConsoleQueryController` 去除全量加载与内存分页，统一 DAO 分页与聚合 SQL。
+  - `ConsoleQueryController#/api/logs/paged` 无 `planId` 分支改为 `agentPlanRepository.findRecent(100)`（DAO `LIMIT` 下推），移除全量 `findAll + 内存排序`。
+  - `QueryController#/api/agents/tools`、`/api/agents/vector-stores` 改为 `findRecent(limit)`（默认 `100`，上限 `500`），新增 DAO/Mapper `selectRecent` SQL。
+- [x] `toolPolicy` 执行期闭环补齐审计字段（命中 allow/block 的结构化事件）并补回放查询。
+  - 执行期新增结构化事件：`TaskExecutionClientResolver` 在策略生效时发布 `TASK_LOG`，事件字段包含 `auditCategory=tool_policy`、`policyAction`（`allow_hit/block_hit/disabled_block/enforced`）、`policyMode`、`allowHit/blockHit`、`allowedTools/blockedTools`、`selectionSource` 等。
+  - 新增回放查询接口：`GET /api/logs/tool-policy/paged`，支持 `policyAction/policyMode/keyword` 过滤；仓储新增 `countToolPolicyLogs/findToolPolicyLogsPaged` 与对应 DAO/Mapper SQL。
 - [ ] A/B 主链路落地（分桶、质量事件关联、查询 API），对齐 PRD 的“输出质量持续提升”闭环。
 
 ### D3 待启动（Phase 3 治理化）

@@ -31,4 +31,18 @@ public interface PlanTaskEventDao {
                    @Param("level") String level,
                    @Param("traceId") String traceId,
                    @Param("keyword") String keyword);
+
+    List<PlanTaskEventPO> selectToolPolicyLogsPaged(@Param("planIds") List<Long> planIds,
+                                                     @Param("taskId") Long taskId,
+                                                     @Param("policyAction") String policyAction,
+                                                     @Param("policyMode") String policyMode,
+                                                     @Param("keyword") String keyword,
+                                                     @Param("offset") Integer offset,
+                                                     @Param("limit") Integer limit);
+
+    Long countToolPolicyLogs(@Param("planIds") List<Long> planIds,
+                             @Param("taskId") Long taskId,
+                             @Param("policyAction") String policyAction,
+                             @Param("policyMode") String policyMode,
+                             @Param("keyword") String keyword);
 }

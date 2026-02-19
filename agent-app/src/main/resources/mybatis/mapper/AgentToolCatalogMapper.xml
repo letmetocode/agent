@@ -84,6 +84,13 @@
         ORDER BY created_at DESC
     </select>
 
+    <select id="selectRecent" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM agent_tool_catalog
+        ORDER BY updated_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
     <select id="selectByType" parameterType="com.getoffer.types.enums.ToolTypeEnum" resultMap="BaseResultMap">
         SELECT <include refid="Base_Column_List"/>
         FROM agent_tool_catalog

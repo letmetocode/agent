@@ -2,6 +2,8 @@ package com.getoffer.test;
 
 import com.getoffer.domain.agent.adapter.repository.IAgentToolCatalogRepository;
 import com.getoffer.domain.agent.adapter.repository.IVectorStoreRegistryRepository;
+import com.getoffer.domain.agent.model.entity.AgentToolCatalogEntity;
+import com.getoffer.domain.agent.model.entity.VectorStoreRegistryEntity;
 import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.session.adapter.repository.IAgentSessionRepository;
@@ -114,5 +116,40 @@ public class QueryControllerPerformanceTest {
 
         verify(taskExecutionRepository, never()).getMaxAttemptNumber(anyLong());
         verify(taskExecutionRepository, never()).findByTaskIdAndAttempt(anyLong(), anyInt());
+    }
+
+    @Test
+    public void shouldQueryRecentAgentToolsWithBoundedLimit() throws Exception {
+        AgentToolCatalogEntity tool = new AgentToolCatalogEntity();
+        tool.setId(301L);
+        tool.setName("web_search");
+        when(agentToolCatalogRepository.findRecent(500)).thenReturn(List.of(tool));
+
+        mockMvc.perform(get("/api/agents/tools")
+                        .param("limit", "999"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0000"))
+                .andExpect(jsonPath("$.data[0].id").value(301L))
+                .andExpect(jsonPath("$.data[0].name").value("web_search"));
+
+        verify(agentToolCatalogRepository, times(1)).findRecent(500);
+        verify(agentToolCatalogRepository, never()).findAll();
+    }
+
+    @Test
+    public void shouldQueryRecentVectorStoresWithDefaultLimit() throws Exception {
+        VectorStoreRegistryEntity store = new VectorStoreRegistryEntity();
+        store.setId(401L);
+        store.setName("knowledge-main");
+        when(vectorStoreRegistryRepository.findRecent(100)).thenReturn(List.of(store));
+
+        mockMvc.perform(get("/api/agents/vector-stores"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0000"))
+                .andExpect(jsonPath("$.data[0].id").value(401L))
+                .andExpect(jsonPath("$.data[0].name").value("knowledge-main"));
+
+        verify(vectorStoreRegistryRepository, times(1)).findRecent(100);
+        verify(vectorStoreRegistryRepository, never()).findAll();
     }
 }

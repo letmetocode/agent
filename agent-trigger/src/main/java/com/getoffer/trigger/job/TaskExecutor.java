@@ -235,7 +235,8 @@ public class TaskExecutor {
                 taskAgentSelectionDomainService,
                 normalizedWorkerFallbackAgentKeys,
                 normalizedCriticFallbackAgentKeys,
-                normalizedDefaultAgentCacheTtlMs
+                normalizedDefaultAgentCacheTtlMs,
+                planTaskEventPublisher
         );
         TaskExecutionFlowSupport taskExecutionFlowSupport = new TaskExecutionFlowSupport(
                 this.agentTaskRepository,

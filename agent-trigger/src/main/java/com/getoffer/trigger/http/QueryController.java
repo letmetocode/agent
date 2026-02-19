@@ -148,18 +148,20 @@ public class QueryController {
     }
 
     @GetMapping("/agents/tools")
-    public Response<List<Map<String, Object>>> listAgentTools() {
-        List<AgentToolCatalogEntity> tools = agentToolCatalogRepository.findAll();
-        List<Map<String, Object>> data = tools == null ? Collections.emptyList() : tools.stream()
+    public Response<List<Map<String, Object>>> listAgentTools(@RequestParam(value = "limit", required = false) Integer limit) {
+        int normalizedLimit = normalizeLimit(limit, 100, 500);
+        List<AgentToolCatalogEntity> tools = safeList(agentToolCatalogRepository.findRecent(normalizedLimit));
+        List<Map<String, Object>> data = tools.stream()
                 .map(this::toAgentTool)
                 .collect(Collectors.toList());
         return success(data);
     }
 
     @GetMapping("/agents/vector-stores")
-    public Response<List<Map<String, Object>>> listVectorStores() {
-        List<VectorStoreRegistryEntity> stores = vectorStoreRegistryRepository.findAll();
-        List<Map<String, Object>> data = stores == null ? Collections.emptyList() : stores.stream()
+    public Response<List<Map<String, Object>>> listVectorStores(@RequestParam(value = "limit", required = false) Integer limit) {
+        int normalizedLimit = normalizeLimit(limit, 100, 500);
+        List<VectorStoreRegistryEntity> stores = safeList(vectorStoreRegistryRepository.findRecent(normalizedLimit));
+        List<Map<String, Object>> data = stores.stream()
                 .map(this::toVectorStore)
                 .collect(Collectors.toList());
         return success(data);
@@ -322,6 +324,10 @@ public class QueryController {
 
     private <T> List<T> safeList(List<T> source) {
         return source == null ? Collections.emptyList() : source;
+    }
+
+    private int normalizeLimit(Integer limit, int defaultValue, int maxValue) {
+        return limit == null ? defaultValue : Math.max(1, Math.min(limit, maxValue));
     }
 
     private Map<String, Object> toAgentTool(AgentToolCatalogEntity tool) {

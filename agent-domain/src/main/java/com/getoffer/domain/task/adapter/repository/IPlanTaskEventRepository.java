@@ -37,4 +37,28 @@ public interface IPlanTaskEventRepository {
                            String keyword) {
         return 0L;
     }
+
+    /**
+     * 工具策略命中日志分页查询（结构化回放）。
+     */
+    default List<PlanTaskEventEntity> findToolPolicyLogsPaged(List<Long> planIds,
+                                                               Long taskId,
+                                                               String policyAction,
+                                                               String policyMode,
+                                                               String keyword,
+                                                               int offset,
+                                                               int limit) {
+        return Collections.emptyList();
+    }
+
+    /**
+     * 工具策略命中日志计数（结构化回放）。
+     */
+    default long countToolPolicyLogs(List<Long> planIds,
+                                     Long taskId,
+                                     String policyAction,
+                                     String policyMode,
+                                     String keyword) {
+        return 0L;
+    }
 }

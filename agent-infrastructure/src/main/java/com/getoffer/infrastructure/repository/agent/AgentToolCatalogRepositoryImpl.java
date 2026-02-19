@@ -114,6 +114,16 @@ public class AgentToolCatalogRepositoryImpl implements IAgentToolCatalogReposito
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public List<AgentToolCatalogEntity> findRecent(int limit) {
+        if (limit <= 0) {
+            return Collections.emptyList();
+        }
+        return agentToolCatalogDao.selectRecent(limit).stream()
+                .map(this::toEntity)
+                .collect(Collectors.toList());
+    }
+
     /**
      * 按类型查询。
      */

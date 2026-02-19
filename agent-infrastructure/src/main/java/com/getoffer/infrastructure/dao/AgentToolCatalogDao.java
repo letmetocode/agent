@@ -48,6 +48,11 @@ public interface AgentToolCatalogDao {
     List<AgentToolCatalogPO> selectAll();
 
     /**
+     * 查询最近更新工具。
+     */
+    List<AgentToolCatalogPO> selectRecent(@Param("limit") Integer limit);
+
+    /**
      * 根据类型查询
      */
     List<AgentToolCatalogPO> selectByType(@Param("type") ToolTypeEnum type);

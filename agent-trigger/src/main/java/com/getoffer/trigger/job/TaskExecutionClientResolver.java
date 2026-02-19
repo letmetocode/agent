@@ -6,11 +6,15 @@ import com.getoffer.domain.agent.model.entity.AgentRegistryEntity;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.service.TaskAgentSelectionDomainService;
+import com.getoffer.trigger.event.PlanTaskEventPublisher;
+import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -27,6 +31,7 @@ final class TaskExecutionClientResolver {
     private final List<String> workerFallbackAgentKeys;
     private final List<String> criticFallbackAgentKeys;
     private final long defaultAgentCacheTtlMs;
+    private final PlanTaskEventPublisher planTaskEventPublisher;
     private volatile AgentRegistryEntity cachedDefaultAgent;
     private volatile long cachedDefaultAgentAtMillis;
 
@@ -35,13 +40,15 @@ final class TaskExecutionClientResolver {
                                 TaskAgentSelectionDomainService taskAgentSelectionDomainService,
                                 List<String> workerFallbackAgentKeys,
                                 List<String> criticFallbackAgentKeys,
-                                long defaultAgentCacheTtlMs) {
+                                long defaultAgentCacheTtlMs,
+                                PlanTaskEventPublisher planTaskEventPublisher) {
         this.agentFactory = agentFactory;
         this.agentRegistryRepository = agentRegistryRepository;
         this.taskAgentSelectionDomainService = taskAgentSelectionDomainService;
         this.workerFallbackAgentKeys = workerFallbackAgentKeys;
         this.criticFallbackAgentKeys = criticFallbackAgentKeys;
         this.defaultAgentCacheTtlMs = defaultAgentCacheTtlMs;
+        this.planTaskEventPublisher = planTaskEventPublisher;
         this.cachedDefaultAgent = null;
         this.cachedDefaultAgentAtMillis = 0L;
     }
@@ -80,7 +87,57 @@ final class TaskExecutionClientResolver {
             throw new IllegalStateException("No available active agent profile for task fallback. triedKeys="
                     + taskAgentSelectionDomainService.joinAgentKeys(selected.attemptedAgentKeys()));
         }
+        if (!toolPolicy.isEmpty()) {
+            publishToolPolicyAuditEvent(task, selected, toolPolicy);
+        }
         return selected.client();
+    }
+
+    private void publishToolPolicyAuditEvent(AgentTaskEntity task,
+                                             TaskAgentSelectionDomainService.ClientSelectionResult<ChatClient> selected,
+                                             Map<String, Object> toolPolicy) {
+        if (task == null || task.getPlanId() == null || planTaskEventPublisher == null) {
+            return;
+        }
+        List<String> allowedTools = resolveToolNames(toolPolicy, "allowedToolNames", "allowedTools", "allowlist", "allowList");
+        List<String> blockedTools = resolveToolNames(toolPolicy, "blockedToolNames", "blockedTools", "blocklist", "blockList");
+        String policyMode = resolveMode(toolPolicy);
+        Map<String, Object> eventData = new HashMap<>();
+        eventData.put("auditCategory", "tool_policy");
+        eventData.put("policyAction", resolvePolicyAction(policyMode, allowedTools, blockedTools));
+        eventData.put("policyMode", policyMode);
+        eventData.put("allowHit", !allowedTools.isEmpty());
+        eventData.put("blockHit", !blockedTools.isEmpty());
+        eventData.put("allowedTools", allowedTools);
+        eventData.put("blockedTools", blockedTools);
+        eventData.put("allowedToolCount", allowedTools.size());
+        eventData.put("blockedToolCount", blockedTools.size());
+        eventData.put("selectedAgentId", selected == null ? null : selected.selectedAgentId());
+        eventData.put("selectedAgentKey", selected == null ? null : selected.selectedAgentKey());
+        eventData.put("selectionSource", selected == null || selected.source() == null ? null : selected.source().name());
+        eventData.put("nodeId", task.getNodeId());
+        eventData.put("taskType", task.getTaskType() == null ? null : task.getTaskType().name());
+        eventData.put("message", "tool policy enforced");
+        try {
+            planTaskEventPublisher.publish(PlanTaskEventTypeEnum.TASK_LOG, task.getPlanId(), task.getId(), eventData);
+        } catch (Exception ex) {
+            log.debug("Publish tool policy audit event failed. planId={}, taskId={}, error={}",
+                    task.getPlanId(), task.getId(), ex.getMessage());
+        }
+    }
+
+    private String resolvePolicyAction(String mode, List<String> allowedTools, List<String> blockedTools) {
+        String normalizedMode = StringUtils.defaultIfBlank(mode, "allowAll").toLowerCase(Locale.ROOT);
+        if ("disabled".equals(normalizedMode)) {
+            return "disabled_block";
+        }
+        if ("allowlist".equals(normalizedMode) && !allowedTools.isEmpty()) {
+            return "allow_hit";
+        }
+        if (!blockedTools.isEmpty()) {
+            return "block_hit";
+        }
+        return "enforced";
     }
 
     private AgentRegistryEntity resolveDefaultActiveAgentProfile() {
@@ -157,27 +214,46 @@ final class TaskExecutionClientResolver {
     }
 
     private String resolveToolList(Map<String, Object> policy, String... keys) {
-        if (policy == null || policy.isEmpty() || keys == null) {
+        List<String> toolNames = resolveToolNames(policy, keys);
+        if (toolNames.isEmpty()) {
             return "";
         }
+        return String.join(",", toolNames);
+    }
+
+    private List<String> resolveToolNames(Map<String, Object> policy, String... keys) {
+        if (policy == null || policy.isEmpty() || keys == null) {
+            return Collections.emptyList();
+        }
+        List<String> result = new ArrayList<>();
         for (String key : keys) {
             Object value = policy.get(key);
             if (value == null) {
                 continue;
             }
             if (value instanceof List<?> list) {
-                return list.stream()
-                        .filter(item -> item != null)
-                        .map(String::valueOf)
-                        .map(String::trim)
-                        .filter(item -> !item.isEmpty())
-                        .reduce((left, right) -> left + "," + right)
-                        .orElse("");
+                for (Object item : list) {
+                    if (item == null) {
+                        continue;
+                    }
+                    String text = String.valueOf(item).trim();
+                    if (!text.isEmpty()) {
+                        result.add(text);
+                    }
+                }
+                break;
             }
             if (value instanceof String text) {
-                return text.trim();
+                String[] segments = text.split(",");
+                for (String segment : segments) {
+                    String normalized = segment == null ? "" : segment.trim();
+                    if (!normalized.isEmpty()) {
+                        result.add(normalized);
+                    }
+                }
+                break;
             }
         }
-        return "";
+        return result;
     }
 }

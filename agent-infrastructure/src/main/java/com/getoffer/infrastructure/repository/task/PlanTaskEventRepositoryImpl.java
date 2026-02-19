@@ -101,6 +101,56 @@ public class PlanTaskEventRepositoryImpl implements IPlanTaskEventRepository {
         return count == null ? 0L : Math.max(count, 0L);
     }
 
+    @Override
+    public List<PlanTaskEventEntity> findToolPolicyLogsPaged(List<Long> planIds,
+                                                             Long taskId,
+                                                             String policyAction,
+                                                             String policyMode,
+                                                             String keyword,
+                                                             int offset,
+                                                             int limit) {
+        if (limit <= 0 || offset < 0) {
+            return Collections.emptyList();
+        }
+        List<Long> normalizedPlanIds = normalizePlanIds(planIds);
+        if (normalizedPlanIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<PlanTaskEventPO> rows = planTaskEventDao.selectToolPolicyLogsPaged(
+                normalizedPlanIds,
+                taskId,
+                normalizeToken(policyAction),
+                normalizeToken(policyMode),
+                normalizeText(keyword),
+                offset,
+                limit
+        );
+        if (rows == null || rows.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return rows.stream().map(this::toEntity).collect(Collectors.toList());
+    }
+
+    @Override
+    public long countToolPolicyLogs(List<Long> planIds,
+                                    Long taskId,
+                                    String policyAction,
+                                    String policyMode,
+                                    String keyword) {
+        List<Long> normalizedPlanIds = normalizePlanIds(planIds);
+        if (normalizedPlanIds.isEmpty()) {
+            return 0L;
+        }
+        Long count = planTaskEventDao.countToolPolicyLogs(
+                normalizedPlanIds,
+                taskId,
+                normalizeToken(policyAction),
+                normalizeToken(policyMode),
+                normalizeText(keyword)
+        );
+        return count == null ? 0L : Math.max(count, 0L);
+    }
+
     private List<Long> normalizePlanIds(List<Long> planIds) {
         if (planIds == null || planIds.isEmpty()) {
             return Collections.emptyList();
@@ -129,6 +179,13 @@ public class PlanTaskEventRepositoryImpl implements IPlanTaskEventRepository {
             return null;
         }
         return text.trim();
+    }
+
+    private String normalizeToken(String token) {
+        if (StringUtils.isBlank(token)) {
+            return null;
+        }
+        return token.trim().toLowerCase(Locale.ROOT);
     }
 
     private PlanTaskEventEntity toEntity(PlanTaskEventPO po) {

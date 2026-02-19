@@ -28,7 +28,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -168,23 +167,10 @@ public class ConsoleQueryController {
         String normalizedKeyword = normalizeKeyword(keyword);
         String normalizedTraceId = normalizeKeyword(traceId);
 
-        List<Long> targetPlanIds;
-        if (planId != null) {
-            AgentPlanEntity targetPlan = agentPlanRepository.findById(planId);
-            if (targetPlan == null) {
-                return illegal("计划不存在");
-            }
-            targetPlanIds = Collections.singletonList(targetPlan.getId());
-        } else {
-            List<AgentPlanEntity> allPlans = agentPlanRepository.findAll();
-            targetPlanIds = (allPlans == null ? Collections.<AgentPlanEntity>emptyList() : allPlans).stream()
-                    .sorted(Comparator.comparing(AgentPlanEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
-                    .limit(100)
-                    .map(AgentPlanEntity::getId)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
+        List<Long> targetPlanIds = resolveTargetPlanIds(planId);
+        if (targetPlanIds == null) {
+            return illegal("计划不存在");
         }
-
         if (targetPlanIds.isEmpty()) {
             return success(pagedResult(normalizedPage, normalizedSize, 0, Collections.emptyList()));
         }
@@ -215,6 +201,55 @@ public class ConsoleQueryController {
                 .collect(Collectors.toList());
         int safeTotal = totalCount > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) totalCount;
         return success(pagedResult(normalizedPage, normalizedSize, safeTotal, items));
+    }
+
+    @GetMapping("/logs/tool-policy/paged")
+    public Response<Map<String, Object>> listToolPolicyLogsPaged(
+            @RequestParam(value = "planId", required = false) Long planId,
+            @RequestParam(value = "taskId", required = false) Long taskId,
+            @RequestParam(value = "policyAction", required = false) String policyAction,
+            @RequestParam(value = "policyMode", required = false) String policyMode,
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "size", required = false) Integer size) {
+        int normalizedPage = page == null ? 1 : Math.max(1, page);
+        int normalizedSize = size == null ? 20 : Math.max(1, Math.min(100, size));
+        int offset = (normalizedPage - 1) * normalizedSize;
+
+        List<Long> targetPlanIds = resolveTargetPlanIds(planId);
+        if (targetPlanIds == null) {
+            return illegal("计划不存在");
+        }
+        if (targetPlanIds.isEmpty()) {
+            return success(pagedResult(normalizedPage, normalizedSize, 0, Collections.emptyList()));
+        }
+
+        String normalizedPolicyAction = normalizeKeyword(policyAction);
+        String normalizedPolicyMode = normalizeKeyword(policyMode);
+        String normalizedKeyword = normalizeKeyword(keyword);
+        long totalCount = planTaskEventRepository.countToolPolicyLogs(
+                targetPlanIds,
+                taskId,
+                normalizedPolicyAction,
+                normalizedPolicyMode,
+                normalizedKeyword
+        );
+        if (totalCount <= 0) {
+            return success(pagedResult(normalizedPage, normalizedSize, 0, Collections.emptyList()));
+        }
+        List<PlanTaskEventEntity> events = planTaskEventRepository.findToolPolicyLogsPaged(
+                targetPlanIds,
+                taskId,
+                normalizedPolicyAction,
+                normalizedPolicyMode,
+                normalizedKeyword,
+                offset,
+                normalizedSize
+        );
+        List<Map<String, Object>> items = events == null ? Collections.emptyList() : events.stream()
+                .map(this::toToolPolicyLogItem)
+                .collect(Collectors.toList());
+        return success(pagedResult(normalizedPage, normalizedSize, toSafeTotal(totalCount), items));
     }
 
     @GetMapping("/knowledge-bases/{id}")
@@ -323,6 +358,57 @@ public class ConsoleQueryController {
         item.put("traceId", eventData.getOrDefault("traceId", "-"));
         item.put("createdAt", event.getCreatedAt());
         return item;
+    }
+
+    private Map<String, Object> toToolPolicyLogItem(PlanTaskEventEntity event) {
+        Map<String, Object> item = toLogItem(event);
+        Map<String, Object> eventData = event == null || event.getEventData() == null
+                ? Collections.emptyMap()
+                : event.getEventData();
+        item.put("auditCategory", eventData.getOrDefault("auditCategory", ""));
+        item.put("policyAction", eventData.getOrDefault("policyAction", ""));
+        item.put("policyMode", eventData.getOrDefault("policyMode", ""));
+        item.put("allowHit", Boolean.TRUE.equals(eventData.get("allowHit")));
+        item.put("blockHit", Boolean.TRUE.equals(eventData.get("blockHit")));
+        item.put("allowedTools", toStringList(eventData.get("allowedTools")));
+        item.put("blockedTools", toStringList(eventData.get("blockedTools")));
+        item.put("selectedAgentId", eventData.get("selectedAgentId"));
+        item.put("selectedAgentKey", eventData.get("selectedAgentKey"));
+        item.put("selectionSource", eventData.get("selectionSource"));
+        return item;
+    }
+
+    private List<Long> resolveTargetPlanIds(Long planId) {
+        if (planId != null) {
+            AgentPlanEntity targetPlan = agentPlanRepository.findById(planId);
+            if (targetPlan == null) {
+                return null;
+            }
+            return Collections.singletonList(targetPlan.getId());
+        }
+        List<AgentPlanEntity> recentPlans = agentPlanRepository.findRecent(100);
+        return (recentPlans == null ? Collections.<AgentPlanEntity>emptyList() : recentPlans).stream()
+                .map(AgentPlanEntity::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
+
+    private List<String> toStringList(Object value) {
+        if (value instanceof List<?> list) {
+            return list.stream()
+                    .filter(Objects::nonNull)
+                    .map(String::valueOf)
+                    .map(String::trim)
+                    .filter(item -> !item.isEmpty())
+                    .collect(Collectors.toList());
+        }
+        if (value instanceof String text) {
+            String trimmed = text.trim();
+            if (!trimmed.isEmpty()) {
+                return Collections.singletonList(trimmed);
+            }
+        }
+        return Collections.emptyList();
     }
 
     private EventLevel resolveEventLevel(PlanTaskEventEntity event) {

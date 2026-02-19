@@ -5,6 +5,8 @@ import com.getoffer.domain.agent.adapter.repository.IAgentRegistryRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.service.TaskAgentSelectionDomainService;
+import com.getoffer.trigger.event.PlanTaskEventPublisher;
+import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import com.getoffer.types.enums.TaskTypeEnum;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -19,6 +21,7 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class TaskExecutionClientResolverTest {
@@ -27,6 +30,7 @@ public class TaskExecutionClientResolverTest {
     public void shouldPropagateToolPolicyToAgentFactoryAndPromptSuffix() {
         IAgentFactory agentFactory = mock(IAgentFactory.class);
         IAgentRegistryRepository agentRegistryRepository = mock(IAgentRegistryRepository.class);
+        PlanTaskEventPublisher planTaskEventPublisher = mock(PlanTaskEventPublisher.class);
         TaskAgentSelectionDomainService selectionDomainService = new TaskAgentSelectionDomainService();
         TaskExecutionClientResolver resolver = new TaskExecutionClientResolver(
                 agentFactory,
@@ -34,11 +38,13 @@ public class TaskExecutionClientResolverTest {
                 selectionDomainService,
                 List.of("assistant"),
                 List.of("assistant"),
-                10_000L
+                10_000L,
+                planTaskEventPublisher
         );
 
         AgentTaskEntity task = new AgentTaskEntity();
         task.setId(101L);
+        task.setPlanId(8L);
         task.setNodeId("node-1");
         task.setTaskType(TaskTypeEnum.WORKER);
 
@@ -71,5 +77,12 @@ public class TaskExecutionClientResolverTest {
         Assertions.assertTrue(suffixCaptor.getValue().contains("工具调用策略"));
         Assertions.assertEquals("allowlist", String.valueOf(policyCaptor.getValue().get("mode")));
         Assertions.assertEquals(List.of("web_search", "calculator"), policyCaptor.getValue().get("allowedToolNames"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> eventDataCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(planTaskEventPublisher).publish(eq(PlanTaskEventTypeEnum.TASK_LOG), eq(8L), eq(101L), eventDataCaptor.capture());
+        Assertions.assertEquals("tool_policy", eventDataCaptor.getValue().get("auditCategory"));
+        Assertions.assertEquals("allow_hit", eventDataCaptor.getValue().get("policyAction"));
+        Assertions.assertEquals("allowlist", eventDataCaptor.getValue().get("policyMode"));
     }
 }

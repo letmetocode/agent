@@ -4,7 +4,11 @@ import com.getoffer.domain.agent.model.entity.AgentToolCatalogEntity;
 import com.getoffer.types.enums.ToolTypeEnum;
 
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * 工具目录仓储接口
@@ -43,6 +47,26 @@ public interface IAgentToolCatalogRepository {
      * 查询所有工具
      */
     List<AgentToolCatalogEntity> findAll();
+
+    /**
+     * 查询最近更新工具。
+     */
+    default List<AgentToolCatalogEntity> findRecent(int limit) {
+        if (limit <= 0) {
+            return Collections.emptyList();
+        }
+        List<AgentToolCatalogEntity> tools = findAll();
+        if (tools == null || tools.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return tools.stream()
+                .filter(Objects::nonNull)
+                .sorted(Comparator
+                        .comparing(AgentToolCatalogEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(AgentToolCatalogEntity::getId, Comparator.nullsLast(Comparator.reverseOrder())))
+                .limit(limit)
+                .collect(Collectors.toList());
+    }
 
     /**
      * 根据类型查询

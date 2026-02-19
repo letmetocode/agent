@@ -8,6 +8,7 @@ import com.getoffer.infrastructure.util.JsonCodec;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -95,6 +96,16 @@ public class VectorStoreRegistryRepositoryImpl implements IVectorStoreRegistryRe
     @Override
     public List<VectorStoreRegistryEntity> findAll() {
         return vectorStoreRegistryDao.selectAll().stream()
+                .map(this::toEntity)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<VectorStoreRegistryEntity> findRecent(int limit) {
+        if (limit <= 0) {
+            return Collections.emptyList();
+        }
+        return vectorStoreRegistryDao.selectRecent(limit).stream()
                 .map(this::toEntity)
                 .collect(Collectors.toList());
     }
