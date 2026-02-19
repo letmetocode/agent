@@ -407,7 +407,9 @@
   - 注册表与查询 API：`agent-app/src/main/resources/governance/deprecation-registry.json`、`agent-trigger/src/main/java/com/getoffer/trigger/http/DeprecationRegistryController.java`、`agent-trigger/src/main/java/com/getoffer/trigger/application/query/DeprecationRegistryQueryService.java`。
   - 迁移文档：`docs/design/09-deprecation-registry.md`。
   - 下线执行：`QueryController` 已删除 `/api/plans/{id}`、`/api/plans/{id}/tasks`、`/api/tasks/{id}/executions`，注册表对应条目状态更新为 `REMOVED`。
-- [ ] Workflow 版本迁移策略：补齐 `v2 -> vNext` 迁移模板、兼容矩阵与回滚脚本规范。
+- [x] Workflow 版本迁移策略：补齐 `v2 -> vNext` 迁移模板、兼容矩阵与回滚脚本规范。
+  - 迁移策略与兼容矩阵：`docs/design/10-workflow-version-migration.md`。
+  - SQL 模板与回滚模板：`docs/dev-ops/postgresql/sql/migrations/templates/TEMPLATE_workflow_graph_vnext.sql`、`docs/dev-ops/postgresql/sql/migrations/templates/TEMPLATE_workflow_graph_vnext_rollback.sql`。
 
 ## 附录：关键证据索引
 - 产品定位与范围：`docs/01-product-requirements.md:10-13`、`docs/01-product-requirements.md:24-39`。

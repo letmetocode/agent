@@ -87,6 +87,12 @@ PostgreSQL 最终版初始化脚本：
 - `docs/dev-ops/postgresql/sql/migrations/V20260213_02_executor_terminal_convergence.sql`
 - 回滚脚本：`docs/dev-ops/postgresql/sql/migrations/V20260213_02_executor_terminal_convergence_rollback.sql`
 
+Workflow Graph 版本迁移模板（v2 -> vNext）：
+
+- `docs/dev-ops/postgresql/sql/migrations/templates/TEMPLATE_workflow_graph_vnext.sql`
+- 回滚模板：`docs/dev-ops/postgresql/sql/migrations/templates/TEMPLATE_workflow_graph_vnext_rollback.sql`
+- 策略说明：`docs/design/10-workflow-version-migration.md`
+
 执行顺序建议：
 
 - 全新环境：执行 `docs/dev-ops/postgresql/sql/01_init_database.sql`（已包含 V2 字段）。
@@ -371,6 +377,7 @@ bash scripts/perf/run_chat_e2e_baseline.sh
   - `failurePolicy`: `failFast | failSafe`
   - `quorum`: 当 `joinPolicy=quorum` 时生效
 - Planner 在展开 Task 时会把策略写入 `task.configSnapshot.graphPolicy`，调度与 Plan 收敛统一按该策略执行。
+- Workflow 版本迁移策略（兼容矩阵、SQL 模板、回滚规范）见：`docs/design/10-workflow-version-migration.md`。
 
 ## 会话编排 V3 接口（推荐）
 

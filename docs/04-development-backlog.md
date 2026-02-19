@@ -34,6 +34,7 @@
 - Planner 输入校验增强：`inputSchema.required` 缺失系统字段（如 `sessionId`）时，先从运行时上下文自动补全再校验，避免创建会话后首轮报错。
 - Graph DSL v2 上线：Planner 仅接收 `version=2` 图定义，支持 `nodes/edges/groups` 归一化与边界边过滤。
 - Root 候选 Draft 版本兼容升级：候选草案仅在 `version` 不兼容但节点可执行时自动补齐为 v2，并补齐缺省 `groups/edges`，减少无效重试。
+- Workflow 版本迁移策略补齐：新增 `v2 -> vNext` 兼容矩阵、迁移 SQL 模板与回滚脚本规范（`docs/design/10-workflow-version-migration.md` + `docs/dev-ops/postgresql/sql/migrations/templates/*`）。
 - Root 候选 Draft 结构非法快速降级：候选草案被判定为确定性结构错误时（如边引用不存在节点）不再走满重试次数，直接降级单节点 Draft。
 - Root 规划软超时快速降级：单次 Root 规划超出 `planner.root.timeout.soft-ms` 后视为不可重试，首次超时即降级并记录真实尝试次数。
 - Graph 依赖策略注入：节点/分组 `joinPolicy/failurePolicy/quorum` 写入 `task.configSnapshot.graphPolicy`，供调度统一判定。

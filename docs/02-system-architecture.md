@@ -123,6 +123,7 @@ sequenceDiagram
 - 规则单源：`WorkflowGraphPolicyKernel` 统一承载 Graph DSL v2 归一化/校验/策略解析；`GraphDslPolicyService` 提供基础校验、`nodeSignature` 计算与 Graph 哈希。
 - 治理端编辑体验：支持分组批量设置与分组策略可视化编辑，编辑态提供循环依赖路径提示、定位高亮、回边移除建议与“自动修复预演”。
 - Planner 仅接受 `graphDefinition.version = 2`，并在创建 Plan 前统一执行归一化与校验。
+- Workflow 版本演进遵循“单写单读 v2 + 候选兼容升级”基线；`v2 -> vNext` 迁移流程、兼容矩阵与回滚规范见：`docs/design/10-workflow-version-migration.md`。
 - 图最小结构：`nodes + edges + groups`；`groups` 支持空数组，`edges` 支持组到组/组到节点展开。
 - 节点依赖策略支持：`joinPolicy(all|any|quorum)`、`failurePolicy(failFast|failSafe)`、`quorum`。
 - Planner 展开 Task 时注入 `configSnapshot.graphPolicy`，由调度领域服务统一判定 PENDING -> READY/SKIPPED。
@@ -257,3 +258,4 @@ sequenceDiagram
 - 产品需求：`docs/01-product-requirements.md`
 - UI/UX 规范：`docs/03-ui-ux-spec.md`
 - 开发任务清单：`docs/04-development-backlog.md`
+- Workflow 版本迁移策略：`docs/design/10-workflow-version-migration.md`
