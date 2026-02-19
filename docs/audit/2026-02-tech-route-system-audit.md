@@ -115,8 +115,8 @@
 
 #### 3) Redundancy & Stale（本路线）
 - 问题：执行链条组件多、责任边界存在重复传递成本（Runner/Adapter/FlowSupport/RuntimeSupport）。
-- 证据：`agent-trigger/src/main/java/com/getoffer/trigger/job/TaskExecutionRunner.java`、`TaskExecutionSupportAdapter.java`、`TaskExecutionFlowSupport.java`、`TaskExecutionRuntimeSupport.java`。
-- 处理：保持接口解耦，但收敛为“调用域/评估域/持久化域”三组最小接口，减少样板透传。
+- 证据：`agent-trigger/src/main/java/com/getoffer/trigger/job/TaskExecutionRunner.java`、`TaskExecutionCallSupportAdapter.java`、`TaskExecutionEvaluationSupportAdapter.java`、`TaskExecutionPersistenceSupportAdapter.java`、`TaskExecutionFlowSupport.java`、`TaskExecutionRuntimeSupport.java`。
+- 处理：保持接口解耦，已收敛为“调用域/评估域/持久化域”三组最小接口，后续继续观察接口稳定性与依赖收敛效果。
 - 优先级：P2。
 
 ### B5. LLM/工具调用与 Agent 选路
@@ -385,12 +385,12 @@
 - [x] 治理入口瘦身：`WorkflowGovernanceController` 业务逻辑下沉到 `WorkflowGovernanceApplicationService`。
 - [x] Planner 拆分第一阶段：落地 `WorkflowTaskMaterializationService`、`WorkflowPlanSnapshotService`、`WorkflowDraftLifecycleService`、`WorkflowInputPreparationService`。
 - [x] Planner 拆分第二阶段：落地 `WorkflowRoutingResolveService`（路由解析）+ `WorkflowRoutingDecisionService`（路由落库与指标），`PlannerServiceImpl` 从 1500+ 行收敛到约 400 行。
+- [x] 执行支持接口收口：`TaskExecutionRunner.ExecutionSupport` 收敛为 `CallSupport/EvaluationSupport/PersistenceSupport` 三组接口，适配器按域拆分，去除单一大适配器。
 - [x] 架构治理门禁：新增 `ArchitectureDependencyRuleTest`（ArchUnit）与 Maven Enforcer（Java/Maven 基线）。
 - [x] Enforcer 规则增强：开启 `banDuplicatePomDependencyVersions` + `requirePluginVersions`，并补齐 `maven-site-plugin` 版本。
 - [x] 生命周期专项测试：新增 `WorkflowDraftLifecycleServiceTest`（去重复用、Root 禁用降级、不可用 agentKey 自动回退）。
 
 ### D2 进行中（必须继续收敛）
-- [ ] `TaskExecutionRunner.ExecutionSupport` 接口进一步收口为最小三组（调用域/评估域/持久化域），减少样板透传与耦合扩散。
 - [ ] `QueryController/ConsoleQueryController` 去除全量加载与内存分页，统一 DAO 分页与聚合 SQL。
 - [ ] `toolPolicy` 执行期闭环补齐审计字段（命中 allow/block 的结构化事件）并补回放查询。
 - [ ] A/B 主链路落地（分桶、质量事件关联、查询 API），对齐 PRD 的“输出质量持续提升”闭环。

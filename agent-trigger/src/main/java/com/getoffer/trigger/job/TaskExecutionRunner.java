@@ -18,6 +18,13 @@ import java.util.concurrent.ScheduledFuture;
 public class TaskExecutionRunner {
 
     public ExecutionResult run(AgentTaskEntity task, ExecutionSupport support) {
+        return run(task, support, support, support);
+    }
+
+    public ExecutionResult run(AgentTaskEntity task,
+                               CallSupport callSupport,
+                               EvaluationSupport evaluationSupport,
+                               PersistenceSupport persistenceSupport) {
         String outcome = "unknown";
         String errorType = "none";
         ScheduledFuture<?> heartbeatFuture = null;
@@ -28,21 +35,21 @@ public class TaskExecutionRunner {
                 outcome = "skip_null_task";
                 return new ExecutionResult(outcome, errorType);
             }
-            if (!support.hasValidClaim(task)) {
+            if (!callSupport.hasValidClaim(task)) {
                 outcome = "skip_invalid_claim";
                 log.warn("Skip claimed task execution because claim metadata missing. taskId={}, claimOwner={}, attempt={}",
                         task.getId(), task.getClaimOwner(), task.getExecutionAttempt());
                 return new ExecutionResult(outcome, errorType);
             }
 
-            AgentPlanEntity plan = support.findPlan(task.getPlanId());
+            AgentPlanEntity plan = callSupport.findPlan(task.getPlanId());
             if (plan == null) {
                 outcome = "skip_plan_not_found";
                 log.warn("Skip task execution because plan not found. taskId={}, planId={}", task.getId(), task.getPlanId());
                 return new ExecutionResult(outcome, errorType);
             }
             if (!plan.isExecutable()) {
-                outcome = support.releaseClaimForNonExecutablePlan(task, plan)
+                outcome = callSupport.releaseClaimForNonExecutablePlan(task, plan)
                         ? "skip_plan_not_executable_released"
                         : "skip_plan_not_executable_release_failed";
                 log.debug("Skip task execution because plan is not executable. planId={}, status={}, taskId={}",
@@ -50,34 +57,34 @@ public class TaskExecutionRunner {
                 return new ExecutionResult(outcome, errorType);
             }
 
-            support.recordRetryDistribution(task);
-            boolean criticTask = support.isCriticTask(task);
+            callSupport.recordRetryDistribution(task);
+            boolean criticTask = callSupport.isCriticTask(task);
             boolean refining = task.getCurrentRetry() != null && task.getCurrentRetry() > 0;
-            heartbeatFuture = support.startHeartbeat(task);
+            heartbeatFuture = callSupport.startHeartbeat(task);
 
             ChatResponse chatResponse;
             String response;
             int timeoutRetryCount = 0;
             while (true) {
                 long startTime = System.currentTimeMillis();
-                String prompt = criticTask ? support.buildCriticPrompt(task, plan)
-                        : (refining ? support.buildRefinePrompt(task, plan) : support.buildPrompt(task, plan));
+                String prompt = criticTask ? callSupport.buildCriticPrompt(task, plan)
+                        : (refining ? callSupport.buildRefinePrompt(task, plan) : callSupport.buildPrompt(task, plan));
                 execution = new TaskExecutionEntity();
                 execution.setTaskId(task.getId());
-                execution.setAttemptNumber(support.resolveAttemptNumber(task));
+                execution.setAttemptNumber(callSupport.resolveAttemptNumber(task));
                 execution.setPromptSnapshot(prompt);
 
-                String systemPromptSuffix = support.buildRetrySystemPrompt(task);
-                ChatClient taskClient = support.resolveTaskClient(task, plan, systemPromptSuffix);
+                String systemPromptSuffix = callSupport.buildRetrySystemPrompt(task);
+                ChatClient taskClient = callSupport.resolveTaskClient(task, plan, systemPromptSuffix);
                 try {
-                    chatResponse = support.callTaskClientWithTimeout(taskClient, prompt);
+                    chatResponse = callSupport.callTaskClientWithTimeout(taskClient, prompt);
                 } catch (TaskCallTimeoutException timeoutException) {
-                    support.persistTimeoutExecution(execution, startTime, timeoutException);
-                    boolean retrying = support.canTimeoutRetry(task, timeoutRetryCount);
-                    support.recordTimeoutMetrics(task, retrying);
+                    callSupport.persistTimeoutExecution(execution, startTime, timeoutException);
+                    boolean retrying = callSupport.canTimeoutRetry(task, timeoutRetryCount);
+                    callSupport.recordTimeoutMetrics(task, retrying);
                     if (retrying) {
                         timeoutRetryCount++;
-                        support.applyTimeoutRetry(task, timeoutException.getMessage());
+                        callSupport.applyTimeoutRetry(task, timeoutException.getMessage());
                         refining = true;
                         outcome = "timeout_retrying";
                         errorType = "timeout";
@@ -86,95 +93,95 @@ public class TaskExecutionRunner {
                     errorType = "timeout";
                     outcome = "failed";
                     task.fail(timeoutException.getMessage());
-                    if (support.safeUpdateClaimedTask(task)) {
-                        support.publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, support.buildTaskData(task));
-                        support.publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, support.buildTaskLog(task));
+                    if (persistenceSupport.safeUpdateClaimedTask(task)) {
+                        persistenceSupport.publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, persistenceSupport.buildTaskData(task));
+                        persistenceSupport.publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, persistenceSupport.buildTaskLog(task));
                     }
                     log.warn("Task execution timed out and exhausted retries. taskId={}, nodeId={}",
                             task.getId(), task.getNodeId());
                     return new ExecutionResult(outcome, errorType);
                 }
 
-                response = support.extractContent(chatResponse);
-                execution.setModelName(support.extractModelName(chatResponse));
-                execution.setTokenUsage(support.extractTokenUsage(chatResponse));
+                response = callSupport.extractContent(chatResponse);
+                execution.setModelName(callSupport.extractModelName(chatResponse));
+                execution.setTokenUsage(callSupport.extractTokenUsage(chatResponse));
                 execution.setLlmResponseRaw(response);
                 execution.setExecutionTime(startTime);
                 break;
             }
 
             if (criticTask) {
-                CriticDecision decision = support.parseCriticDecision(response);
+                CriticDecision decision = evaluationSupport.parseCriticDecision(response);
                 if (decision.pass()) {
                     execution.markAsValid(decision.feedback());
                 } else {
                     execution.markAsInvalid(decision.feedback());
                 }
-                support.safeSaveExecution(execution);
+                persistenceSupport.safeSaveExecution(execution);
 
                 task.startValidation();
                 if (decision.pass()) {
                     task.complete(response);
-                    boolean updated = support.safeUpdateClaimedTask(task);
+                    boolean updated = persistenceSupport.safeUpdateClaimedTask(task);
                     outcome = updated ? "completed" : "update_guard_reject";
                     if (updated) {
-                        support.publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, support.buildTaskData(task));
-                        support.publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, support.buildTaskLog(task));
+                        persistenceSupport.publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, persistenceSupport.buildTaskData(task));
+                        persistenceSupport.publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, persistenceSupport.buildTaskLog(task));
                     }
                 } else {
                     task.setOutputResult(response);
                     task.resetToPending();
-                    boolean updated = support.safeUpdateClaimedTask(task);
+                    boolean updated = persistenceSupport.safeUpdateClaimedTask(task);
                     outcome = updated ? "critic_rejected" : "update_guard_reject";
                     if (updated) {
-                        support.publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, support.buildTaskLog(task));
+                        persistenceSupport.publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, persistenceSupport.buildTaskLog(task));
                     }
-                    support.rollbackTarget(plan, task, decision.feedback());
+                    evaluationSupport.rollbackTarget(plan, task, decision.feedback());
                 }
                 return new ExecutionResult(outcome, errorType);
             }
 
-            if (support.needsValidation(task)) {
-                ValidationResult validation = support.evaluateValidation(task, response);
+            if (evaluationSupport.needsValidation(task)) {
+                ValidationResult validation = evaluationSupport.evaluateValidation(task, response);
                 if (validation.valid()) {
                     execution.markAsValid(validation.feedback());
                 } else {
                     execution.markAsInvalid(validation.feedback());
                 }
-                support.safeSaveExecution(execution);
+                persistenceSupport.safeSaveExecution(execution);
 
                 task.startValidation();
                 if (!validation.valid()) {
-                    support.handleValidationFailure(task, validation.feedback());
+                    evaluationSupport.handleValidationFailure(task, validation.feedback());
                     outcome = "validation_rejected";
                     return new ExecutionResult(outcome, errorType);
                 }
                 task.complete(response);
-                if (support.safeUpdateClaimedTask(task)) {
-                    support.syncBlackboard(plan, task, response);
+                if (persistenceSupport.safeUpdateClaimedTask(task)) {
+                    evaluationSupport.syncBlackboard(plan, task, response);
                     outcome = "completed";
-                    support.publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, support.buildTaskData(task));
-                    support.publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, support.buildTaskLog(task));
+                    persistenceSupport.publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, persistenceSupport.buildTaskData(task));
+                    persistenceSupport.publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, persistenceSupport.buildTaskLog(task));
                 } else {
                     outcome = "update_guard_reject";
                 }
             } else {
                 execution.markAsValid("no validator");
-                support.safeSaveExecution(execution);
+                persistenceSupport.safeSaveExecution(execution);
 
                 task.startValidation();
                 task.complete(response);
-                if (support.safeUpdateClaimedTask(task)) {
-                    support.syncBlackboard(plan, task, response);
+                if (persistenceSupport.safeUpdateClaimedTask(task)) {
+                    evaluationSupport.syncBlackboard(plan, task, response);
                     outcome = "completed";
-                    support.publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, support.buildTaskData(task));
-                    support.publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, support.buildTaskLog(task));
+                    persistenceSupport.publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, persistenceSupport.buildTaskData(task));
+                    persistenceSupport.publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, persistenceSupport.buildTaskLog(task));
                 } else {
                     outcome = "update_guard_reject";
                 }
             }
         } catch (Exception ex) {
-            errorType = support.classifyError(ex);
+            errorType = callSupport.classifyError(ex);
             outcome = "failed";
             if (execution == null) {
                 execution = new TaskExecutionEntity();
@@ -183,13 +190,13 @@ public class TaskExecutionRunner {
             execution.recordError(ex.getMessage());
             execution.setErrorType(errorType);
             execution.setExecutionTime(System.currentTimeMillis());
-            support.safeSaveExecution(execution);
+            persistenceSupport.safeSaveExecution(execution);
 
             if (task != null) {
                 task.fail(ex.getMessage());
-                if (support.safeUpdateClaimedTask(task)) {
-                    support.publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, support.buildTaskData(task));
-                    support.publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, support.buildTaskLog(task));
+                if (persistenceSupport.safeUpdateClaimedTask(task)) {
+                    persistenceSupport.publishTaskEvent(PlanTaskEventTypeEnum.TASK_COMPLETED, task, persistenceSupport.buildTaskData(task));
+                    persistenceSupport.publishTaskEvent(PlanTaskEventTypeEnum.TASK_LOG, task, persistenceSupport.buildTaskLog(task));
                 }
                 log.warn("Task execution failed. taskId={}, nodeId={}, error={}",
                         task.getId(), task.getNodeId(), ex.getMessage());
@@ -197,17 +204,18 @@ public class TaskExecutionRunner {
                 log.warn("Task execution failed before task initialization. error={}", ex.getMessage());
             }
         } finally {
-            support.stopHeartbeat(heartbeatFuture);
+            callSupport.stopHeartbeat(heartbeatFuture);
         }
 
         return new ExecutionResult(outcome, errorType);
     }
 
-    public interface ExecutionSupport extends ClaimSupport,
+    public interface ExecutionSupport extends CallSupport, EvaluationSupport, PersistenceSupport {
+    }
+
+    public interface CallSupport extends ClaimSupport,
             PromptAndClientSupport,
             TimeoutSupport,
-            EvaluationSupport,
-            PersistenceAndEventSupport,
             ResponseSupport,
             ErrorSupport {
     }
@@ -268,7 +276,7 @@ public class TaskExecutionRunner {
         void publishTaskEvent(PlanTaskEventTypeEnum eventType, AgentTaskEntity task, Map<String, Object> data);
     }
 
-    public interface EvaluationSupport {
+    public interface EvaluationFlowSupport {
 
         CriticDecision parseCriticDecision(String response);
 
@@ -281,6 +289,12 @@ public class TaskExecutionRunner {
         void handleValidationFailure(AgentTaskEntity task, String feedback);
 
         void syncBlackboard(AgentPlanEntity plan, AgentTaskEntity task, String output);
+    }
+
+    public interface EvaluationSupport extends EvaluationFlowSupport {
+    }
+
+    public interface PersistenceSupport extends PersistenceAndEventSupport {
     }
 
     public interface ErrorSupport {

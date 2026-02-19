@@ -102,7 +102,9 @@ public class TaskExecutor {
     private final Counter expiredRunningCheckErrorCounter;
     private final TaskExecutionRuntimeSupport taskExecutionRuntimeSupport;
     private final TaskExecutionRunner taskExecutionRunner;
-    private final TaskExecutionRunner.ExecutionSupport executionSupport;
+    private final TaskExecutionRunner.CallSupport callSupport;
+    private final TaskExecutionRunner.EvaluationSupport evaluationSupport;
+    private final TaskExecutionRunner.PersistenceSupport persistenceSupport;
 
     public TaskExecutor(IAgentTaskRepository agentTaskRepository,
                         IAgentPlanRepository agentPlanRepository,
@@ -247,17 +249,22 @@ public class TaskExecutor {
                 objectMapper,
                 PLAN_CONTEXT_UPDATE_MAX_RETRY
         );
-        this.executionSupport = new TaskExecutionSupportAdapter(
+        this.callSupport = new TaskExecutionCallSupportAdapter(
                 this.taskExecutionRuntimeSupport,
                 taskDispatchDomainService,
                 agentPlanRepository,
                 taskExecutionDomainService,
                 taskExecutionRepository,
-                taskEvaluationDomainService,
                 normalizedExecutionTimeoutRetryMax,
                 taskExecutionFlowSupport,
                 taskExecutionClientResolver
         );
+        this.evaluationSupport = new TaskExecutionEvaluationSupportAdapter(
+                taskEvaluationDomainService,
+                taskExecutionFlowSupport,
+                this.taskExecutionRuntimeSupport
+        );
+        this.persistenceSupport = new TaskExecutionPersistenceSupportAdapter(this.taskExecutionRuntimeSupport);
         Gauge.builder("agent.task.expired_running.current", expiredRunningGauge, AtomicLong::get)
                 .description("当前过期 RUNNING 任务数量")
                 .register(meterRegistry);
@@ -475,7 +482,12 @@ public class TaskExecutor {
         String outcome = "unknown";
         String errorType = "none";
         try {
-            TaskExecutionRunner.ExecutionResult result = taskExecutionRunner.run(task, executionSupport);
+            TaskExecutionRunner.ExecutionResult result = taskExecutionRunner.run(
+                    task,
+                    callSupport,
+                    evaluationSupport,
+                    persistenceSupport
+            );
             if (result != null) {
                 outcome = taskExecutionRuntimeSupport.normalizeExecutionResult(result.outcome());
                 errorType = taskExecutionRuntimeSupport.normalizeAuditErrorType(result.errorType());

@@ -36,8 +36,8 @@
 - 调度依赖策略接口化：`TaskDependencyPolicy` + `TaskDependencyPolicyDomainService`（PENDING 依赖判定规则）。
 - job 壳层化收口：`TaskScheduleApplicationService`（TaskScheduler 编排）与 `PlanStatusSyncApplicationService`（PlanStatus 编排）。
 - 执行链路分层第一步：`TaskExecutor` 负责 claim/dispatch 协调，`TaskExecutionRunner` 负责单任务执行流程。
-- 执行支持接口分组：`TaskExecutionRunner.ExecutionSupport` 按 claim/模型调用/超时/评估/持久化事件拆分子接口，降低执行链路耦合度。
-- 执行支持适配器独立化：`TaskExecutionSupportAdapter` 从 `TaskExecutor` 内部类抽离为独立类，执行器主类聚焦调度与能力编排。
+- 执行支持接口收口：`TaskExecutionRunner` 将执行依赖统一为 `CallSupport/EvaluationSupport/PersistenceSupport` 三组接口，并由 `TaskExecution*SupportAdapter` 分域适配，降低样板透传与耦合扩散。
+- 执行支持适配器分域化：`TaskExecutionCallSupportAdapter`、`TaskExecutionEvaluationSupportAdapter`、`TaskExecutionPersistenceSupportAdapter` 分别承接调用/评估/持久化职责，执行器主类聚焦调度编排。
 - 执行流支持组件化：`TaskExecutionFlowSupport` 承接提示词构造、评估解析、回滚与黑板写回，进一步收敛 `TaskExecutor` 职责。
 - 客户端选路组件化：`TaskExecutionClientResolver` 承接 TaskClient 选路与默认 Agent 缓存（configured/fallback/default），避免执行器内聚合过多运行时选路细节。
 - 评估契约升级：`TaskEvaluationDomainService` 支持 `validationSchema`（`requiredFields/passThreshold/passField/scoreField/feedbackField/strict`）结构化判定，并保留关键词兼容路径。

@@ -6,9 +6,7 @@ import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
 import com.getoffer.domain.task.service.TaskDispatchDomainService;
-import com.getoffer.domain.task.service.TaskEvaluationDomainService;
 import com.getoffer.domain.task.service.TaskExecutionDomainService;
-import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import com.getoffer.types.enums.TaskTypeEnum;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -17,35 +15,32 @@ import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 
 /**
- * TaskExecutionRunner 执行支持适配器：协调 TaskExecutor 与执行支撑组件。
+ * TaskExecutionRunner 调用域支持适配器。
  */
-final class TaskExecutionSupportAdapter implements TaskExecutionRunner.ExecutionSupport {
+final class TaskExecutionCallSupportAdapter implements TaskExecutionRunner.CallSupport {
 
     private final TaskExecutionRuntimeSupport runtimeSupport;
     private final TaskDispatchDomainService taskDispatchDomainService;
     private final IAgentPlanRepository agentPlanRepository;
     private final TaskExecutionDomainService taskExecutionDomainService;
     private final ITaskExecutionRepository taskExecutionRepository;
-    private final TaskEvaluationDomainService taskEvaluationDomainService;
     private final int executionTimeoutRetryMax;
     private final TaskExecutionFlowSupport taskExecutionFlowSupport;
     private final TaskExecutionClientResolver taskExecutionClientResolver;
 
-    TaskExecutionSupportAdapter(TaskExecutionRuntimeSupport runtimeSupport,
-                                TaskDispatchDomainService taskDispatchDomainService,
-                                IAgentPlanRepository agentPlanRepository,
-                                TaskExecutionDomainService taskExecutionDomainService,
-                                ITaskExecutionRepository taskExecutionRepository,
-                                TaskEvaluationDomainService taskEvaluationDomainService,
-                                int executionTimeoutRetryMax,
-                                TaskExecutionFlowSupport taskExecutionFlowSupport,
-                                TaskExecutionClientResolver taskExecutionClientResolver) {
+    TaskExecutionCallSupportAdapter(TaskExecutionRuntimeSupport runtimeSupport,
+                                    TaskDispatchDomainService taskDispatchDomainService,
+                                    IAgentPlanRepository agentPlanRepository,
+                                    TaskExecutionDomainService taskExecutionDomainService,
+                                    ITaskExecutionRepository taskExecutionRepository,
+                                    int executionTimeoutRetryMax,
+                                    TaskExecutionFlowSupport taskExecutionFlowSupport,
+                                    TaskExecutionClientResolver taskExecutionClientResolver) {
         this.runtimeSupport = runtimeSupport;
         this.taskDispatchDomainService = taskDispatchDomainService;
         this.agentPlanRepository = agentPlanRepository;
         this.taskExecutionDomainService = taskExecutionDomainService;
         this.taskExecutionRepository = taskExecutionRepository;
-        this.taskEvaluationDomainService = taskEvaluationDomainService;
         this.executionTimeoutRetryMax = executionTimeoutRetryMax;
         this.taskExecutionFlowSupport = taskExecutionFlowSupport;
         this.taskExecutionClientResolver = taskExecutionClientResolver;
@@ -144,61 +139,6 @@ final class TaskExecutionSupportAdapter implements TaskExecutionRunner.Execution
     @Override
     public void applyTimeoutRetry(AgentTaskEntity task, String errorMessage) {
         taskExecutionDomainService.applyTimeoutRetry(task, errorMessage);
-    }
-
-    @Override
-    public boolean safeUpdateClaimedTask(AgentTaskEntity task) {
-        return runtimeSupport.safeUpdateClaimedTask(task);
-    }
-
-    @Override
-    public void safeSaveExecution(TaskExecutionEntity execution) {
-        runtimeSupport.safeSaveExecution(execution);
-    }
-
-    @Override
-    public Map<String, Object> buildTaskData(AgentTaskEntity task) {
-        return runtimeSupport.buildTaskData(task);
-    }
-
-    @Override
-    public Map<String, Object> buildTaskLog(AgentTaskEntity task) {
-        return runtimeSupport.buildTaskLog(task);
-    }
-
-    @Override
-    public void publishTaskEvent(PlanTaskEventTypeEnum eventType, AgentTaskEntity task, Map<String, Object> data) {
-        runtimeSupport.publishTaskEvent(eventType, task, data);
-    }
-
-    @Override
-    public TaskExecutionRunner.CriticDecision parseCriticDecision(String response) {
-        return taskExecutionFlowSupport.parseCriticDecision(response);
-    }
-
-    @Override
-    public void rollbackTarget(AgentPlanEntity plan, AgentTaskEntity criticTask, String feedback) {
-        taskExecutionFlowSupport.rollbackTarget(plan, criticTask, feedback);
-    }
-
-    @Override
-    public boolean needsValidation(AgentTaskEntity task) {
-        return taskEvaluationDomainService.needsValidation(task);
-    }
-
-    @Override
-    public TaskExecutionRunner.ValidationResult evaluateValidation(AgentTaskEntity task, String response) {
-        return taskExecutionFlowSupport.evaluateValidation(task, response);
-    }
-
-    @Override
-    public void handleValidationFailure(AgentTaskEntity task, String feedback) {
-        runtimeSupport.handleValidationFailure(task, feedback);
-    }
-
-    @Override
-    public void syncBlackboard(AgentPlanEntity plan, AgentTaskEntity task, String output) {
-        taskExecutionFlowSupport.syncBlackboard(plan, task, output);
     }
 
     @Override
