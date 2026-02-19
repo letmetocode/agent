@@ -41,7 +41,7 @@
 - 执行流支持组件化：`TaskExecutionFlowSupport` 承接提示词构造、评估解析、回滚与黑板写回，进一步收敛 `TaskExecutor` 职责。
 - 客户端选路组件化：`TaskExecutionClientResolver` 承接 TaskClient 选路与默认 Agent 缓存（configured/fallback/default），避免执行器内聚合过多运行时选路细节。
 - 评估契约升级：`TaskEvaluationDomainService` 支持 `validationSchema`（`requiredFields/passThreshold/passField/scoreField/feedbackField/strict`）结构化判定，并保留关键词兼容路径。
-- 质量事件落库：`TaskPersistenceApplicationService` 在写入 `TaskExecution` 后，会把 `isValid/validationFeedback/score` 及 `qualityExperiment*` 分桶信息写入 `quality_evaluation_events`，用于质量回溯与 A/B 分析。
+- 质量事件落库：`TaskPersistenceApplicationService` 在写入 `TaskExecution` 后，会把 `isValid/validationFeedback/score` 及 `qualityExperiment*` 分桶信息写入 `quality_evaluation_events`，用于质量回溯与 A/B 分析；控制台提供 `/api/quality/evaluations/paged` 与 `/api/quality/evaluations/experiments/summary` 查询与聚合接口。
 - 工具策略闭环：Workflow `toolPolicy` 已透传到执行期，`TaskExecutionClientResolver` 与 `AgentFactoryImpl` 对工具启用集合执行 allowlist/blocklist/disabled 约束（可选 strict）。
 - `trigger.service` 兼容包装类已删除，统一由 `trigger.application` 调用 domain。
 
@@ -387,9 +387,9 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 
 - 当前仅维护 V3 会话主链路：`/api/v3/chat/messages`、`/api/v3/chat/sessions/{id}/history`、`/api/v3/chat/sessions/{id}/stream`、`/api/v3/chat/plans/{id}/routing`。
 - 历史入口代码已删除，不再提供兼容路由。
-- 只读查询统一为 `/api/v3/chat/sessions/{id}/history`、`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`、`/api/logs/tool-policy/paged`、`/api/agents/tools?limit={N}`、`/api/agents/vector-stores?limit={N}`。
+- 只读查询统一为 `/api/v3/chat/sessions/{id}/history`、`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`、`/api/logs/tool-policy/paged`、`/api/quality/evaluations/paged`、`/api/quality/evaluations/experiments/summary`、`/api/agents/tools?limit={N}`、`/api/agents/vector-stores?limit={N}`。
 - 查询性能：`/api/plans/{id}/tasks`、`/api/dashboard/overview` 已使用批量 latestExecution 查询，避免 N+1。
-- 观测闭环：`/api/logs/paged` 已改为 DB 侧分页查询；`/api/logs/tool-policy/paged` 支持按 `policyAction/policyMode` 回放工具策略命中事件；`/api/agents/tools` 与 `/api/agents/vector-stores` 默认仅读取最近 100 条（最大 500）；`GET /api/observability/alerts/catalog` 提供告警目录与 runbook 入口；`GET /api/observability/alerts/probe-status` 返回告警目录巡检状态快照（支持 `window` 参数筛选趋势窗口）。
+- 观测闭环：`/api/logs/paged` 已改为 DB 侧分页查询；`/api/logs/tool-policy/paged` 支持按 `policyAction/policyMode` 回放工具策略命中事件；`/api/quality/evaluations/paged` + `/api/quality/evaluations/experiments/summary` 支持 A/B 分桶质量事件回放与聚合统计；`/api/agents/tools` 与 `/api/agents/vector-stores` 默认仅读取最近 100 条（最大 500）；`GET /api/observability/alerts/catalog` 提供告警目录与 runbook 入口；`GET /api/observability/alerts/probe-status` 返回告警目录巡检状态快照（支持 `window` 参数筛选趋势窗口）。
 
 ### 会话编排 V3 最小验证流程
 

@@ -128,7 +128,7 @@ sequenceDiagram
 - Planner 展开 Task 时注入 `configSnapshot.graphPolicy`，由调度领域服务统一判定 PENDING -> READY/SKIPPED。
 - Planner 展开 Task 时会把 Workflow `toolPolicy` 下推到 `configSnapshot.toolPolicy`（可被节点级配置覆盖），执行期由 `TaskExecutionClientResolver + AgentFactoryImpl` 强制工具 allowlist/blocklist/disabled 约束，并写入 `plan_task_events` 的结构化审计字段（`auditCategory=tool_policy`、`policyAction`、`policyMode`）。
 - Worker 验证链路支持结构化评估 schema：`validationSchema.requiredFields/passThreshold/passField/scoreField/feedbackField/strict`；当返回结构化 JSON 时优先按 schema 判定，否则回退关键词兼容路径。
-- `TaskPersistenceApplicationService` 在保存执行记录后会写入 `quality_evaluation_events`（`experiment_key/experiment_variant/schema_version/score/is_pass`），支持质量趋势与 A/B 回溯。
+- `TaskPersistenceApplicationService` 在保存执行记录后会写入 `quality_evaluation_events`（`experiment_key/experiment_variant/schema_version/score/is_pass`），并基于 `qualityExperiment*` 配置执行分桶，支持质量趋势与 A/B 回溯。
 
 ### 4.3 聊天语义 SSE（V3）
 
@@ -246,8 +246,8 @@ sequenceDiagram
 策略说明：
 
 - 新前端仅走 V3 聚合协议。
-- 只读查询统一收口到分页与聚合接口：`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`、`/api/logs/tool-policy/paged`、`/api/v3/chat/sessions/{id}/history`、`/api/agents/tools?limit={N}`、`/api/agents/vector-stores?limit={N}`。
-- 上述只读查询默认要求数据库侧完成分页/计数/聚合，避免 `findAll + 内存过滤` 带来的 OOM 与慢查询风险（尤其是 `/api/dashboard/overview`、`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`、`/api/logs/tool-policy/paged`、`/api/agents/tools`、`/api/agents/vector-stores`）。
+- 只读查询统一收口到分页与聚合接口：`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`、`/api/logs/tool-policy/paged`、`/api/quality/evaluations/paged`、`/api/quality/evaluations/experiments/summary`、`/api/v3/chat/sessions/{id}/history`、`/api/agents/tools?limit={N}`、`/api/agents/vector-stores?limit={N}`。
+- 上述只读查询默认要求数据库侧完成分页/计数/聚合，避免 `findAll + 内存过滤` 带来的 OOM 与慢查询风险（尤其是 `/api/dashboard/overview`、`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`、`/api/logs/tool-policy/paged`、`/api/quality/evaluations/paged`、`/api/quality/evaluations/experiments/summary`、`/api/agents/tools`、`/api/agents/vector-stores`）。
 - 旧版本编排入口不再保留兼容分支。
 
 ## 9. 与其他文档的映射

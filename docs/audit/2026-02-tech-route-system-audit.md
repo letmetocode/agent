@@ -390,14 +390,17 @@
 - [x] Enforcer 规则增强：开启 `banDuplicatePomDependencyVersions` + `requirePluginVersions`，并补齐 `maven-site-plugin` 版本。
 - [x] 生命周期专项测试：新增 `WorkflowDraftLifecycleServiceTest`（去重复用、Root 禁用降级、不可用 agentKey 自动回退）。
 
-### D2 进行中（必须继续收敛）
+### D2 已完成（本轮落地）
 - [x] `QueryController/ConsoleQueryController` 去除全量加载与内存分页，统一 DAO 分页与聚合 SQL。
   - `ConsoleQueryController#/api/logs/paged` 无 `planId` 分支改为 `agentPlanRepository.findRecent(100)`（DAO `LIMIT` 下推），移除全量 `findAll + 内存排序`。
   - `QueryController#/api/agents/tools`、`/api/agents/vector-stores` 改为 `findRecent(limit)`（默认 `100`，上限 `500`），新增 DAO/Mapper `selectRecent` SQL。
 - [x] `toolPolicy` 执行期闭环补齐审计字段（命中 allow/block 的结构化事件）并补回放查询。
   - 执行期新增结构化事件：`TaskExecutionClientResolver` 在策略生效时发布 `TASK_LOG`，事件字段包含 `auditCategory=tool_policy`、`policyAction`（`allow_hit/block_hit/disabled_block/enforced`）、`policyMode`、`allowHit/blockHit`、`allowedTools/blockedTools`、`selectionSource` 等。
   - 新增回放查询接口：`GET /api/logs/tool-policy/paged`，支持 `policyAction/policyMode/keyword` 过滤；仓储新增 `countToolPolicyLogs/findToolPolicyLogsPaged` 与对应 DAO/Mapper SQL。
-- [ ] A/B 主链路落地（分桶、质量事件关联、查询 API），对齐 PRD 的“输出质量持续提升”闭环。
+- [x] A/B 主链路落地（分桶、质量事件关联、查询 API），对齐 PRD 的“输出质量持续提升”闭环。
+  - 分桶与关联：`TaskPersistenceApplicationService` 在持久化执行记录后，基于 `qualityExperiment*` 配置写入 `experiment_key/experiment_variant`，并在 payload 补齐 `bucket/rolloutPercent`。
+  - 查询 API：新增 `GET /api/quality/evaluations/paged`（分页回放）与 `GET /api/quality/evaluations/experiments/summary`（按 `experiment_key + variant` 聚合 `total/passCount/passRate/avgScore`）。
+  - 数据访问：`IQualityEvaluationEventRepository` 新增过滤分页/计数/聚合接口，DAO/Mapper 新增对应 SQL（DB 侧过滤与聚合）。
 
 ### D3 待启动（Phase 3 治理化）
 - [ ] 废弃治理：建立非 V3 接口 Deprecation Registry（公告窗口、迁移文档、下线基线）。

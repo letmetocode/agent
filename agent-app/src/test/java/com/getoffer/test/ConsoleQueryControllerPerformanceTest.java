@@ -6,8 +6,11 @@ import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
 import com.getoffer.domain.session.adapter.repository.IAgentSessionRepository;
 import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.IPlanTaskEventRepository;
+import com.getoffer.domain.task.adapter.repository.IQualityEvaluationEventRepository;
 import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
 import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
+import com.getoffer.domain.task.model.entity.QualityEvaluationEventEntity;
+import com.getoffer.domain.task.model.valobj.QualityExperimentSummary;
 import com.getoffer.trigger.application.common.TaskDetailViewAssembler;
 import com.getoffer.trigger.http.ConsoleQueryController;
 import com.getoffer.types.enums.PlanTaskEventTypeEnum;
@@ -43,6 +46,7 @@ public class ConsoleQueryControllerPerformanceTest {
     private IAgentPlanRepository agentPlanRepository;
     private IAgentTaskRepository agentTaskRepository;
     private IPlanTaskEventRepository planTaskEventRepository;
+    private IQualityEvaluationEventRepository qualityEvaluationEventRepository;
     private ITaskExecutionRepository taskExecutionRepository;
     private IVectorStoreRegistryRepository vectorStoreRegistryRepository;
 
@@ -52,6 +56,7 @@ public class ConsoleQueryControllerPerformanceTest {
         this.agentPlanRepository = mock(IAgentPlanRepository.class);
         this.agentTaskRepository = mock(IAgentTaskRepository.class);
         this.planTaskEventRepository = mock(IPlanTaskEventRepository.class);
+        this.qualityEvaluationEventRepository = mock(IQualityEvaluationEventRepository.class);
         this.taskExecutionRepository = mock(ITaskExecutionRepository.class);
         this.vectorStoreRegistryRepository = mock(IVectorStoreRegistryRepository.class);
         TaskDetailViewAssembler taskDetailViewAssembler = new TaskDetailViewAssembler(taskExecutionRepository);
@@ -62,6 +67,7 @@ public class ConsoleQueryControllerPerformanceTest {
                         agentPlanRepository,
                         agentTaskRepository,
                         planTaskEventRepository,
+                        qualityEvaluationEventRepository,
                         vectorStoreRegistryRepository,
                         taskDetailViewAssembler
                 )
@@ -171,5 +177,80 @@ public class ConsoleQueryControllerPerformanceTest {
                 .countToolPolicyLogs(anyList(), eq(55L), eq("block_hit"), eq("allowlist"), eq("audit"));
         verify(planTaskEventRepository, times(1))
                 .findToolPolicyLogsPaged(anyList(), eq(55L), eq("block_hit"), eq("allowlist"), eq("audit"), eq(0), eq(10));
+    }
+
+    @Test
+    public void shouldQueryQualityEvaluationsWithExperimentFilters() throws Exception {
+        QualityEvaluationEventEntity event = new QualityEvaluationEventEntity();
+        event.setId(3001L);
+        event.setPlanId(88L);
+        event.setTaskId(66L);
+        event.setExecutionId(77L);
+        event.setEvaluatorType("WORKER_VALIDATOR");
+        event.setExperimentKey("exp_quality");
+        event.setExperimentVariant("B");
+        event.setScore(0.87D);
+        event.setPass(true);
+        event.setFeedback("score=0.87, threshold=0.8");
+        event.setPayload(Map.of("bucket", 12, "rolloutPercent", 50.0D));
+        event.setCreatedAt(LocalDateTime.of(2026, 2, 20, 0, 20, 0));
+
+        when(qualityEvaluationEventRepository.countByFilters(88L, 66L, "exp_quality", "b", "worker_validator", true, "score"))
+                .thenReturn(1L);
+        when(qualityEvaluationEventRepository.findByFiltersPaged(88L, 66L, "exp_quality", "b", "worker_validator", true, "score", 0, 10))
+                .thenReturn(List.of(event));
+
+        mockMvc.perform(get("/api/quality/evaluations/paged")
+                        .param("planId", "88")
+                        .param("taskId", "66")
+                        .param("experimentKey", "EXP_QUALITY")
+                        .param("experimentVariant", "B")
+                        .param("evaluatorType", "WORKER_VALIDATOR")
+                        .param("pass", "true")
+                        .param("keyword", "Score")
+                        .param("page", "1")
+                        .param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0000"))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.items[0].experimentKey").value("exp_quality"))
+                .andExpect(jsonPath("$.data.items[0].experimentVariant").value("B"))
+                .andExpect(jsonPath("$.data.items[0].pass").value(true))
+                .andExpect(jsonPath("$.data.items[0].bucket").value(12));
+
+        verify(qualityEvaluationEventRepository, times(1))
+                .countByFilters(88L, 66L, "exp_quality", "b", "worker_validator", true, "score");
+        verify(qualityEvaluationEventRepository, times(1))
+                .findByFiltersPaged(88L, 66L, "exp_quality", "b", "worker_validator", true, "score", 0, 10);
+    }
+
+    @Test
+    public void shouldSummarizeQualityExperiments() throws Exception {
+        QualityExperimentSummary summary = QualityExperimentSummary.builder()
+                .experimentKey("exp_quality")
+                .experimentVariant("A")
+                .totalCount(10L)
+                .passCount(8L)
+                .avgScore(0.82D)
+                .build();
+        summary.setLastEvaluatedAt(LocalDateTime.of(2026, 2, 20, 0, 30, 0));
+        when(qualityEvaluationEventRepository.summarizeByExperiment(88L, "exp_quality", "worker_validator", 200))
+                .thenReturn(List.of(summary));
+
+        mockMvc.perform(get("/api/quality/evaluations/experiments/summary")
+                        .param("planId", "88")
+                        .param("experimentKey", "EXP_QUALITY")
+                        .param("evaluatorType", "WORKER_VALIDATOR")
+                        .param("limit", "999"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0000"))
+                .andExpect(jsonPath("$.data[0].experimentKey").value("exp_quality"))
+                .andExpect(jsonPath("$.data[0].experimentVariant").value("A"))
+                .andExpect(jsonPath("$.data[0].totalCount").value(10))
+                .andExpect(jsonPath("$.data[0].passCount").value(8))
+                .andExpect(jsonPath("$.data[0].failCount").value(2));
+
+        verify(qualityEvaluationEventRepository, times(1))
+                .summarizeByExperiment(88L, "exp_quality", "worker_validator", 200);
     }
 }

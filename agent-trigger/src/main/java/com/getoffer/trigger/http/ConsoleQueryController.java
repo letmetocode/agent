@@ -13,6 +13,9 @@ import com.getoffer.domain.task.adapter.repository.IAgentTaskRepository;
 import com.getoffer.domain.task.adapter.repository.IPlanTaskEventRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
+import com.getoffer.domain.task.model.entity.QualityEvaluationEventEntity;
+import com.getoffer.domain.task.model.valobj.QualityExperimentSummary;
+import com.getoffer.domain.task.adapter.repository.IQualityEvaluationEventRepository;
 import com.getoffer.trigger.application.common.TaskDetailViewAssembler;
 import com.getoffer.types.enums.PlanTaskEventTypeEnum;
 import com.getoffer.types.enums.ResponseCode;
@@ -46,6 +49,7 @@ public class ConsoleQueryController {
     private final IAgentPlanRepository agentPlanRepository;
     private final IAgentTaskRepository agentTaskRepository;
     private final IPlanTaskEventRepository planTaskEventRepository;
+    private final IQualityEvaluationEventRepository qualityEvaluationEventRepository;
     private final IVectorStoreRegistryRepository vectorStoreRegistryRepository;
     private final TaskDetailViewAssembler taskDetailViewAssembler;
 
@@ -53,12 +57,14 @@ public class ConsoleQueryController {
                                   IAgentPlanRepository agentPlanRepository,
                                   IAgentTaskRepository agentTaskRepository,
                                   IPlanTaskEventRepository planTaskEventRepository,
+                                  IQualityEvaluationEventRepository qualityEvaluationEventRepository,
                                   IVectorStoreRegistryRepository vectorStoreRegistryRepository,
                                   TaskDetailViewAssembler taskDetailViewAssembler) {
         this.agentSessionRepository = agentSessionRepository;
         this.agentPlanRepository = agentPlanRepository;
         this.agentTaskRepository = agentTaskRepository;
         this.planTaskEventRepository = planTaskEventRepository;
+        this.qualityEvaluationEventRepository = qualityEvaluationEventRepository;
         this.vectorStoreRegistryRepository = vectorStoreRegistryRepository;
         this.taskDetailViewAssembler = taskDetailViewAssembler;
     }
@@ -252,6 +258,74 @@ public class ConsoleQueryController {
         return success(pagedResult(normalizedPage, normalizedSize, toSafeTotal(totalCount), items));
     }
 
+    @GetMapping("/quality/evaluations/paged")
+    public Response<Map<String, Object>> listQualityEvaluationsPaged(
+            @RequestParam(value = "planId", required = false) Long planId,
+            @RequestParam(value = "taskId", required = false) Long taskId,
+            @RequestParam(value = "experimentKey", required = false) String experimentKey,
+            @RequestParam(value = "experimentVariant", required = false) String experimentVariant,
+            @RequestParam(value = "evaluatorType", required = false) String evaluatorType,
+            @RequestParam(value = "pass", required = false) Boolean pass,
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "size", required = false) Integer size) {
+        int normalizedPage = page == null ? 1 : Math.max(1, page);
+        int normalizedSize = size == null ? 20 : Math.max(1, Math.min(100, size));
+        int offset = (normalizedPage - 1) * normalizedSize;
+
+        String normalizedExperimentKey = normalizeKeyword(experimentKey);
+        String normalizedExperimentVariant = normalizeKeyword(experimentVariant);
+        String normalizedEvaluatorType = normalizeKeyword(evaluatorType);
+        String normalizedKeyword = normalizeKeyword(keyword);
+        long totalCount = qualityEvaluationEventRepository.countByFilters(
+                planId,
+                taskId,
+                normalizedExperimentKey,
+                normalizedExperimentVariant,
+                normalizedEvaluatorType,
+                pass,
+                normalizedKeyword
+        );
+        if (totalCount <= 0) {
+            return success(pagedResult(normalizedPage, normalizedSize, 0, Collections.emptyList()));
+        }
+
+        List<QualityEvaluationEventEntity> events = qualityEvaluationEventRepository.findByFiltersPaged(
+                planId,
+                taskId,
+                normalizedExperimentKey,
+                normalizedExperimentVariant,
+                normalizedEvaluatorType,
+                pass,
+                normalizedKeyword,
+                offset,
+                normalizedSize
+        );
+        List<Map<String, Object>> items = events == null ? Collections.emptyList() : events.stream()
+                .map(this::toQualityEvaluationItem)
+                .collect(Collectors.toList());
+        return success(pagedResult(normalizedPage, normalizedSize, toSafeTotal(totalCount), items));
+    }
+
+    @GetMapping("/quality/evaluations/experiments/summary")
+    public Response<List<Map<String, Object>>> summarizeQualityExperiments(
+            @RequestParam(value = "planId", required = false) Long planId,
+            @RequestParam(value = "experimentKey", required = false) String experimentKey,
+            @RequestParam(value = "evaluatorType", required = false) String evaluatorType,
+            @RequestParam(value = "limit", required = false) Integer limit) {
+        int normalizedLimit = limit == null ? 20 : Math.max(1, Math.min(200, limit));
+        List<QualityExperimentSummary> summaries = qualityEvaluationEventRepository.summarizeByExperiment(
+                planId,
+                normalizeKeyword(experimentKey),
+                normalizeKeyword(evaluatorType),
+                normalizedLimit
+        );
+        List<Map<String, Object>> data = summaries == null ? Collections.emptyList() : summaries.stream()
+                .map(this::toQualitySummaryItem)
+                .collect(Collectors.toList());
+        return success(data);
+    }
+
     @GetMapping("/knowledge-bases/{id}")
     public Response<Map<String, Object>> getKnowledgeBase(@PathVariable("id") Long kbId) {
         if (kbId == null) {
@@ -375,6 +449,46 @@ public class ConsoleQueryController {
         item.put("selectedAgentId", eventData.get("selectedAgentId"));
         item.put("selectedAgentKey", eventData.get("selectedAgentKey"));
         item.put("selectionSource", eventData.get("selectionSource"));
+        return item;
+    }
+
+    private Map<String, Object> toQualityEvaluationItem(QualityEvaluationEventEntity event) {
+        Map<String, Object> item = new HashMap<>();
+        Map<String, Object> payload = event == null || event.getPayload() == null
+                ? Collections.emptyMap()
+                : event.getPayload();
+        item.put("id", event == null ? null : event.getId());
+        item.put("planId", event == null ? null : event.getPlanId());
+        item.put("taskId", event == null ? null : event.getTaskId());
+        item.put("executionId", event == null ? null : event.getExecutionId());
+        item.put("evaluatorType", event == null ? null : event.getEvaluatorType());
+        item.put("experimentKey", event == null ? null : event.getExperimentKey());
+        item.put("experimentVariant", event == null ? null : event.getExperimentVariant());
+        item.put("schemaVersion", event == null ? null : event.getSchemaVersion());
+        item.put("score", event == null ? null : event.getScore());
+        item.put("pass", event != null && Boolean.TRUE.equals(event.getPass()));
+        item.put("feedback", event == null ? null : event.getFeedback());
+        item.put("payload", payload);
+        item.put("bucket", payload.get("bucket"));
+        item.put("rolloutPercent", payload.get("rolloutPercent"));
+        item.put("createdAt", event == null ? null : event.getCreatedAt());
+        return item;
+    }
+
+    private Map<String, Object> toQualitySummaryItem(QualityExperimentSummary summary) {
+        Map<String, Object> item = new HashMap<>();
+        long total = summary == null || summary.getTotalCount() == null ? 0L : summary.getTotalCount();
+        long passCount = summary == null || summary.getPassCount() == null ? 0L : summary.getPassCount();
+        long failCount = Math.max(0L, total - passCount);
+        double passRate = total <= 0 ? 0D : passCount * 1.0D / total;
+        item.put("experimentKey", summary == null ? null : summary.getExperimentKey());
+        item.put("experimentVariant", summary == null ? null : summary.getExperimentVariant());
+        item.put("totalCount", total);
+        item.put("passCount", passCount);
+        item.put("failCount", failCount);
+        item.put("passRate", passRate);
+        item.put("avgScore", summary == null ? null : summary.getAvgScore());
+        item.put("lastEvaluatedAt", summary == null ? null : summary.getLastEvaluatedAt());
         return item;
     }
 

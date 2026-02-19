@@ -18,9 +18,49 @@
         <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
     </resultMap>
 
+    <resultMap id="SummaryResultMap" type="com.getoffer.infrastructure.dao.po.QualityExperimentSummaryPO">
+        <result column="experiment_key" property="experimentKey" jdbcType="VARCHAR"/>
+        <result column="experiment_variant" property="experimentVariant" jdbcType="VARCHAR"/>
+        <result column="total_count" property="totalCount" jdbcType="BIGINT"/>
+        <result column="pass_count" property="passCount" jdbcType="BIGINT"/>
+        <result column="avg_score" property="avgScore" jdbcType="DOUBLE"/>
+        <result column="last_evaluated_at" property="lastEvaluatedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
     <sql id="Base_Column_List">
         id, plan_id, task_id, execution_id, evaluator_type, experiment_key, experiment_variant,
         schema_version, score, is_pass, feedback, payload, created_at
+    </sql>
+
+    <sql id="Filter_Where">
+        <if test="planId != null">
+            AND plan_id = #{planId}
+        </if>
+        <if test="taskId != null">
+            AND task_id = #{taskId}
+        </if>
+        <if test="experimentKey != null and experimentKey != ''">
+            AND LOWER(COALESCE(experiment_key, '')) = LOWER(#{experimentKey})
+        </if>
+        <if test="experimentVariant != null and experimentVariant != ''">
+            AND LOWER(COALESCE(experiment_variant, '')) = LOWER(#{experimentVariant})
+        </if>
+        <if test="evaluatorType != null and evaluatorType != ''">
+            AND LOWER(COALESCE(evaluator_type, '')) = LOWER(#{evaluatorType})
+        </if>
+        <if test="pass != null">
+            AND is_pass = #{pass}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                COALESCE(task_id::text, '') LIKE CONCAT('%', #{keyword}, '%')
+                OR COALESCE(execution_id::text, '') LIKE CONCAT('%', #{keyword}, '%')
+                OR LOWER(COALESCE(feedback, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+                OR LOWER(COALESCE(payload::text, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+                OR LOWER(COALESCE(experiment_key, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+                OR LOWER(COALESCE(experiment_variant, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+            )
+        </if>
     </sql>
 
     <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.QualityEvaluationEventPO"
@@ -39,6 +79,51 @@
         FROM quality_evaluation_events
         WHERE plan_id = #{planId}
         ORDER BY created_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectByFiltersPaged" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM quality_evaluation_events
+        <where>
+            <include refid="Filter_Where"/>
+        </where>
+        ORDER BY created_at DESC, id DESC
+        OFFSET #{offset}
+        LIMIT #{limit}
+    </select>
+
+    <select id="countByFilters" resultType="java.lang.Long">
+        SELECT COUNT(1)
+        FROM quality_evaluation_events
+        <where>
+            <include refid="Filter_Where"/>
+        </where>
+    </select>
+
+    <select id="selectExperimentSummary" resultMap="SummaryResultMap">
+        SELECT
+            COALESCE(experiment_key, 'quality-validation-default') AS experiment_key,
+            COALESCE(experiment_variant, 'UNKNOWN') AS experiment_variant,
+            COUNT(1) AS total_count,
+            SUM(CASE WHEN is_pass = TRUE THEN 1 ELSE 0 END) AS pass_count,
+            AVG(score) AS avg_score,
+            MAX(created_at) AS last_evaluated_at
+        FROM quality_evaluation_events
+        <where>
+            <if test="planId != null">
+                AND plan_id = #{planId}
+            </if>
+            <if test="experimentKey != null and experimentKey != ''">
+                AND LOWER(COALESCE(experiment_key, '')) = LOWER(#{experimentKey})
+            </if>
+            <if test="evaluatorType != null and evaluatorType != ''">
+                AND LOWER(COALESCE(evaluator_type, '')) = LOWER(#{evaluatorType})
+            </if>
+        </where>
+        GROUP BY COALESCE(experiment_key, 'quality-validation-default'),
+                 COALESCE(experiment_variant, 'UNKNOWN')
+        ORDER BY MAX(created_at) DESC
         LIMIT #{limit}
     </select>
 
