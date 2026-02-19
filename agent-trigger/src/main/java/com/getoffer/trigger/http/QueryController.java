@@ -1,9 +1,7 @@
 package com.getoffer.trigger.http;
 
-import com.getoffer.api.dto.PlanDetailDTO;
 import com.getoffer.api.dto.PlanSummaryDTO;
 import com.getoffer.api.dto.TaskDetailDTO;
-import com.getoffer.api.dto.TaskExecutionDetailDTO;
 import com.getoffer.api.response.Response;
 import com.getoffer.domain.agent.adapter.repository.IAgentToolCatalogRepository;
 import com.getoffer.domain.agent.adapter.repository.IVectorStoreRegistryRepository;
@@ -17,7 +15,6 @@ import com.getoffer.domain.task.adapter.repository.IPlanTaskEventRepository;
 import com.getoffer.domain.task.adapter.repository.ITaskExecutionRepository;
 import com.getoffer.domain.task.model.entity.AgentTaskEntity;
 import com.getoffer.domain.task.model.entity.PlanTaskEventEntity;
-import com.getoffer.domain.task.model.entity.TaskExecutionEntity;
 import com.getoffer.trigger.application.common.TaskDetailViewAssembler;
 import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.types.enums.ResponseCode;
@@ -69,51 +66,6 @@ public class QueryController {
         this.taskDetailViewAssembler = taskDetailViewAssembler;
     }
 
-    @GetMapping("/plans/{id}")
-    public Response<PlanDetailDTO> getPlan(@PathVariable("id") Long planId) {
-        if (planId == null) {
-            return illegal("PlanId不能为空");
-        }
-        AgentPlanEntity plan = agentPlanRepository.findById(planId);
-        if (plan == null) {
-            return illegal("计划不存在");
-        }
-        return success(toPlanDetailDTO(plan));
-    }
-
-    @GetMapping("/plans/{id}/tasks")
-    public Response<List<TaskDetailDTO>> listPlanTasks(@PathVariable("id") Long planId) {
-        if (planId == null) {
-            return illegal("PlanId不能为空");
-        }
-        AgentPlanEntity plan = agentPlanRepository.findById(planId);
-        if (plan == null) {
-            return illegal("计划不存在");
-        }
-        List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(planId);
-        Map<Long, Long> latestExecutionTimeMap = taskDetailViewAssembler.resolveLatestExecutionTimeMap(tasks);
-        List<TaskDetailDTO> data = tasks == null ? Collections.emptyList() : tasks.stream()
-                .map(task -> taskDetailViewAssembler.toTaskDetailDTO(task, latestExecutionTimeMap))
-                .collect(Collectors.toList());
-        return success(data);
-    }
-
-    @GetMapping("/tasks/{id}/executions")
-    public Response<List<TaskExecutionDetailDTO>> listTaskExecutions(@PathVariable("id") Long taskId) {
-        if (taskId == null) {
-            return illegal("TaskId不能为空");
-        }
-        AgentTaskEntity task = agentTaskRepository.findById(taskId);
-        if (task == null) {
-            return illegal("任务不存在");
-        }
-        List<TaskExecutionEntity> executions = taskExecutionRepository.findByTaskIdOrderByAttempt(taskId);
-        List<TaskExecutionDetailDTO> data = executions == null ? Collections.emptyList() : executions.stream()
-                .map(this::toTaskExecutionDetailDTO)
-                .collect(Collectors.toList());
-        return success(data);
-    }
-
     @GetMapping("/tasks/{id}")
     public Response<TaskDetailDTO> getTask(@PathVariable("id") Long taskId) {
         if (taskId == null) {
@@ -123,7 +75,12 @@ public class QueryController {
         if (task == null) {
             return illegal("任务不存在");
         }
-        return success(taskDetailViewAssembler.toTaskDetailDTO(task));
+        TaskDetailDTO dto = taskDetailViewAssembler.toTaskDetailDTO(task);
+        if (task.getPlanId() != null) {
+            AgentPlanEntity plan = agentPlanRepository.findById(task.getPlanId());
+            dto.setPlanStatus(plan == null || plan.getStatus() == null ? null : plan.getStatus().name());
+        }
+        return success(dto);
     }
 
     @GetMapping("/plans/{id}/events")
@@ -234,44 +191,6 @@ public class QueryController {
         dto.setErrorSummary(plan.getErrorSummary());
         dto.setCreatedAt(plan.getCreatedAt());
         dto.setUpdatedAt(plan.getUpdatedAt());
-        return dto;
-    }
-
-    private PlanDetailDTO toPlanDetailDTO(AgentPlanEntity plan) {
-        PlanDetailDTO dto = new PlanDetailDTO();
-        dto.setPlanId(plan.getId());
-        dto.setSessionId(plan.getSessionId());
-        dto.setRouteDecisionId(plan.getRouteDecisionId());
-        dto.setWorkflowDefinitionId(plan.getWorkflowDefinitionId());
-        dto.setWorkflowDraftId(plan.getWorkflowDraftId());
-        dto.setPlanGoal(plan.getPlanGoal());
-        dto.setExecutionGraph(plan.getExecutionGraph());
-        dto.setDefinitionSnapshot(plan.getDefinitionSnapshot());
-        dto.setGlobalContext(plan.getGlobalContext());
-        dto.setStatus(plan.getStatus() == null ? null : plan.getStatus().name());
-        dto.setPriority(plan.getPriority());
-        dto.setErrorSummary(plan.getErrorSummary());
-        dto.setVersion(plan.getVersion());
-        dto.setCreatedAt(plan.getCreatedAt());
-        dto.setUpdatedAt(plan.getUpdatedAt());
-        return dto;
-    }
-
-    private TaskExecutionDetailDTO toTaskExecutionDetailDTO(TaskExecutionEntity execution) {
-        TaskExecutionDetailDTO dto = new TaskExecutionDetailDTO();
-        dto.setExecutionId(execution.getId());
-        dto.setTaskId(execution.getTaskId());
-        dto.setAttemptNumber(execution.getAttemptNumber());
-        dto.setPromptSnapshot(execution.getPromptSnapshot());
-        dto.setLlmResponseRaw(execution.getLlmResponseRaw());
-        dto.setModelName(execution.getModelName());
-        dto.setTokenUsage(execution.getTokenUsage());
-        dto.setExecutionTimeMs(execution.getExecutionTimeMs());
-        dto.setValid(execution.getIsValid());
-        dto.setValidationFeedback(execution.getValidationFeedback());
-        dto.setErrorMessage(execution.getErrorMessage());
-        dto.setErrorType(execution.getErrorType());
-        dto.setCreatedAt(execution.getCreatedAt());
         return dto;
     }
 

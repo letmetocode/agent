@@ -15,16 +15,15 @@ import type {
   ObservabilityAlertCatalogItemDTO,
   ObservabilityAlertProbeStatusDTO,
   PageResult,
-  PlanDetailDTO,
   PlanLogDTO,
   PlanTaskEventDTO,
+  QualityEvaluationItemDTO,
   RetrievalTestResponseDTO,
   SessionDetailDTO,
   SharedTaskReadDTO,
   SopCompileResultDTO,
   SopValidateResultDTO,
   TaskDetailDTO,
-  TaskExecutionDetailDTO,
   TaskExportDTO,
   TaskShareLinkDTO,
   TaskShareLinkItemDTO,
@@ -76,15 +75,6 @@ export const agentApi = {
     page?: number;
     size?: number;
   }) => unwrap(await http.get<ApiResponse<PageResult<SessionDetailDTO>>>('/api/sessions/list', { params })),
-
-  getPlan: async (planId: number) =>
-    unwrap(await http.get<ApiResponse<PlanDetailDTO>>(`/api/plans/${planId}`)),
-
-  getPlanTasks: async (planId: number) =>
-    unwrap(await http.get<ApiResponse<TaskDetailDTO[]>>(`/api/plans/${planId}/tasks`)),
-
-  getTaskExecutions: async (taskId: number) =>
-    unwrap(await http.get<ApiResponse<TaskExecutionDetailDTO[]>>(`/api/tasks/${taskId}/executions`)),
 
   getTask: async (taskId: number) => unwrap(await http.get<ApiResponse<TaskDetailDTO>>(`/api/tasks/${taskId}`)),
 
@@ -196,6 +186,18 @@ export const agentApi = {
     page?: number;
     size?: number;
   }) => unwrap(await http.get<ApiResponse<PageResult<PlanLogDTO>>>('/api/logs/paged', { params })),
+
+  getQualityEvaluationsPaged: async (params?: {
+    planId?: number;
+    taskId?: number;
+    experimentKey?: string;
+    experimentVariant?: string;
+    evaluatorType?: string;
+    pass?: boolean;
+    keyword?: string;
+    page?: number;
+    size?: number;
+  }) => unwrap(await http.get<ApiResponse<PageResult<QualityEvaluationItemDTO>>>('/api/quality/evaluations/paged', { params })),
 
   getObservabilityAlertCatalog: async () =>
     unwrap(await http.get<ApiResponse<ObservabilityAlertCatalogItemDTO[]>>('/api/observability/alerts/catalog')),

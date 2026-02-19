@@ -24,7 +24,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { agentApi } from '@/shared/api/agentApi';
-import type { PlanTaskEventDTO, TaskDetailDTO, TaskExecutionDetailDTO, TaskShareLinkItemDTO } from '@/shared/types/api';
+import type { PlanTaskEventDTO, QualityEvaluationItemDTO, TaskDetailDTO, TaskShareLinkItemDTO } from '@/shared/types/api';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { StateView } from '@/shared/ui/StateView';
 import { StatusTag } from '@/shared/ui/StatusTag';
@@ -139,6 +139,29 @@ const toStepIndex = (status?: string) => {
   return 1;
 };
 
+const resolvePlanStatusFromEvents = (events: PlanTaskEventDTO[]): string | undefined => {
+  if (!events || events.length === 0) {
+    return undefined;
+  }
+  const sorted = [...events].sort((a, b) => {
+    const left = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const right = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return right - left;
+  });
+  for (const event of sorted) {
+    const eventType = String(event.eventType || '').toUpperCase();
+    if (eventType !== 'PLAN_FINISHED') {
+      continue;
+    }
+    const eventData = parseObject(event.eventData);
+    const status = eventData?.status == null ? '' : String(eventData.status).trim().toUpperCase();
+    if (status) {
+      return status;
+    }
+  }
+  return undefined;
+};
+
 const isShareLinkActive = (item: TaskShareLinkItemDTO) => {
   const status = (item.status || '').toUpperCase();
   if (status) {
@@ -172,7 +195,7 @@ export const TaskDetailPage = () => {
   const [error, setError] = useState<string>();
   const [task, setTask] = useState<TaskDetailDTO>();
   const [planStatus, setPlanStatus] = useState<string>();
-  const [executions, setExecutions] = useState<TaskExecutionDetailDTO[]>([]);
+  const [evaluations, setEvaluations] = useState<QualityEvaluationItemDTO[]>([]);
   const [planEvents, setPlanEvents] = useState<PlanTaskEventDTO[]>([]);
   const [shareLinks, setShareLinks] = useState<TaskShareLinkItemDTO[]>([]);
   const [shareLinksLoading, setShareLinksLoading] = useState(false);
@@ -205,24 +228,26 @@ export const TaskDetailPage = () => {
     setLoading(true);
     setError(undefined);
     try {
-      const [hit, executionsRows] = await Promise.all([
+      const [hit, evaluationPage] = await Promise.all([
         agentApi.getTask(normalizedTaskId),
-        agentApi.getTaskExecutions(normalizedTaskId)
+        agentApi.getQualityEvaluationsPaged({
+          taskId: normalizedTaskId,
+          page: 1,
+          size: 20
+        })
       ]);
 
       let eventRows: PlanTaskEventDTO[] = [];
-      let currentPlanStatus: string | undefined;
+      let currentPlanStatus: string | undefined = hit.planStatus;
       if (hit.planId) {
-        const [plan, events] = await Promise.all([
-          agentApi.getPlan(hit.planId),
-          agentApi.getPlanEvents(hit.planId, { limit: 500 })
-        ]);
-        currentPlanStatus = plan.status;
-        eventRows = events || [];
+        eventRows = (await agentApi.getPlanEvents(hit.planId, { limit: 500 })) || [];
+      }
+      if (!currentPlanStatus) {
+        currentPlanStatus = resolvePlanStatusFromEvents(eventRows);
       }
 
       setTask(hit);
-      setExecutions(executionsRows || []);
+      setEvaluations(evaluationPage?.items || []);
       setPlanEvents(eventRows || []);
       setPlanStatus(currentPlanStatus);
       await loadShareLinks(normalizedTaskId, true);
@@ -520,13 +545,13 @@ export const TaskDetailPage = () => {
 
             <List
               header="执行记录"
-              dataSource={executions}
+              dataSource={evaluations}
               locale={{ emptyText: '暂无执行记录' }}
               renderItem={(item) => (
                 <List.Item>
                   <List.Item.Meta
-                    title={`attempt ${item.attemptNumber} · ${item.modelName || 'unknown-model'}`}
-                    description={`耗时 ${item.executionTimeMs || 0}ms · ${item.errorType || '无错误类型'}`}
+                    title={`execution ${item.executionId || '-'} · ${item.evaluatorType || 'unknown-evaluator'}`}
+                    description={`评分 ${item.score ?? '-'} · ${item.pass == null ? 'UNKNOWN' : item.pass ? 'PASS' : 'FAIL'}${item.feedback ? ` · ${item.feedback}` : ''}`}
                   />
                 </List.Item>
               )}

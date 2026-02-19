@@ -1,0 +1,74 @@
+[
+  {
+    "id": "v2-agents-api",
+    "status": "REMOVED",
+    "legacyPath": "/api/v2/agents/*",
+    "replacementPath": "/api/v3/chat/messages + /api/v3/chat/sessions/{id}/history + /api/v3/chat/sessions/{id}/stream",
+    "announcedAt": "2026-02-14",
+    "sunsetAt": "2026-02-19",
+    "sunsetBaseline": "v3-only-2026-02",
+    "owner": "trigger",
+    "migrationDoc": "docs/design/09-deprecation-registry.md#v2-agents",
+    "notes": "已完成下线，统一切换至 V3 会话协议"
+  },
+  {
+    "id": "v2-sessions-api",
+    "status": "REMOVED",
+    "legacyPath": "/api/v2/sessions*",
+    "replacementPath": "/api/v3/chat/messages + /api/v3/chat/sessions/{id}/history",
+    "announcedAt": "2026-02-14",
+    "sunsetAt": "2026-02-19",
+    "sunsetBaseline": "v3-only-2026-02",
+    "owner": "trigger",
+    "migrationDoc": "docs/design/09-deprecation-registry.md#v2-sessions",
+    "notes": "历史会话查询统一迁移到 V3 history 接口"
+  },
+  {
+    "id": "v2-routing-api",
+    "status": "REMOVED",
+    "legacyPath": "/api/v2/plans/{id}/routing",
+    "replacementPath": "/api/v3/chat/plans/{id}/routing",
+    "announcedAt": "2026-02-14",
+    "sunsetAt": "2026-02-19",
+    "sunsetBaseline": "v3-only-2026-02",
+    "owner": "planning",
+    "migrationDoc": "docs/design/09-deprecation-registry.md#v2-routing",
+    "notes": "路由决策查询统一收口到 V3"
+  },
+  {
+    "id": "legacy-plan-query",
+    "status": "REMOVED",
+    "legacyPath": "/api/plans/{id}",
+    "replacementPath": "/api/tasks/{id} + /api/plans/{id}/events + /api/v3/chat/sessions/{id}/history",
+    "announcedAt": "2026-02-14",
+    "sunsetAt": "2026-02-19",
+    "sunsetBaseline": "v3-only-2026-02",
+    "owner": "query",
+    "migrationDoc": "docs/design/09-deprecation-registry.md#legacy-plan-query",
+    "notes": "已硬删除，任务详情改由任务/事件/V3 history 组合查询"
+  },
+  {
+    "id": "legacy-plan-task-query",
+    "status": "REMOVED",
+    "legacyPath": "/api/plans/{id}/tasks",
+    "replacementPath": "/api/tasks/paged?planId={id} + /api/v3/chat/sessions/{id}/history",
+    "announcedAt": "2026-02-14",
+    "sunsetAt": "2026-02-19",
+    "sunsetBaseline": "v3-only-2026-02",
+    "owner": "query",
+    "migrationDoc": "docs/design/09-deprecation-registry.md#legacy-plan-task-query",
+    "notes": "已硬删除，任务列表统一走分页查询接口"
+  },
+  {
+    "id": "legacy-task-execution-query",
+    "status": "REMOVED",
+    "legacyPath": "/api/tasks/{id}/executions",
+    "replacementPath": "/api/quality/evaluations/paged?taskId={id}",
+    "announcedAt": "2026-02-14",
+    "sunsetAt": "2026-02-19",
+    "sunsetBaseline": "v3-only-2026-02",
+    "owner": "executor",
+    "migrationDoc": "docs/design/09-deprecation-registry.md#legacy-task-execution-query",
+    "notes": "已硬删除，执行回放统一走质量事件主链路"
+  }
+]

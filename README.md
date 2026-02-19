@@ -387,8 +387,10 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 
 - 当前仅维护 V3 会话主链路：`/api/v3/chat/messages`、`/api/v3/chat/sessions/{id}/history`、`/api/v3/chat/sessions/{id}/stream`、`/api/v3/chat/plans/{id}/routing`。
 - 历史入口代码已删除，不再提供兼容路由。
+- 废弃治理查询：`GET /api/governance/deprecations`（查看废弃项状态、公告窗口与迁移文档）。
 - 只读查询统一为 `/api/v3/chat/sessions/{id}/history`、`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`、`/api/logs/tool-policy/paged`、`/api/quality/evaluations/paged`、`/api/quality/evaluations/experiments/summary`、`/api/agents/tools?limit={N}`、`/api/agents/vector-stores?limit={N}`。
-- 查询性能：`/api/plans/{id}/tasks`、`/api/dashboard/overview` 已使用批量 latestExecution 查询，避免 N+1。
+- 已移除遗留只读接口：`/api/plans/{id}`、`/api/plans/{id}/tasks`、`/api/tasks/{id}/executions`。
+- 查询性能：`/api/tasks/paged`、`/api/dashboard/overview` 已使用批量 latestExecution 查询，避免 N+1。
 - 观测闭环：`/api/logs/paged` 已改为 DB 侧分页查询；`/api/logs/tool-policy/paged` 支持按 `policyAction/policyMode` 回放工具策略命中事件；`/api/quality/evaluations/paged` + `/api/quality/evaluations/experiments/summary` 支持 A/B 分桶质量事件回放与聚合统计；`/api/agents/tools` 与 `/api/agents/vector-stores` 默认仅读取最近 100 条（最大 500）；`GET /api/observability/alerts/catalog` 提供告警目录与 runbook 入口；`GET /api/observability/alerts/probe-status` 返回告警目录巡检状态快照（支持 `window` 参数筛选趋势窗口）。
 
 ### 会话编排 V3 最小验证流程

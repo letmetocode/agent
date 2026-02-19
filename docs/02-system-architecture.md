@@ -227,6 +227,7 @@ sequenceDiagram
 - `GET /api/v3/chat/plans/{id}/routing`
 - `GET /api/observability/alerts/catalog`
 - `GET /api/observability/alerts/probe-status?window={N}`
+- `GET /api/governance/deprecations`
 
 鉴权约束：
 - 除白名单外，以上 `/api/**` 均需有效登录态。
@@ -242,6 +243,7 @@ sequenceDiagram
 - 已移除：`/api/plans/{id}/stream`
 - 已移除：`/api/sessions/{id}`、`/api/sessions/{id}/plans`、`/api/sessions/{id}/overview`
 - 已移除：`/api/tasks`、`/api/logs`
+- 已移除：`/api/plans/{id}`、`/api/plans/{id}/tasks`、`/api/tasks/{id}/executions`
 
 策略说明：
 

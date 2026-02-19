@@ -18,6 +18,7 @@ public class TaskDetailDTO {
     private String name;
     private String taskType;
     private String status;
+    private String planStatus;
     private List<String> dependencyNodeIds;
     private Map<String, Object> inputContext;
     private Map<String, Object> configSnapshot;

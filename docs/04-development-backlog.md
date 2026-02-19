@@ -28,6 +28,7 @@
 - V3 路由决策：`GET /api/v3/chat/plans/{id}/routing`。
 - 旧入口代码清理：`/api/v2/agents/*`、`/api/v2/sessions*`、`/api/v2/plans/{id}/routing`、`/api/sessions/{id}/chat`、`/api/plans/{id}/stream`。
 - 旧只读查询入口收敛：移除 `/api/sessions/{id}`、`/api/sessions/{id}/plans`、`/api/sessions/{id}/overview`、`/api/tasks`、`/api/logs`，统一走 `/api/v3/chat/sessions/{id}/history` + 分页查询接口。
+- 遗留详情查询接口硬删除：`/api/plans/{id}`、`/api/plans/{id}/tasks`、`/api/tasks/{id}/executions`，统一迁移到 `/api/tasks/{id}` + `/api/tasks/paged` + `/api/quality/evaluations/paged`。
 - 会话编排迁移至 `trigger.application.command.ChatConversationCommandService`，`ChatV3Controller` 仅保留协议适配。
 - 会话核心策略下沉至 `domain.session.service.SessionConversationDomainService`（默认 Agent、标题、上下文、失败语义）。
 - Planner 输入校验增强：`inputSchema.required` 缺失系统字段（如 `sessionId`）时，先从运行时上下文自动补全再校验，避免创建会话后首轮报错。
@@ -180,6 +181,9 @@
   - `/api/sessions/{id}/overview`
   - `/api/tasks`
   - `/api/logs`
+  - `/api/plans/{id}`
+  - `/api/plans/{id}/tasks`
+  - `/api/tasks/{id}/executions`
 - 行为：以上入口代码已移除，不再保留迁移提示分支。
 - 替代接口：
   - `POST /api/v3/chat/messages`

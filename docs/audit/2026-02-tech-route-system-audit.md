@@ -403,7 +403,10 @@
   - 数据访问：`IQualityEvaluationEventRepository` 新增过滤分页/计数/聚合接口，DAO/Mapper 新增对应 SQL（DB 侧过滤与聚合）。
 
 ### D3 待启动（Phase 3 治理化）
-- [ ] 废弃治理：建立非 V3 接口 Deprecation Registry（公告窗口、迁移文档、下线基线）。
+- [x] 废弃治理：建立非 V3 接口 Deprecation Registry（公告窗口、迁移文档、下线基线）。
+  - 注册表与查询 API：`agent-app/src/main/resources/governance/deprecation-registry.json`、`agent-trigger/src/main/java/com/getoffer/trigger/http/DeprecationRegistryController.java`、`agent-trigger/src/main/java/com/getoffer/trigger/application/query/DeprecationRegistryQueryService.java`。
+  - 迁移文档：`docs/design/09-deprecation-registry.md`。
+  - 下线执行：`QueryController` 已删除 `/api/plans/{id}`、`/api/plans/{id}/tasks`、`/api/tasks/{id}/executions`，注册表对应条目状态更新为 `REMOVED`。
 - [ ] Workflow 版本迁移策略：补齐 `v2 -> vNext` 迁移模板、兼容矩阵与回滚脚本规范。
 
 ## 附录：关键证据索引

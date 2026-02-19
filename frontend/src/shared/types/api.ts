@@ -135,6 +135,7 @@ export interface TaskDetailDTO {
   name: string;
   taskType: string;
   status: string;
+  planStatus?: string;
   dependencyNodeIds?: string[];
   inputContext?: Record<string, unknown>;
   configSnapshot?: Record<string, unknown>;
@@ -151,38 +152,22 @@ export interface TaskDetailDTO {
   updatedAt?: string;
 }
 
-export interface TaskExecutionDetailDTO {
-  executionId: number;
-  taskId: number;
-  attemptNumber: number;
-  promptSnapshot?: string;
-  llmResponseRaw?: string;
-  modelName?: string;
-  tokenUsage?: Record<string, unknown>;
-  executionTimeMs?: number;
-  valid?: boolean;
-  validationFeedback?: string;
-  errorMessage?: string;
-  errorType?: string;
+export interface QualityEvaluationItemDTO {
+  id: number;
+  planId?: number;
+  taskId?: number;
+  executionId?: number;
+  evaluatorType?: string;
+  experimentKey?: string;
+  experimentVariant?: string;
+  schemaVersion?: string;
+  score?: number;
+  pass?: boolean;
+  feedback?: string;
+  payload?: Record<string, unknown>;
+  bucket?: number;
+  rolloutPercent?: number;
   createdAt?: string;
-}
-
-export interface PlanDetailDTO {
-  planId: number;
-  sessionId: number;
-  routeDecisionId?: number;
-  workflowDefinitionId?: number;
-  workflowDraftId?: number;
-  planGoal: string;
-  executionGraph?: Record<string, unknown>;
-  definitionSnapshot?: Record<string, unknown>;
-  globalContext?: Record<string, unknown>;
-  status: string;
-  priority?: number;
-  errorSummary?: string;
-  version?: number;
-  createdAt?: string;
-  updatedAt?: string;
 }
 
 export interface SessionTurnDTO {
