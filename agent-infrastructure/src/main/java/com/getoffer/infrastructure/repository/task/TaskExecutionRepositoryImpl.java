@@ -6,6 +6,7 @@ import com.getoffer.infrastructure.dao.TaskExecutionDao;
 import com.getoffer.infrastructure.dao.po.TaskExecutionPO;
 import com.getoffer.infrastructure.util.JsonCodec;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collections;
@@ -54,8 +55,20 @@ public class TaskExecutionRepositoryImpl implements ITaskExecutionRepository {
     public TaskExecutionEntity save(TaskExecutionEntity entity) {
         entity.validate();
         TaskExecutionPO po = toPO(entity);
-        taskExecutionDao.insert(po);
-        return toEntity(po);
+        try {
+            taskExecutionDao.insert(po);
+            return toEntity(po);
+        } catch (DataIntegrityViolationException ex) {
+            TaskExecutionEntity existing = findByTaskIdAndAttempt(entity.getTaskId(), entity.getAttemptNumber());
+            if (existing != null) {
+                log.info("Task execution duplicate attempt detected, reuse existing record. taskId={}, attemptNumber={}, executionId={}",
+                        entity.getTaskId(),
+                        entity.getAttemptNumber(),
+                        existing.getId());
+                return existing;
+            }
+            throw ex;
+        }
     }
 
     /**

@@ -21,6 +21,7 @@ public class SessionTurnPO {
     private Long sessionId;
     private Long planId;
     private String userMessage;
+    private String clientMessageId;
     private TurnStatusEnum status;
     private Long finalResponseMessageId;
     private String assistantSummary;

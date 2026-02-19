@@ -20,6 +20,7 @@ import com.getoffer.types.exception.AppException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
 import java.util.Map;
@@ -214,5 +215,35 @@ public class ConversationOrchestratorServiceTest {
         assertEquals(303L, result.getPlanId());
         assertEquals("DUPLICATE", result.getSubmissionState());
         assertEquals("复用计划", result.getPlanGoal());
+    }
+
+    @Test
+    public void shouldReuseExistingTurnWhenInsertConflictHappens() {
+        AgentSessionEntity session = new AgentSessionEntity();
+        session.setId(104L);
+        session.setUserId("dev-user");
+        session.setAgentKey("assistant");
+        session.setScenario("CHAT_DEFAULT");
+        when(agentSessionRepository.findById(104L)).thenReturn(session);
+
+        SessionTurnEntity existingTurn = new SessionTurnEntity();
+        existingTurn.setId(204L);
+        existingTurn.setSessionId(104L);
+        existingTurn.setStatus(TurnStatusEnum.PLANNING);
+        when(sessionTurnRepository.findBySessionIdAndClientMessageId(104L, "client-msg-race"))
+                .thenReturn(null, existingTurn);
+        when(sessionTurnRepository.save(any(SessionTurnEntity.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate key"));
+
+        ChatMessageSubmitRequestV3DTO request = new ChatMessageSubmitRequestV3DTO();
+        request.setClientMessageId("client-msg-race");
+        request.setUserId("dev-user");
+        request.setSessionId(104L);
+        request.setMessage("并发重复提交");
+
+        ChatConversationCommandService.ConversationSubmitResult result = conversationOrchestratorService.submitMessage(request);
+
+        assertEquals(204L, result.getTurnId());
+        assertEquals("DUPLICATE", result.getSubmissionState());
     }
 }

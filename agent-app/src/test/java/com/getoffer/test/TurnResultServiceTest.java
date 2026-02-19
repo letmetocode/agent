@@ -84,6 +84,21 @@ public class TurnResultServiceTest {
     }
 
     @Test
+    public void shouldFinalizeCancelledTurn() {
+        InMemorySessionTurnRepository turnRepository = new InMemorySessionTurnRepository();
+        turnRepository.setTurn(buildTurn(106L, 1L, 16L, TurnStatusEnum.EXECUTING));
+        InMemorySessionMessageRepository messageRepository = new InMemorySessionMessageRepository();
+        InMemoryAgentTaskRepository taskRepository = new InMemoryAgentTaskRepository();
+
+        TurnFinalizeApplicationService service = new TurnFinalizeApplicationService(turnRepository, messageRepository, taskRepository, new PlanFinalizationDomainService());
+        TurnFinalizeApplicationService.TurnFinalizeResult result = service.finalizeByPlan(16L, PlanStatusEnum.CANCELLED);
+
+        Assertions.assertEquals(TurnStatusEnum.CANCELLED, result.getTurnStatus());
+        Assertions.assertEquals(TurnFinalizeApplicationService.FinalizeOutcome.FINALIZED, result.getOutcome());
+        Assertions.assertTrue(messageRepository.getLastSaved().getContent().contains("已取消"));
+    }
+
+    @Test
     public void shouldReturnAlreadyFinalizedWhenTurnTerminal() {
         InMemorySessionTurnRepository turnRepository = new InMemorySessionTurnRepository();
         SessionTurnEntity turn = buildTurn(103L, 1L, 13L, TurnStatusEnum.COMPLETED);

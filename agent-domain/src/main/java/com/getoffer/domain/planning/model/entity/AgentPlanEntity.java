@@ -148,6 +148,18 @@ public class AgentPlanEntity {
     }
 
     /**
+     * 从失败/暂停态恢复到运行态，用于失败节点重试。
+     */
+    public void recoverForRetry() {
+        if (this.status != PlanStatusEnum.FAILED && this.status != PlanStatusEnum.PAUSED) {
+            throw new IllegalStateException("Only failed or paused plans can recover for retry");
+        }
+        this.status = PlanStatusEnum.RUNNING;
+        this.errorSummary = null;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    /**
      * 完成执行
      */
     public void complete() {

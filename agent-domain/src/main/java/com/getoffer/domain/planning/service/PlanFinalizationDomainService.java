@@ -23,7 +23,9 @@ public class PlanFinalizationDomainService {
         if (planStatus == null) {
             return FinalizationDecision.empty();
         }
-        if (planStatus != PlanStatusEnum.COMPLETED && planStatus != PlanStatusEnum.FAILED) {
+        if (planStatus != PlanStatusEnum.COMPLETED
+                && planStatus != PlanStatusEnum.FAILED
+                && planStatus != PlanStatusEnum.CANCELLED) {
             return FinalizationDecision.empty();
         }
 
@@ -37,7 +39,12 @@ public class PlanFinalizationDomainService {
     }
 
     private TurnStatusEnum resolveTurnStatus(PlanStatusEnum planStatus) {
-        return planStatus == PlanStatusEnum.COMPLETED ? TurnStatusEnum.COMPLETED : TurnStatusEnum.FAILED;
+        return switch (planStatus) {
+            case COMPLETED -> TurnStatusEnum.COMPLETED;
+            case FAILED -> TurnStatusEnum.FAILED;
+            case CANCELLED -> TurnStatusEnum.CANCELLED;
+            default -> null;
+        };
     }
 
     private String buildAssistantContent(PlanStatusEnum planStatus, List<AgentTaskEntity> tasks) {
@@ -59,6 +66,9 @@ public class PlanFinalizationDomainService {
             return outputs.size() == 1
                     ? outputs.get(0)
                     : "本轮任务已完成，结果汇总如下：\n\n" + String.join("\n\n", outputs);
+        }
+        if (planStatus == PlanStatusEnum.CANCELLED) {
+            return "本轮任务已取消，未继续执行剩余步骤。";
         }
 
         String failedDetail = sortedTasks.stream()

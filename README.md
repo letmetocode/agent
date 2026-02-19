@@ -340,6 +340,7 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 ## 文档导航
 
 - 架构文档：`docs/02-system-architecture.md`
+- 数据模型与 SQL：`docs/design/07-data-model-and-sql.md`
 - UI/UX 规范：`docs/03-ui-ux-spec.md`
 - 开发任务清单：`docs/04-development-backlog.md`
 
@@ -383,12 +384,18 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 
 - `POST /api/v3/chat/messages`：统一会话编排入口（自动创建/复用 Session + 创建 Turn，先 ACK 后异步触发 Plan）。
   - 请求建议携带 `clientMessageId` 作为幂等键；重复提交会复用已有 Turn。
+  - 数据库对 `session_turns(session_id, client_message_id)` 建有唯一索引，并发重复提交冲突会自动回退到“复用已有 Turn”语义。
   - 响应新增 `accepted/submissionState/acceptedAt`，`planId` 可能延后出现在 history 中。
 - `GET /api/v3/chat/sessions/{id}/history`：聚合返回会话历史（session/turns/messages + latestPlanId）。
 - `GET /api/v3/chat/sessions/{id}/stream?planId=...`：聊天语义 SSE（`message.accepted`、`task.progress`、`answer.final`、`stream.completed` 等）。
 - `GET /api/v3/chat/plans/{id}/routing`：查询路由决策详情（V2 路由接口替代）。
 - 默认策略：优先使用 `assistant`（若存在且激活），否则使用首个激活 Agent；无可用 Agent 时返回明确错误。
 - 输入校验策略：当 Workflow `inputSchema.required` 包含系统上下文字段（如 `sessionId`）时，由 Planner 从运行时上下文自动注入，避免误报 `Missing required input`。
+
+## 执行幂等与终态收敛补充
+
+- `task_executions` 新增唯一约束 `(task_id, attempt_number)`，同一次尝试重复写入会复用已有执行记录。
+- `POST /api/tasks/{id}/cancel` 触发 Plan 取消后，会同步执行 Turn 终态收敛并输出 `CANCELLED` 终态消息。
 
 ## 接口基线说明
 

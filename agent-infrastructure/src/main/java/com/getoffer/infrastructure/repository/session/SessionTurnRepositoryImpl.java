@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -107,11 +108,22 @@ public class SessionTurnRepositoryImpl implements ISessionTurnRepository {
         entity.setSessionId(po.getSessionId());
         entity.setPlanId(po.getPlanId());
         entity.setUserMessage(po.getUserMessage());
+        entity.setClientMessageId(po.getClientMessageId());
         entity.setStatus(po.getStatus());
         entity.setFinalResponseMessageId(po.getFinalResponseMessageId());
         entity.setAssistantSummary(po.getAssistantSummary());
         if (po.getMetadata() != null) {
-            entity.setMetadata(jsonCodec.readMap(po.getMetadata()));
+            Map<String, Object> metadata = jsonCodec.readMap(po.getMetadata());
+            entity.setMetadata(metadata);
+            if (!hasText(entity.getClientMessageId()) && metadata != null) {
+                Object legacyClientMessageId = metadata.get("clientMessageId");
+                if (legacyClientMessageId != null) {
+                    String normalized = String.valueOf(legacyClientMessageId).trim();
+                    if (!normalized.isEmpty()) {
+                        entity.setClientMessageId(normalized);
+                    }
+                }
+            }
         }
         entity.setCreatedAt(po.getCreatedAt());
         entity.setUpdatedAt(po.getUpdatedAt());
@@ -123,11 +135,19 @@ public class SessionTurnRepositoryImpl implements ISessionTurnRepository {
         if (entity == null) {
             return null;
         }
+        String clientMessageId = normalizeClientMessageId(entity.getClientMessageId());
+        if (!hasText(clientMessageId) && entity.getMetadata() != null) {
+            Object legacyClientMessageId = entity.getMetadata().get("clientMessageId");
+            if (legacyClientMessageId != null) {
+                clientMessageId = normalizeClientMessageId(String.valueOf(legacyClientMessageId));
+            }
+        }
         SessionTurnPO po = SessionTurnPO.builder()
                 .id(entity.getId())
                 .sessionId(entity.getSessionId())
                 .planId(entity.getPlanId())
                 .userMessage(entity.getUserMessage())
+                .clientMessageId(clientMessageId)
                 .status(entity.getStatus())
                 .finalResponseMessageId(entity.getFinalResponseMessageId())
                 .assistantSummary(entity.getAssistantSummary())
@@ -139,5 +159,16 @@ public class SessionTurnRepositoryImpl implements ISessionTurnRepository {
             po.setMetadata(jsonCodec.writeValue(entity.getMetadata()));
         }
         return po;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    private String normalizeClientMessageId(String value) {
+        if (!hasText(value)) {
+            return null;
+        }
+        return value.trim();
     }
 }

@@ -51,6 +51,16 @@ public class PlanFinalizationDomainServiceTest {
         Assertions.assertNull(decision.turnStatus());
     }
 
+    @Test
+    public void shouldFinalizeCancelledPlanToCancelledTurn() {
+        PlanFinalizationDomainService.FinalizationDecision decision =
+                service.resolveFinalization(PlanStatusEnum.CANCELLED, List.of());
+
+        Assertions.assertTrue(decision.finalizable());
+        Assertions.assertEquals(TurnStatusEnum.CANCELLED, decision.turnStatus());
+        Assertions.assertTrue(decision.assistantContent().contains("已取消"));
+    }
+
     private AgentTaskEntity task(Long id, TaskTypeEnum type, TaskStatusEnum status, String output) {
         AgentTaskEntity task = new AgentTaskEntity();
         task.setId(id);

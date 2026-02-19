@@ -92,7 +92,8 @@ sequenceDiagram
 补充约束：
 
 - Planner 在校验 `inputSchema.required` 前会用运行时上下文补全系统字段（例如 `sessionId`、`turnId`），避免把系统字段当作用户必填。
-- `clientMessageId` 作为提交幂等键写入 `session_turns.metadata/session_messages.metadata`，用于重复提交去重与前端恢复对账。
+- `clientMessageId` 作为提交幂等键写入 `session_turns.client_message_id`（并保留 metadata 兼容字段），用于重复提交去重与前端恢复对账。
+- 数据库侧对 `(session_id, client_message_id)` 建立唯一索引，应用层在并发冲突时回退为复用已有 Turn，避免重复创建回合。
 - 前端会话页支持可视化高级参数（`scenario/agentKey/title/contextOverrides/metaInfo`）直接映射到 `POST /api/v3/chat/messages` 请求体。
 
 ### 4.2 调度执行与终态收敛
@@ -181,8 +182,14 @@ sequenceDiagram
 
 - 终态收敛采用“先抢占终态，再写最终 assistant 消息”。
 - `session_messages` 限制同一 turn 下 assistant 最终消息唯一（条件唯一索引）。
+- `CANCELLED` 计划状态也会触发回合终态收敛，确保回合不会长期停留在非终态。
 
-### 5.4 SSE 游标一致性
+### 5.4 执行记录幂等
+
+- `task_executions` 对 `(task_id, attempt_number)` 建唯一索引，防止同一次尝试重复落库。
+- 发生唯一冲突时仓储层复用已存在执行记录，避免重试放大与重复审计事件。
+
+### 5.5 SSE 游标一致性
 
 - `Last-Event-ID` > query `lastEventId`。
 - 连接建立先回放，再实时订阅；`cursor > 0` 的重连订阅不重复发送引导事件（`message.accepted/planning.started`）。

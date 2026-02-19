@@ -110,6 +110,7 @@ sequenceDiagram
 
 `task_executions`：
 - `attempt_number`
+- 唯一约束：`task_id + attempt_number`（同一 Task 单次尝试仅保留 1 条执行记录）
 - `execution_time_ms`
 - `model_name`
 - `token_usage`
@@ -133,6 +134,7 @@ sequenceDiagram
 `session_turns`：
 - `status`（`CREATED/PLANNING/EXECUTING/SUMMARIZING/COMPLETED/FAILED/CANCELLED`）
 - `plan_id`（唯一索引，非空时唯一）
+- `client_message_id`（与 `session_id` 组成提交幂等唯一键）
 - `final_response_message_id`
 
 `session_messages`：

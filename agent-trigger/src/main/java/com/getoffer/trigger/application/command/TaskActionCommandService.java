@@ -16,6 +16,7 @@ import com.getoffer.types.enums.PlanStatusEnum;
 import com.getoffer.types.enums.ResponseCode;
 import com.getoffer.types.enums.TaskStatusEnum;
 import com.getoffer.types.exception.AppException;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ import java.util.Map;
 /**
  * 任务控制写用例：任务状态控制、导出与分享链接管理。
  */
+@Slf4j
 @Service
 public class TaskActionCommandService {
 
@@ -44,6 +46,7 @@ public class TaskActionCommandService {
     private final IAgentPlanRepository agentPlanRepository;
     private final ITaskExecutionRepository taskExecutionRepository;
     private final ITaskShareLinkRepository taskShareLinkRepository;
+    private final TurnFinalizeApplicationService turnFinalizeApplicationService;
     private final ObjectMapper objectMapper;
     private final TaskDetailViewAssembler taskDetailViewAssembler;
 
@@ -60,12 +63,14 @@ public class TaskActionCommandService {
                                     IAgentPlanRepository agentPlanRepository,
                                     ITaskExecutionRepository taskExecutionRepository,
                                     ITaskShareLinkRepository taskShareLinkRepository,
+                                    TurnFinalizeApplicationService turnFinalizeApplicationService,
                                     ObjectMapper objectMapper,
                                     TaskDetailViewAssembler taskDetailViewAssembler) {
         this.agentTaskRepository = agentTaskRepository;
         this.agentPlanRepository = agentPlanRepository;
         this.taskExecutionRepository = taskExecutionRepository;
         this.taskShareLinkRepository = taskShareLinkRepository;
+        this.turnFinalizeApplicationService = turnFinalizeApplicationService;
         this.objectMapper = objectMapper;
         this.taskDetailViewAssembler = taskDetailViewAssembler;
     }
@@ -109,6 +114,14 @@ public class TaskActionCommandService {
                 throw illegal("当前计划状态不支持取消: " + ex.getMessage());
             }
         }
+        try {
+            turnFinalizeApplicationService.finalizeByPlan(plan.getId(), PlanStatusEnum.CANCELLED);
+        } catch (Exception ex) {
+            log.warn("取消计划后回合终态收敛失败。taskId={}, planId={}, error={}",
+                    taskId,
+                    plan.getId(),
+                    ex.getMessage());
+        }
         return taskDetailViewAssembler.toTaskDetailDTO(task);
     }
 
@@ -135,10 +148,12 @@ public class TaskActionCommandService {
         AgentTaskEntity updatedTask = agentTaskRepository.update(task);
 
         if (plan.getStatus() == PlanStatusEnum.FAILED || plan.getStatus() == PlanStatusEnum.PAUSED) {
-            plan.setStatus(PlanStatusEnum.RUNNING);
-            plan.setErrorSummary(null);
-            plan.setUpdatedAt(LocalDateTime.now());
-            agentPlanRepository.update(plan);
+            try {
+                plan.recoverForRetry();
+                agentPlanRepository.update(plan);
+            } catch (Exception ex) {
+                throw illegal("当前计划状态不支持恢复执行: " + ex.getMessage());
+            }
         }
 
         return taskDetailViewAssembler.toTaskDetailDTO(updatedTask);

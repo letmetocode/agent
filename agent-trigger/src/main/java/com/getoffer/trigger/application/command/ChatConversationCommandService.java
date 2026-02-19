@@ -25,6 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -129,7 +130,19 @@ public class ChatConversationCommandService {
                 return buildDuplicateResult(session, duplicatedTurn);
             }
 
-            savedTurn = createTurn(session, userMessage, clientMessageId);
+            try {
+                savedTurn = createTurn(session, userMessage, clientMessageId);
+            } catch (DuplicateTurnSubmissionException duplicateEx) {
+                SessionTurnEntity conflictedTurn = sessionTurnRepository.findBySessionIdAndClientMessageId(session.getId(), clientMessageId);
+                if (conflictedTurn != null) {
+                    log.info("CHAT_V3_DUPLICATE_CONFLICT sessionId={}, clientMessageId={}, turnId={}",
+                            session.getId(),
+                            clientMessageId,
+                            conflictedTurn.getId());
+                    return buildDuplicateResult(session, conflictedTurn);
+                }
+                throw duplicateEx;
+            }
             SessionTurnEntity latestCompletedTurn = sessionTurnRepository.findLatestBySessionIdAndStatus(session.getId(), TurnStatusEnum.COMPLETED);
             Map<String, Object> extraContext = sessionConversationDomainService.buildPlanExtraContext(
                     new SessionConversationDomainService.PlanContextCommand(
@@ -253,8 +266,14 @@ public class ChatConversationCommandService {
         Map<String, Object> turnMetadata = new HashMap<>();
         turnMetadata.put("clientMessageId", clientMessageId);
         turnMetadata.put("entry", "chat-v3");
+        turn.setClientMessageId(clientMessageId);
         turn.setMetadata(turnMetadata);
-        SessionTurnEntity savedTurn = sessionTurnRepository.save(turn);
+        SessionTurnEntity savedTurn;
+        try {
+            savedTurn = sessionTurnRepository.save(turn);
+        } catch (DataIntegrityViolationException ex) {
+            throw new DuplicateTurnSubmissionException(clientMessageId, ex);
+        }
 
         SessionMessageEntity userMessage = sessionConversationDomainService.createUserMessage(
                 session.getId(),
@@ -391,6 +410,12 @@ public class ChatConversationCommandService {
             sessionTurnRepository.update(turn);
         } catch (Exception messageEx) {
             log.warn("写入失败消息失败: turnId={}, error={}", turn.getId(), messageEx.getMessage());
+        }
+    }
+
+    private static final class DuplicateTurnSubmissionException extends RuntimeException {
+        private DuplicateTurnSubmissionException(String clientMessageId, Throwable cause) {
+            super("Duplicate turn submission for clientMessageId=" + clientMessageId, cause);
         }
     }
 

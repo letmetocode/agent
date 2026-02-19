@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS session_turns (
     session_id                BIGINT NOT NULL, -- 逻辑关联: agent_sessions.id
     plan_id                   BIGINT,          -- 逻辑关联: agent_plans.id（创建后回填）
     user_message              TEXT NOT NULL,
+    client_message_id         VARCHAR(128),
     status                    turn_status_enum NOT NULL DEFAULT 'CREATED',
     final_response_message_id BIGINT,
     assistant_summary         TEXT,
@@ -82,6 +83,9 @@ CREATE TABLE IF NOT EXISTS session_turns (
 CREATE INDEX IF NOT EXISTS idx_session_turns_session ON session_turns(session_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_session_turns_status ON session_turns(status);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_session_turns_plan_not_null ON session_turns(plan_id) WHERE plan_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_session_turns_session_client_message
+    ON session_turns(session_id, client_message_id)
+    WHERE client_message_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS session_messages (
     id                        BIGSERIAL PRIMARY KEY,
@@ -324,6 +328,7 @@ CREATE TABLE IF NOT EXISTS task_executions (
 
 CREATE INDEX IF NOT EXISTS idx_executions_task_id ON task_executions(task_id);
 CREATE INDEX IF NOT EXISTS idx_executions_lookup ON task_executions(task_id, attempt_number DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_task_executions_task_attempt ON task_executions(task_id, attempt_number);
 
 COMMENT ON TABLE task_executions IS '任务执行记录表：存储每次执行的详细历史';
 

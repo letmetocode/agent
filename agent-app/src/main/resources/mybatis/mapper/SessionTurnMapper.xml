@@ -7,6 +7,7 @@
         <result column="session_id" property="sessionId" jdbcType="BIGINT"/>
         <result column="plan_id" property="planId" jdbcType="BIGINT"/>
         <result column="user_message" property="userMessage" jdbcType="VARCHAR"/>
+        <result column="client_message_id" property="clientMessageId" jdbcType="VARCHAR"/>
         <result column="status" property="status" javaType="com.getoffer.types.enums.TurnStatusEnum" jdbcType="OTHER"/>
         <result column="final_response_message_id" property="finalResponseMessageId" jdbcType="BIGINT"/>
         <result column="assistant_summary" property="assistantSummary" jdbcType="VARCHAR"/>
@@ -17,16 +18,16 @@
     </resultMap>
 
     <sql id="Base_Column_List">
-        id, session_id, plan_id, user_message, status, final_response_message_id, assistant_summary,
+        id, session_id, plan_id, user_message, client_message_id, status, final_response_message_id, assistant_summary,
         metadata, created_at, updated_at, completed_at
     </sql>
 
     <insert id="insert" parameterType="com.getoffer.infrastructure.dao.po.SessionTurnPO" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO session_turns (
-            session_id, plan_id, user_message, status, final_response_message_id, assistant_summary,
+            session_id, plan_id, user_message, client_message_id, status, final_response_message_id, assistant_summary,
             metadata, created_at, updated_at, completed_at
         ) VALUES (
-            #{sessionId}, #{planId}, #{userMessage}, #{status}::turn_status_enum, #{finalResponseMessageId}, #{assistantSummary},
+            #{sessionId}, #{planId}, #{userMessage}, #{clientMessageId}, #{status}::turn_status_enum, #{finalResponseMessageId}, #{assistantSummary},
             #{metadata}::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, #{completedAt}
         )
     </insert>
@@ -36,6 +37,7 @@
             session_id = #{sessionId},
             plan_id = #{planId},
             user_message = #{userMessage},
+            client_message_id = #{clientMessageId},
             status = #{status}::turn_status_enum,
             final_response_message_id = #{finalResponseMessageId},
             assistant_summary = #{assistantSummary},
@@ -80,8 +82,14 @@
         SELECT <include refid="Base_Column_List"/>
         FROM session_turns
         WHERE session_id = #{sessionId}
-          AND metadata IS NOT NULL
-          AND metadata ->> 'clientMessageId' = #{clientMessageId}
+          AND (
+                client_message_id = #{clientMessageId}
+                OR (
+                    client_message_id IS NULL
+                    AND metadata IS NOT NULL
+                    AND metadata ->> 'clientMessageId' = #{clientMessageId}
+                )
+              )
         ORDER BY id DESC
         LIMIT 1
     </select>
