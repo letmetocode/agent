@@ -223,6 +223,48 @@ public class PlanStatusSyncApplicationServiceTest {
         verify(planRepository, times(1)).update(plan);
     }
 
+    @Test
+    public void shouldFinalizeCancelledPlanTurnWhenCancelledPlanExists() {
+        IAgentPlanRepository planRepository = mock(IAgentPlanRepository.class);
+        IAgentTaskRepository taskRepository = mock(IAgentTaskRepository.class);
+        PlanTaskEventPublisher eventPublisher = mock(PlanTaskEventPublisher.class);
+        TurnFinalizeApplicationService turnFinalizeService = mock(TurnFinalizeApplicationService.class);
+
+        AgentPlanEntity cancelledPlan = newPlan(5L, PlanStatusEnum.CANCELLED);
+
+        when(planRepository.findByStatusPaged(eq(PlanStatusEnum.READY), eq(0), eq(100)))
+                .thenReturn(Collections.emptyList());
+        when(planRepository.findByStatusPaged(eq(PlanStatusEnum.RUNNING), eq(0), eq(100)))
+                .thenReturn(Collections.emptyList());
+        when(planRepository.findByStatusPaged(eq(PlanStatusEnum.CANCELLED), eq(0), eq(100)))
+                .thenReturn(List.of(cancelledPlan));
+        when(turnFinalizeService.finalizeByPlan(5L, PlanStatusEnum.CANCELLED))
+                .thenReturn(TurnFinalizeApplicationService.TurnFinalizeResult.of(
+                        55L,
+                        66L,
+                        "cancelled",
+                        TurnStatusEnum.CANCELLED,
+                        TurnFinalizeApplicationService.FinalizeOutcome.FINALIZED
+                ));
+
+        PlanStatusSyncApplicationService service = new PlanStatusSyncApplicationService(
+                planRepository,
+                taskRepository,
+                eventPublisher,
+                turnFinalizeService,
+                new PlanTransitionDomainService(),
+                new TaskFailurePolicyDomainService()
+        );
+
+        PlanStatusSyncApplicationService.SyncResult result = service.syncPlanStatuses(100, 1000);
+
+        Assertions.assertEquals(1, result.processedCount());
+        Assertions.assertEquals(0, result.advancedCount());
+        Assertions.assertEquals(1, result.finalizeAttemptCount());
+        Assertions.assertEquals(0, result.errorCount());
+        verify(turnFinalizeService, times(1)).finalizeByPlan(5L, PlanStatusEnum.CANCELLED);
+    }
+
     private AgentPlanEntity newPlan(Long id, PlanStatusEnum status) {
         AgentPlanEntity plan = new AgentPlanEntity();
         plan.setId(id);

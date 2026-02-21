@@ -99,6 +99,18 @@ public class SessionTurnRepositoryImpl implements ISessionTurnRepository {
         return po == null ? null : toEntity(po);
     }
 
+    @Override
+    public List<SessionTurnEntity> findPlanningTurnsOlderThan(LocalDateTime cutoff, int limit) {
+        if (cutoff == null || limit <= 0) {
+            return Collections.emptyList();
+        }
+        List<SessionTurnPO> list = sessionTurnDao.selectPlanningTurnsOlderThan(cutoff, limit);
+        if (list == null || list.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return list.stream().map(this::toEntity).collect(Collectors.toList());
+    }
+
     private SessionTurnEntity toEntity(SessionTurnPO po) {
         if (po == null) {
             return null;

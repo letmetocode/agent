@@ -86,6 +86,8 @@ PostgreSQL 最终版初始化脚本：
 - 回滚脚本：`docs/dev-ops/postgresql/sql/migrations/V20260212_01_session_planner_v2_rollback.sql`
 - `docs/dev-ops/postgresql/sql/migrations/V20260213_02_executor_terminal_convergence.sql`
 - 回滚脚本：`docs/dev-ops/postgresql/sql/migrations/V20260213_02_executor_terminal_convergence_rollback.sql`
+- `docs/dev-ops/postgresql/sql/migrations/V20260220_04_session_turn_idempotency_and_execution_dedupe.sql`
+- 回滚脚本：`docs/dev-ops/postgresql/sql/migrations/V20260220_04_session_turn_idempotency_and_execution_dedupe_rollback.sql`
 
 Workflow Graph 版本迁移模板（v2 -> vNext）：
 
@@ -286,6 +288,18 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 - `release-control.chat-planning.enabled`（会话入口是否允许派发规划任务）
 - `release-control.chat-planning.traffic-percent`（按 `sessionId:turnId` 哈希放量比例）
 - `release-control.chat-planning.kill-switch`（紧急熔断，优先级高于 enabled）
+
+### 规划悬挂回合恢复
+
+配置位置：`agent-app/src/main/resources/application*.yml`
+
+- `chat.planning-recovery.poll-interval-ms`（恢复任务轮询间隔）
+- `chat.planning-recovery.timeout-minutes`（回合停留 `PLANNING` 的超时阈值）
+- `chat.planning-recovery.batch-size`（每轮恢复扫描上限）
+
+默认行为：
+- 守护任务会扫描超时未推进的 `PLANNING` 回合，并兜底收敛为 `FAILED`。
+- 恢复链路复用终态幂等写入（终态条件更新 + final assistant message 去重保存）。
 
 ### SSE 回放参数
 

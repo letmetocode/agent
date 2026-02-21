@@ -206,6 +206,7 @@ sequenceDiagram
 - Root 候选草案结构非法快速降级：当判定为确定性结构错误（如边引用不存在节点）时，不再继续重试 Root 规划，直接进入单节点候选 Draft。
 - Root 规划软超时快速降级：单次 Root 规划超过 `planner.root.timeout.soft-ms` 视为不可重试错误，立即降级单节点 Draft，避免入口阻塞。
 - Root 降级策略收口：`PlannerFallbackPolicyDomainService` 统一 Root 失败重试判定、fallbackReason 归一与指标标签标准化。
+- 会话入口 ACK 后补偿：`PlanningTurnRecoveryJob` 定时扫描长时间停留 `PLANNING` 的回合，兜底收敛为 `FAILED` 并补写最终消息，避免悬挂回合。
 - TaskClient 超时：按配置追加有限重试，超过上限进入 FAILED（是否阻断 Plan 由节点 `failurePolicy` 决定）。
 - Task Agent 降级策略收口：`TaskAgentSelectionDomainService` 统一 configured/fallback/default 三段选路与不可用判定。
 - Plan 黑板写回冲突：读取最新 Plan 后有限重试。

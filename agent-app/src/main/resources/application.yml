@@ -156,3 +156,12 @@ release-control:
     traffic-percent: ${RELEASE_CHAT_PLANNING_TRAFFIC_PERCENT:100}
     # 紧急熔断开关（true 时无条件拒绝派发）
     kill-switch: ${RELEASE_CHAT_PLANNING_KILL_SWITCH:false}
+
+chat:
+  planning-recovery:
+    # 规划悬挂回合恢复轮询间隔（ms）
+    poll-interval-ms: ${CHAT_PLANNING_RECOVERY_POLL_INTERVAL_MS:30000}
+    # 回合停留在 PLANNING 超过该分钟数即触发兜底收敛
+    timeout-minutes: ${CHAT_PLANNING_RECOVERY_TIMEOUT_MINUTES:2}
+    # 每轮最多扫描并处理的回合数
+    batch-size: ${CHAT_PLANNING_RECOVERY_BATCH_SIZE:100}

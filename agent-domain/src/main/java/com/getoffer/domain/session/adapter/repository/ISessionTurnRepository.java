@@ -4,6 +4,7 @@ import com.getoffer.domain.session.model.entity.SessionTurnEntity;
 import com.getoffer.types.enums.TurnStatusEnum;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 
 import java.util.List;
 
@@ -32,4 +33,8 @@ public interface ISessionTurnRepository {
     List<SessionTurnEntity> findBySessionId(Long sessionId);
 
     SessionTurnEntity findLatestBySessionIdAndStatus(Long sessionId, TurnStatusEnum status);
+
+    default List<SessionTurnEntity> findPlanningTurnsOlderThan(LocalDateTime cutoff, int limit) {
+        return Collections.emptyList();
+    }
 }

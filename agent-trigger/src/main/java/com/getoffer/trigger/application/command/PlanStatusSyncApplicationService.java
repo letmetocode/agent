@@ -63,17 +63,21 @@ public class PlanStatusSyncApplicationService {
         List<AgentPlanEntity> runningPlans = remaining > 0
                 ? loadPlansByStatus(PlanStatusEnum.RUNNING, remaining, normalizedBatchSize)
                 : Collections.emptyList();
-        List<AgentPlanEntity> plans = mergePlans(readyPlans, runningPlans);
-        if (plans.isEmpty()) {
+        List<AgentPlanEntity> activePlans = mergePlans(readyPlans, runningPlans);
+        List<AgentPlanEntity> cancelledPlans = loadPlansByStatus(PlanStatusEnum.CANCELLED,
+                normalizedBatchSize,
+                normalizedBatchSize);
+        if (activePlans.isEmpty() && cancelledPlans.isEmpty()) {
             return SyncResult.empty();
         }
 
         SyncStats syncStats = new SyncStats();
-        for (int index = 0; index < plans.size(); index += normalizedBatchSize) {
-            int end = Math.min(index + normalizedBatchSize, plans.size());
-            List<AgentPlanEntity> batch = plans.subList(index, end);
-            processBatch(batch, syncStats);
+        for (int index = 0; index < activePlans.size(); index += normalizedBatchSize) {
+            int end = Math.min(index + normalizedBatchSize, activePlans.size());
+            List<AgentPlanEntity> batch = activePlans.subList(index, end);
+            processActiveBatch(batch, syncStats);
         }
+        processCancelledPlans(cancelledPlans, syncStats);
 
         return syncStats.toResult();
     }
@@ -125,7 +129,7 @@ public class PlanStatusSyncApplicationService {
         }
     }
 
-    private void processBatch(List<AgentPlanEntity> plans, SyncStats syncStats) {
+    private void processActiveBatch(List<AgentPlanEntity> plans, SyncStats syncStats) {
         if (plans == null || plans.isEmpty()) {
             return;
         }
@@ -156,6 +160,42 @@ public class PlanStatusSyncApplicationService {
             }
             syncStats.processedCount++;
             reconcilePlan(plan, statMap.get(plan.getId()), syncStats);
+        }
+    }
+
+    private void processCancelledPlans(List<AgentPlanEntity> plans, SyncStats syncStats) {
+        if (plans == null || plans.isEmpty()) {
+            return;
+        }
+        for (AgentPlanEntity plan : plans) {
+            if (plan == null || plan.getId() == null || plan.getStatus() != PlanStatusEnum.CANCELLED) {
+                continue;
+            }
+            syncStats.processedCount++;
+            finalizeCancelledPlan(plan, syncStats);
+        }
+    }
+
+    private void finalizeCancelledPlan(AgentPlanEntity plan, SyncStats syncStats) {
+        if (plan == null || plan.getId() == null) {
+            return;
+        }
+        try {
+            syncStats.finalizeAttemptCount++;
+            TurnFinalizeApplicationService.TurnFinalizeResult turnResult =
+                    turnFinalizeApplicationService.finalizeByPlan(plan.getId(), PlanStatusEnum.CANCELLED);
+            if (turnResult != null
+                    && turnResult.getOutcome() == TurnFinalizeApplicationService.FinalizeOutcome.SKIPPED_NOT_TERMINAL) {
+                log.info("Cancelled plan finalize skipped because turn is not terminal candidate. planId={}",
+                        plan.getId());
+            }
+            if (turnResult != null
+                    && turnResult.getOutcome() == TurnFinalizeApplicationService.FinalizeOutcome.ALREADY_FINALIZED) {
+                syncStats.finalizeDedupCount++;
+            }
+        } catch (RuntimeException ex) {
+            syncStats.errorCount++;
+            log.warn("Cancelled plan finalize failed. planId={}, error={}", plan.getId(), ex.getMessage());
         }
     }
 

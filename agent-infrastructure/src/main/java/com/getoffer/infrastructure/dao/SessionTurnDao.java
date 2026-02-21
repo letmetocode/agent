@@ -37,4 +37,7 @@ public interface SessionTurnDao {
 
     SessionTurnPO selectLatestBySessionIdAndStatus(@Param("sessionId") Long sessionId,
                                                    @Param("status") TurnStatusEnum status);
+
+    List<SessionTurnPO> selectPlanningTurnsOlderThan(@Param("cutoff") LocalDateTime cutoff,
+                                                     @Param("limit") Integer limit);
 }

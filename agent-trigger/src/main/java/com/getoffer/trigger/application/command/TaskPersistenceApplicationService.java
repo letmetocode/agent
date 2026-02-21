@@ -97,8 +97,8 @@ public class TaskPersistenceApplicationService {
             return ExecutionSaveResult.error("execution is null");
         }
         try {
-            taskExecutionRepository.save(execution);
-            persistQualityEvaluationEvent(execution);
+            TaskExecutionEntity savedExecution = taskExecutionRepository.save(execution);
+            persistQualityEvaluationEvent(savedExecution == null ? execution : savedExecution);
             return ExecutionSaveResult.success();
         } catch (Exception ex) {
             return ExecutionSaveResult.error(taskPersistencePolicyDomainService.normalizeErrorMessage(ex));

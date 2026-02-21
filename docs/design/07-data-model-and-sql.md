@@ -36,6 +36,7 @@
 
 - 全新环境：直接执行 `docs/dev-ops/postgresql/sql/01_init_database.sql`。
 - 存量环境：
-  - 需补齐 `session_turns.client_message_id` 与两个唯一索引。
+  - 执行迁移：`docs/dev-ops/postgresql/sql/migrations/V20260220_04_session_turn_idempotency_and_execution_dedupe.sql`。
+  - 回滚脚本：`docs/dev-ops/postgresql/sql/migrations/V20260220_04_session_turn_idempotency_and_execution_dedupe_rollback.sql`。
   - 发布前建议执行 `bash scripts/devops/check-schema-drift.sh`。
 - 历史设计说明参考：`docs/archive/design/07-data-model-and-sql.md`。

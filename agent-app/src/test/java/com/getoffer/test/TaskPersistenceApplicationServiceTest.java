@@ -187,6 +187,39 @@ public class TaskPersistenceApplicationServiceTest {
         Assertions.assertEquals(Boolean.FALSE, event.getPayload().get("experimentEnabled"));
     }
 
+    @Test
+    public void shouldUseRepositoryReturnedExecutionIdWhenPersistingQualityEvent() {
+        AgentTaskEntity task = new AgentTaskEntity();
+        task.setId(303L);
+        task.setPlanId(403L);
+        task.setTaskType(TaskTypeEnum.WORKER);
+        task.setConfigSnapshot(new HashMap<>());
+        when(taskRepository.findById(303L)).thenReturn(task);
+
+        TaskExecutionEntity requestExecution = new TaskExecutionEntity();
+        requestExecution.setTaskId(303L);
+        requestExecution.setAttemptNumber(2);
+        requestExecution.setIsValid(true);
+        requestExecution.setValidationFeedback("score=0.90");
+
+        TaskExecutionEntity savedExecution = new TaskExecutionEntity();
+        savedExecution.setId(999L);
+        savedExecution.setTaskId(303L);
+        savedExecution.setAttemptNumber(2);
+        savedExecution.setIsValid(true);
+        savedExecution.setValidationFeedback("score=0.90");
+        when(executionRepository.save(requestExecution)).thenReturn(savedExecution);
+        when(qualityEventRepository.save(any(QualityEvaluationEventEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        TaskPersistenceApplicationService.ExecutionSaveResult result = qualityAwareService.saveExecution(requestExecution);
+
+        Assertions.assertTrue(result.saved());
+        ArgumentCaptor<QualityEvaluationEventEntity> captor = ArgumentCaptor.forClass(QualityEvaluationEventEntity.class);
+        verify(qualityEventRepository, times(1)).save(captor.capture());
+        Assertions.assertEquals(999L, captor.getValue().getExecutionId());
+    }
+
     private AgentPlanEntity buildPlan(Long id, Integer version, Map<String, Object> context) {
         AgentPlanEntity plan = new AgentPlanEntity();
         plan.setId(id);
