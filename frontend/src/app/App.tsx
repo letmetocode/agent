@@ -1,9 +1,46 @@
 import { RouterProvider } from 'react-router-dom';
 import { ConfigProvider } from 'antd';
+import { useEffect } from 'react';
 import zhCN from 'antd/locale/zh_CN';
+import { useSessionStore } from '@/features/session/sessionStore';
+import { agentApi } from '@/shared/api/agentApi';
 import { router } from './router';
 
 export const App = () => {
+  const authStatus = useSessionStore((state) => state.authStatus);
+  const token = useSessionStore((state) => state.token);
+  const setUserId = useSessionStore((state) => state.setUserId);
+  const clearAuth = useSessionStore((state) => state.clearAuth);
+
+  useEffect(() => {
+    if (!token || (authStatus !== 'AUTHENTICATED' && authStatus !== 'EXPIRED')) {
+      return;
+    }
+    let canceled = false;
+    void (async () => {
+      try {
+        const profile = await agentApi.authMe();
+        if (canceled) {
+          return;
+        }
+        if (profile.userId) {
+          setUserId(profile.userId);
+        }
+      } catch {
+        if (canceled) {
+          return;
+        }
+        clearAuth();
+        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+          window.location.assign('/login');
+        }
+      }
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, [authStatus, clearAuth, setUserId, token]);
+
   return (
     <ConfigProvider
       locale={zhCN}

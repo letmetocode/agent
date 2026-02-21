@@ -208,6 +208,33 @@ export interface WorkflowDraftSummaryDTO {
   updatedAt?: string;
 }
 
+export interface WorkflowDefinitionSummaryDTO {
+  id: number;
+  definitionKey: string;
+  tenantId: string;
+  category: string;
+  name: string;
+  version: number;
+  status: string;
+  publishedFromDraftId?: number;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface WorkflowDefinitionDetailDTO extends WorkflowDefinitionSummaryDTO {
+  routeDescription?: string;
+  inputSchemaVersion?: string;
+  nodeSignature?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  graphDefinition?: Record<string, unknown>;
+  inputSchema?: Record<string, unknown>;
+  defaultConfig?: Record<string, unknown>;
+  toolPolicy?: Record<string, unknown>;
+  constraints?: Record<string, unknown>;
+}
+
 export interface WorkflowDraftDetailDTO extends WorkflowDraftSummaryDTO {
   routeDescription?: string;
   inputSchemaVersion?: string;
@@ -316,6 +343,30 @@ export interface PlanLogDTO {
   traceId?: string;
   eventData?: Record<string, unknown>;
   createdAt?: string;
+}
+
+export interface ToolPolicyLogDTO extends PlanLogDTO {
+  auditCategory?: string;
+  policyAction?: string;
+  policyMode?: string;
+  allowHit?: boolean;
+  blockHit?: boolean;
+  allowedTools?: string[];
+  blockedTools?: string[];
+  selectedAgentId?: string;
+  selectedAgentKey?: string;
+  selectionSource?: string;
+}
+
+export interface QualityExperimentSummaryDTO {
+  experimentKey?: string;
+  experimentVariant?: string;
+  totalCount?: number;
+  passCount?: number;
+  failCount?: number;
+  passRate?: number;
+  avgScore?: number;
+  lastEvaluatedAt?: string;
 }
 
 export interface ObservabilityAlertCatalogItemDTO {
@@ -488,4 +539,32 @@ export interface RetrievalTestResponseDTO {
   total: number;
   results: RetrievalTestResultDTO[];
   testedAt?: string;
+}
+
+export interface DeprecationRegistryItemDTO {
+  id?: string;
+  status?: string;
+  legacyPath?: string;
+  replacementPath?: string;
+  announcedAt?: string;
+  sunsetAt?: string;
+  sunsetBaseline?: string;
+  owner?: string;
+  migrationDoc?: string;
+  noticeWindowDays?: number;
+  meetsNoticeWindow?: boolean;
+  daysToSunset?: number;
+  notes?: string;
+  valid?: boolean;
+  issues?: string[];
+}
+
+export interface DeprecationRegistryDTO {
+  items: DeprecationRegistryItemDTO[];
+  total: number;
+  statusSummary?: Record<string, number>;
+  policy?: {
+    minNoticeWindowDays?: number;
+  };
+  generatedAt?: string;
 }

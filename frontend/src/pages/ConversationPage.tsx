@@ -6,7 +6,7 @@ import { useSessionStore } from '@/features/session/sessionStore';
 import { openChatSseV3 } from '@/features/sse/sseClient';
 import { agentApi } from '@/shared/api/agentApi';
 import { CHAT_HTTP_TIMEOUT_MS } from '@/shared/api/http';
-import type { ChatHistoryResponseV3, ChatStreamEventV3, SessionDetailDTO } from '@/shared/types/api';
+import type { ChatHistoryResponseV3, ChatStreamEventV3, RoutingDecisionDTO, SessionDetailDTO } from '@/shared/types/api';
 
 const { TextArea } = Input;
 
@@ -92,6 +92,13 @@ const toEpoch = (value?: string): number => {
   }
   const ts = new Date(value).getTime();
   return Number.isFinite(ts) ? ts : 0;
+};
+
+const toPercent = (value?: number): string => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '-';
+  }
+  return `${(value * 100).toFixed(1)}%`;
 };
 
 const isAbortRequestError = (err: unknown): boolean => {
@@ -228,6 +235,9 @@ export const ConversationPage = () => {
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [activePlanId, setActivePlanId] = useState<number | undefined>();
+  const [routingDecision, setRoutingDecision] = useState<RoutingDecisionDTO | null>(null);
+  const [routingLoading, setRoutingLoading] = useState(false);
+  const [routingError, setRoutingError] = useState<string>();
   const [processEvents, setProcessEvents] = useState<ProcessEventItem[]>([]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [scenario, setScenario] = useState('CHAT_DEFAULT');
@@ -901,6 +911,35 @@ export const ConversationPage = () => {
     [syncHistorySnapshot]
   );
 
+  const loadRoutingDecision = useCallback(
+    async (planId?: number, options?: { silent?: boolean }) => {
+      if (!planId || !Number.isFinite(planId)) {
+        setRoutingDecision(null);
+        setRoutingError(undefined);
+        setRoutingLoading(false);
+        return null;
+      }
+      setRoutingLoading(true);
+      setRoutingError(undefined);
+      try {
+        const data = await agentApi.getPlanRouting(planId);
+        setRoutingDecision(data || null);
+        return data || null;
+      } catch (err) {
+        const text = toChatMessageError(err);
+        setRoutingDecision(null);
+        setRoutingError(text);
+        if (!options?.silent) {
+          message.warning(`加载路由决策失败: ${text}`);
+        }
+        return null;
+      } finally {
+        setRoutingLoading(false);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -977,6 +1016,9 @@ export const ConversationPage = () => {
       setRecoveringSubmission(false);
       setHistory(null);
       setActivePlanId(undefined);
+      setRoutingDecision(null);
+      setRoutingError(undefined);
+      setRoutingLoading(false);
       stopStream();
       return;
     }
@@ -993,6 +1035,16 @@ export const ConversationPage = () => {
 
     void loadHistory(sid);
   }, [abortPendingSendRequest, loadHistory, sid, stopStream]);
+
+  useEffect(() => {
+    if (!activePlanId) {
+      setRoutingDecision(null);
+      setRoutingError(undefined);
+      setRoutingLoading(false);
+      return;
+    }
+    void loadRoutingDecision(activePlanId, { silent: true });
+  }, [activePlanId, loadRoutingDecision]);
 
   useEffect(() => {
     if (!sid || !activePlanId) {
@@ -1116,6 +1168,10 @@ export const ConversationPage = () => {
       if (response.planId) {
         setActivePlanId(response.planId);
       }
+      if (response.routingDecision) {
+        setRoutingDecision(response.routingDecision);
+        setRoutingError(undefined);
+      }
       pushProcessEvent({
         type: 'message.accepted',
         planId: response.planId,
@@ -1141,6 +1197,9 @@ export const ConversationPage = () => {
       }
 
       if (response.planId) {
+        if (!response.routingDecision) {
+          void loadRoutingDecision(response.planId, { silent: true });
+        }
         connectStream(response.sessionId, response.planId, { force: true, resetRetry: true });
       } else {
         startHistoryPolling(response.sessionId);
@@ -1482,6 +1541,33 @@ export const ConversationPage = () => {
         <Card className="app-card chat-panel chat-right-panel" title="执行进度">
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <Typography.Text type="secondary">{streamStatusHint}</Typography.Text>
+            <Card size="small" title="路由决策">
+              {!activePlanId ? (
+                <Typography.Text type="secondary">暂无可查询 Plan。</Typography.Text>
+              ) : routingLoading ? (
+                <Spin size="small" />
+              ) : routingDecision ? (
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <Space wrap>
+                    <Tag color="processing">{routingDecision.sourceType || 'UNKNOWN'}</Tag>
+                    {routingDecision.fallbackFlag ? <Tag color="warning">FALLBACK</Tag> : null}
+                    {routingDecision.definitionKey ? <Tag color="blue">{routingDecision.definitionKey}</Tag> : null}
+                    {routingDecision.draftKey ? <Tag>{routingDecision.draftKey}</Tag> : null}
+                  </Space>
+                  <Typography.Text type="secondary">
+                    strategy={routingDecision.strategy || '-'} · score={toPercent(routingDecision.score)}
+                  </Typography.Text>
+                  {routingDecision.reason ? <Typography.Text>{routingDecision.reason}</Typography.Text> : null}
+                  {routingDecision.fallbackReason ? (
+                    <Typography.Text type="warning">fallback: {routingDecision.fallbackReason}</Typography.Text>
+                  ) : null}
+                </Space>
+              ) : (
+                <Typography.Text type={routingError ? 'danger' : 'secondary'}>
+                  {routingError || '当前 Plan 暂无路由决策记录。'}
+                </Typography.Text>
+              )}
+            </Card>
             <Space direction="vertical" size={8} style={{ width: '100%' }} className="chat-events-controls">
               <Space wrap>
                 <Select

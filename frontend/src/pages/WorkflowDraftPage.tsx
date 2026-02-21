@@ -240,7 +240,12 @@ export const WorkflowDraftPage = () => {
         description="管理候补草案并发布为生产 Definition，支持图形化 SOP 编排与编译预览。"
         primaryActionText="返回对话与执行"
         onPrimaryAction={() => navigate('/sessions')}
-        extra={<Button onClick={() => void loadCandidates(statusFilter)}>刷新</Button>}
+        extra={
+          <Space>
+            <Button onClick={() => navigate('/workflows/definitions')}>查看 Definitions</Button>
+            <Button onClick={() => void loadCandidates(statusFilter)}>刷新</Button>
+          </Space>
+        }
       />
 
       <Card className="app-card page-section">

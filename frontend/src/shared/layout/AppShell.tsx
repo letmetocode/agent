@@ -28,7 +28,14 @@ const APP_NAV_ITEMS: AppNavItem[] = [
   { key: '/workspace', label: '工作台', path: '/workspace' },
   { key: '/sessions', label: '对话与执行', path: '/sessions' },
   { key: '/tasks', label: '任务中心', path: '/tasks' },
-  { key: '/workflows/drafts', label: 'Workflow 治理', path: '/workflows/drafts' },
+  {
+    key: '/workflows',
+    label: 'Workflow 治理',
+    children: [
+      { key: '/workflows/drafts', label: 'Draft 治理', path: '/workflows/drafts' },
+      { key: '/workflows/definitions', label: 'Definition 管理', path: '/workflows/definitions' }
+    ]
+  },
   {
     key: '/assets',
     label: '资产中心',
@@ -46,6 +53,13 @@ const APP_NAV_ITEMS: AppNavItem[] = [
     ]
   },
   {
+    key: '/governance',
+    label: '治理',
+    children: [
+      { key: '/governance/deprecations', label: '废弃治理', path: '/governance/deprecations' }
+    ]
+  },
+  {
     key: '/settings',
     label: '设置',
     children: [
@@ -58,11 +72,13 @@ const pathTitleMap: Record<string, string> = {
   '/workspace': '工作台',
   '/sessions': '对话与执行',
   '/tasks': '任务中心',
-  '/workflows/drafts': 'Workflow 治理',
+  '/workflows/drafts': 'Draft 治理',
+  '/workflows/definitions': 'Definition 管理',
   '/assets/tools': '工具与插件',
   '/assets/knowledge': '知识库',
   '/observability/overview': '监控总览',
   '/observability/logs': '日志检索',
+  '/governance/deprecations': '废弃治理',
   '/settings/profile': '个人设置'
 };
 
@@ -112,7 +128,7 @@ export const AppShell = () => {
   const breadcrumbItems = useMemo(() => buildBreadcrumbItems(location.pathname), [location.pathname]);
 
   const openKeys = useMemo(() => {
-    const candidates = ['/assets', '/observability', '/settings'];
+    const candidates = ['/workflows', '/assets', '/observability', '/governance', '/settings'];
     return candidates.filter((key) => selectedKey.startsWith(key));
   }, [selectedKey]);
 

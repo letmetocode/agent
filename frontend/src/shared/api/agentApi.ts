@@ -10,6 +10,7 @@ import type {
   ChatMessageSubmitRequestV3,
   ChatMessageSubmitResponseV3,
   DashboardOverviewDTO,
+  DeprecationRegistryDTO,
   KnowledgeBaseDetailDTO,
   KnowledgeDocumentDTO,
   ObservabilityAlertCatalogItemDTO,
@@ -17,8 +18,10 @@ import type {
   PageResult,
   PlanLogDTO,
   PlanTaskEventDTO,
+  QualityExperimentSummaryDTO,
   QualityEvaluationItemDTO,
   RetrievalTestResponseDTO,
+  RoutingDecisionDTO,
   SessionDetailDTO,
   SharedTaskReadDTO,
   SopCompileResultDTO,
@@ -28,7 +31,10 @@ import type {
   TaskShareLinkDTO,
   TaskShareLinkItemDTO,
   TaskShareRevokeResultDTO,
+  ToolPolicyLogDTO,
   VectorStoreDTO,
+  WorkflowDefinitionDetailDTO,
+  WorkflowDefinitionSummaryDTO,
   WorkflowDraftDetailDTO,
   WorkflowDraftSummaryDTO,
   WorkflowDraftUpdateRequestDTO,
@@ -67,6 +73,9 @@ export const agentApi = {
 
   getChatHistoryV3: async (sessionId: number) =>
     unwrapWithCodeCheck(await http.get<ApiResponse<ChatHistoryResponseV3>>(`/api/v3/chat/sessions/${sessionId}/history`)),
+
+  getPlanRouting: async (planId: number) =>
+    unwrapWithCodeCheck(await http.get<ApiResponse<RoutingDecisionDTO | null>>(`/api/v3/chat/plans/${planId}/routing`)),
 
   getSessionsList: async (params: {
     userId: string;
@@ -162,6 +171,16 @@ export const agentApi = {
       await http.post<ApiResponse<SopValidateResultDTO>>(`/api/workflows/sop-spec/drafts/${id}/validate`, sopSpec ? { sopSpec } : {})
     ),
 
+  getWorkflowDefinitions: async (status?: string) =>
+    unwrapWithCodeCheck(
+      await http.get<ApiResponse<WorkflowDefinitionSummaryDTO[]>>('/api/workflows/definitions', {
+        params: status ? { status } : undefined
+      })
+    ),
+
+  getWorkflowDefinitionDetail: async (id: number) =>
+    unwrapWithCodeCheck(await http.get<ApiResponse<WorkflowDefinitionDetailDTO>>(`/api/workflows/definitions/${id}`)),
+
   getAgentTools: async () => unwrap(await http.get<ApiResponse<AgentToolDTO[]>>('/api/agents/tools')),
 
   getVectorStores: async () => unwrap(await http.get<ApiResponse<VectorStoreDTO[]>>('/api/agents/vector-stores')),
@@ -187,6 +206,16 @@ export const agentApi = {
     size?: number;
   }) => unwrap(await http.get<ApiResponse<PageResult<PlanLogDTO>>>('/api/logs/paged', { params })),
 
+  getToolPolicyLogsPaged: async (params?: {
+    planId?: number;
+    taskId?: number;
+    policyAction?: string;
+    policyMode?: string;
+    keyword?: string;
+    page?: number;
+    size?: number;
+  }) => unwrap(await http.get<ApiResponse<PageResult<ToolPolicyLogDTO>>>('/api/logs/tool-policy/paged', { params })),
+
   getQualityEvaluationsPaged: async (params?: {
     planId?: number;
     taskId?: number;
@@ -199,11 +228,21 @@ export const agentApi = {
     size?: number;
   }) => unwrap(await http.get<ApiResponse<PageResult<QualityEvaluationItemDTO>>>('/api/quality/evaluations/paged', { params })),
 
+  getQualityEvaluationExperimentSummary: async (params?: {
+    planId?: number;
+    experimentKey?: string;
+    evaluatorType?: string;
+    limit?: number;
+  }) => unwrap(await http.get<ApiResponse<QualityExperimentSummaryDTO[]>>('/api/quality/evaluations/experiments/summary', { params })),
+
   getObservabilityAlertCatalog: async () =>
     unwrap(await http.get<ApiResponse<ObservabilityAlertCatalogItemDTO[]>>('/api/observability/alerts/catalog')),
 
   getObservabilityAlertProbeStatus: async (params?: { window?: number }) =>
     unwrap(await http.get<ApiResponse<ObservabilityAlertProbeStatusDTO>>('/api/observability/alerts/probe-status', { params })),
+
+  getDeprecationRegistry: async (params?: { status?: string; includeRemoved?: boolean }) =>
+    unwrap(await http.get<ApiResponse<DeprecationRegistryDTO>>('/api/governance/deprecations', { params })),
 
   getDashboardOverview: async (params?: { taskLimit?: number; planLimit?: number }) =>
     unwrap(await http.get<ApiResponse<DashboardOverviewDTO>>('/api/dashboard/overview', { params }))

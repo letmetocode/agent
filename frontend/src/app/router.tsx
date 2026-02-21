@@ -18,6 +18,12 @@ const ObservabilityOverviewPage = lazy(() =>
 const LogsPage = lazy(() => import('@/pages/LogsPage').then((module) => ({ default: module.LogsPage })));
 const ProfileSettingsPage = lazy(() => import('@/pages/ProfileSettingsPage').then((module) => ({ default: module.ProfileSettingsPage })));
 const WorkflowDraftPage = lazy(() => import('@/pages/WorkflowDraftPage').then((module) => ({ default: module.WorkflowDraftPage })));
+const WorkflowDefinitionPage = lazy(() =>
+  import('@/pages/WorkflowDefinitionPage').then((module) => ({ default: module.WorkflowDefinitionPage }))
+);
+const DeprecationGovernancePage = lazy(() =>
+  import('@/pages/DeprecationGovernancePage').then((module) => ({ default: module.DeprecationGovernancePage }))
+);
 
 const withSuspense = (node: ReactNode) => (
   <Suspense
@@ -56,7 +62,10 @@ export const router = createBrowserRouter([
 
       { path: '/settings/profile', element: withSuspense(<ProfileSettingsPage />) },
 
-      { path: '/workflows/drafts', element: withSuspense(<WorkflowDraftPage />) }
+      { path: '/workflows/drafts', element: withSuspense(<WorkflowDraftPage />) },
+      { path: '/workflows/definitions', element: withSuspense(<WorkflowDefinitionPage />) },
+
+      { path: '/governance/deprecations', element: withSuspense(<DeprecationGovernancePage />) }
     ]
   },
 

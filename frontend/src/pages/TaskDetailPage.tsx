@@ -24,7 +24,13 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { agentApi } from '@/shared/api/agentApi';
-import type { PlanTaskEventDTO, QualityEvaluationItemDTO, TaskDetailDTO, TaskShareLinkItemDTO } from '@/shared/types/api';
+import type {
+  PlanTaskEventDTO,
+  QualityEvaluationItemDTO,
+  QualityExperimentSummaryDTO,
+  TaskDetailDTO,
+  TaskShareLinkItemDTO
+} from '@/shared/types/api';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { StateView } from '@/shared/ui/StateView';
 import { StatusTag } from '@/shared/ui/StatusTag';
@@ -186,6 +192,13 @@ const downloadTextFile = (fileName: string, content: string, mimeType: string) =
   URL.revokeObjectURL(url);
 };
 
+const toPercent = (value?: number) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '-';
+  }
+  return `${(value * 100).toFixed(1)}%`;
+};
+
 export const TaskDetailPage = () => {
   const navigate = useNavigate();
   const { taskId } = useParams();
@@ -196,6 +209,7 @@ export const TaskDetailPage = () => {
   const [task, setTask] = useState<TaskDetailDTO>();
   const [planStatus, setPlanStatus] = useState<string>();
   const [evaluations, setEvaluations] = useState<QualityEvaluationItemDTO[]>([]);
+  const [experimentSummary, setExperimentSummary] = useState<QualityExperimentSummaryDTO[]>([]);
   const [planEvents, setPlanEvents] = useState<PlanTaskEventDTO[]>([]);
   const [shareLinks, setShareLinks] = useState<TaskShareLinkItemDTO[]>([]);
   const [shareLinksLoading, setShareLinksLoading] = useState(false);
@@ -239,8 +253,14 @@ export const TaskDetailPage = () => {
 
       let eventRows: PlanTaskEventDTO[] = [];
       let currentPlanStatus: string | undefined = hit.planStatus;
+      let summaryRows: QualityExperimentSummaryDTO[] = [];
       if (hit.planId) {
-        eventRows = (await agentApi.getPlanEvents(hit.planId, { limit: 500 })) || [];
+        const [events, summaries] = await Promise.all([
+          agentApi.getPlanEvents(hit.planId, { limit: 500 }),
+          agentApi.getQualityEvaluationExperimentSummary({ planId: hit.planId, limit: 20 })
+        ]);
+        eventRows = events || [];
+        summaryRows = summaries || [];
       }
       if (!currentPlanStatus) {
         currentPlanStatus = resolvePlanStatusFromEvents(eventRows);
@@ -248,6 +268,7 @@ export const TaskDetailPage = () => {
 
       setTask(hit);
       setEvaluations(evaluationPage?.items || []);
+      setExperimentSummary(summaryRows);
       setPlanEvents(eventRows || []);
       setPlanStatus(currentPlanStatus);
       await loadShareLinks(normalizedTaskId, true);
@@ -537,6 +558,23 @@ export const TaskDetailPage = () => {
                     title={item.title}
                     description={`${item.type}${item.source ? ` · ${item.source}` : ''}${item.score != null ? ` · 相关性 ${Math.round(item.score * 100)}%` : ''}`}
                   />
+                </List.Item>
+              )}
+            />
+
+            <Divider />
+
+            <List
+              header="实验汇总"
+              dataSource={experimentSummary}
+              locale={{ emptyText: '暂无实验汇总数据' }}
+              renderItem={(item) => (
+                <List.Item>
+                  <List.Item.Meta
+                    title={`${item.experimentKey || 'default'} · ${item.experimentVariant || 'default'}`}
+                    description={`样本 ${item.totalCount || 0} · PASS ${item.passCount || 0} · FAIL ${item.failCount || 0} · 通过率 ${toPercent(item.passRate)} · 均分 ${item.avgScore ?? '-'}`}
+                  />
+                  <Text type="secondary">{item.lastEvaluatedAt ? new Date(item.lastEvaluatedAt).toLocaleString() : '-'}</Text>
                 </List.Item>
               )}
             />
