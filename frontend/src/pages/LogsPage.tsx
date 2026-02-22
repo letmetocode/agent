@@ -1,10 +1,14 @@
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { Button, Card, Drawer, Input, Select, Space, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
-import { useCallback, useEffect, useState } from 'react';
+import type { InputRef } from 'antd/es/input';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useAriaLive } from '@/shared/a11y/AriaLiveProvider';
 import { agentApi } from '@/shared/api/agentApi';
+import { useHotkeys } from '@/shared/hotkeys/useHotkeys';
 import type { PlanLogDTO, ToolPolicyLogDTO } from '@/shared/types/api';
+import type { ShortcutMatchContext, ShortcutRegistration } from '@/shared/types/shortcut';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { StateView } from '@/shared/ui/StateView';
 
@@ -114,6 +118,7 @@ const levelColor: Record<LogRow['level'], string> = {
 };
 
 export const LogsPage = () => {
+  const { announce } = useAriaLive();
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedLog, setSelectedLog] = useState<LogRow | null>(null);
   const [loading, setLoading] = useState(false);
@@ -130,6 +135,7 @@ export const LogsPage = () => {
   const [keyword, setKeyword] = useState(() => searchParams.get('keyword') || '');
   const [policyActionFilter, setPolicyActionFilter] = useState(() => searchParams.get('policyAction') || '');
   const [policyModeFilter, setPolicyModeFilter] = useState(() => searchParams.get('policyMode') || '');
+  const keywordInputRef = useRef<InputRef>(null);
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
@@ -203,6 +209,70 @@ export const LogsPage = () => {
     }
     setSearchParams(params, { replace: true });
   }, [keyword, levelFilter, mode, page, policyActionFilter, policyModeFilter, setSearchParams, size, taskFilter, traceFilter]);
+
+  const runQuery = useCallback(() => {
+    setPage((current) => {
+      if (current === 1) {
+        void loadLogs();
+      }
+      return 1;
+    });
+    announce('已执行日志查询');
+  }, [announce, loadLogs]);
+
+  const logsShortcutRegistrations = useMemo<ShortcutRegistration[]>(
+    () => [
+      {
+        definition: {
+          id: 'logs.focus-filter',
+          combo: 'f',
+          description: '聚焦日志关键词过滤输入',
+          scope: 'logs',
+          priority: 40
+        },
+        when: (context: ShortcutMatchContext) => context.locationPathname.startsWith('/observability/logs'),
+        handler: (): boolean => {
+          keywordInputRef.current?.focus({ cursor: 'all' });
+          announce('已聚焦关键词筛选输入');
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'logs.run-query',
+          combo: 'mod+enter',
+          description: '执行日志查询',
+          scope: 'logs',
+          priority: 40,
+          allowInInput: true
+        },
+        when: (context: ShortcutMatchContext) => context.locationPathname.startsWith('/observability/logs'),
+        handler: (): boolean => {
+          runQuery();
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'logs.close-detail',
+          combo: 'esc',
+          description: '关闭日志详情抽屉',
+          scope: 'logs',
+          priority: 95
+        },
+        enabled: Boolean(selectedLog),
+        when: (context: ShortcutMatchContext) => context.locationPathname.startsWith('/observability/logs'),
+        handler: (): boolean => {
+          setSelectedLog(null);
+          announce('日志详情已关闭');
+          return true;
+        }
+      }
+    ],
+    [announce, runQuery, selectedLog]
+  );
+
+  useHotkeys(logsShortcutRegistrations);
 
   const columns: ColumnsType<LogRow> = [
     { title: '时间', dataIndex: 'time', key: 'time', width: 180 },
@@ -298,22 +368,22 @@ export const LogsPage = () => {
           )}
           <Input style={{ width: 200 }} placeholder="按 taskId 过滤" value={taskFilter} onChange={(event) => setTaskFilter(event.target.value)} />
           <Input
+            ref={keywordInputRef}
             style={{ width: 300 }}
             placeholder="关键词搜索"
             prefix={<SearchOutlined />}
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
+            aria-label="日志关键词筛选"
           />
           <Button
             type="primary"
-            onClick={() => {
-              setPage(1);
-              void loadLogs();
-            }}
+            onClick={runQuery}
+            aria-label="执行日志查询"
           >
             查询
           </Button>
-          <Button icon={<ReloadOutlined />} onClick={() => void loadLogs()}>
+          <Button icon={<ReloadOutlined />} onClick={() => void loadLogs()} aria-label="刷新日志列表">
             刷新
           </Button>
           <Button
@@ -328,6 +398,7 @@ export const LogsPage = () => {
               setPage(1);
               setSize(10);
             }}
+            aria-label="清空日志筛选条件"
           >
             清空筛选
           </Button>

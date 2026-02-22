@@ -1,11 +1,15 @@
 import { MenuOutlined, PlusOutlined, SendOutlined, SyncOutlined } from '@ant-design/icons';
 import { Alert, Button, Card, Collapse, Drawer, Empty, Input, List, Segmented, Select, Space, Spin, Switch, Tag, Timeline, Typography, message } from 'antd';
+import type { TextAreaRef } from 'antd/es/input/TextArea';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useSessionStore } from '@/features/session/sessionStore';
 import { openChatSseV3 } from '@/features/sse/sseClient';
+import { focusFirstElement, rememberFocusedElement, restoreFocusedElement } from '@/shared/a11y/focusManager';
+import { useAriaLive } from '@/shared/a11y/AriaLiveProvider';
 import { agentApi } from '@/shared/api/agentApi';
 import { CHAT_HTTP_TIMEOUT_MS } from '@/shared/api/http';
+import { useHotkeys } from '@/shared/hotkeys/useHotkeys';
 import type {
   ChatHistoryResponseV3,
   ChatStreamEventV3,
@@ -14,6 +18,7 @@ import type {
   SessionMessageDTO,
   SessionTurnDTO
 } from '@/shared/types/api';
+import type { ShortcutMatchContext, ShortcutRegistration } from '@/shared/types/shortcut';
 
 const { TextArea } = Input;
 
@@ -275,6 +280,7 @@ export const ConversationPage = () => {
   const { sessionId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const sid = sessionId ? Number(sessionId) : undefined;
+  const { announce } = useAriaLive();
 
   const { userId, authStatus, bookmarks, addBookmark } = useSessionStore();
 
@@ -323,6 +329,8 @@ export const ConversationPage = () => {
   const streamErrorHintAtRef = useRef<Record<string, number>>({});
   const sendAbortControllerRef = useRef<AbortController | null>(null);
   const chatScrollableRef = useRef<HTMLDivElement | null>(null);
+  const promptInputRef = useRef<TextAreaRef | null>(null);
+  const historyTriggerButtonRef = useRef<HTMLButtonElement | null>(null);
   const autoScrollEnabledRef = useRef(true);
   const mountedRef = useRef(true);
 
@@ -1423,19 +1431,234 @@ export const ConversationPage = () => {
   const handleStartNewChat = useCallback(() => {
     setHistoryDrawerOpen(false);
     navigate('/sessions');
-  }, [navigate]);
+    announce('已切换到新聊天');
+  }, [announce, navigate]);
+
+  const openHistoryDrawer = useCallback(() => {
+    rememberFocusedElement();
+    setHistoryDrawerOpen(true);
+    announce('历史抽屉已打开');
+  }, [announce]);
+
+  const closeHistoryDrawer = useCallback(() => {
+    setHistoryDrawerOpen(false);
+    announce('历史抽屉已关闭');
+  }, [announce]);
+
+  const handleHistoryDrawerOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      window.requestAnimationFrame(() => {
+        const drawerBody = document.querySelector<HTMLElement>('.chat-history-drawer .ant-drawer-body');
+        focusFirstElement(drawerBody);
+      });
+      return;
+    }
+    restoreFocusedElement();
+  }, []);
 
   const handleSelectSession = useCallback(
     (targetSessionId: number) => {
       setHistoryDrawerOpen(false);
       navigate(`/sessions/${targetSessionId}`);
+      announce(`已切换到会话 ${targetSessionId}`);
     },
-    [navigate]
+    [announce, navigate]
   );
+
+  const moveSessionByOffset = useCallback(
+    (offset: number) => {
+      if (!recentSessions.length) {
+        return;
+      }
+      const currentIndex = sid ? recentSessions.findIndex((item) => item.sessionId === sid) : -1;
+      const baseIndex = currentIndex >= 0 ? currentIndex : 0;
+      const nextIndex = Math.max(0, Math.min(recentSessions.length - 1, baseIndex + offset));
+      if (nextIndex === baseIndex) {
+        return;
+      }
+      const target = recentSessions[nextIndex];
+      if (target?.sessionId) {
+        handleSelectSession(target.sessionId);
+      }
+    },
+    [handleSelectSession, recentSessions, sid]
+  );
+
+  const conversationShortcutRegistrations = useMemo<ShortcutRegistration[]>(
+    () => [
+      {
+        definition: {
+          id: 'conversation.focus-input',
+          combo: 'mod+k',
+          description: '聚焦消息输入框',
+          scope: 'conversation',
+          priority: 60,
+          allowInInput: true
+        },
+        when: (context: ShortcutMatchContext) => context.locationPathname.startsWith('/sessions'),
+        handler: (): boolean => {
+          promptInputRef.current?.focus();
+          announce('已聚焦消息输入框');
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'conversation.send-by-shortcut',
+          combo: 'mod+enter',
+          description: '快捷发送消息',
+          scope: 'conversation',
+          priority: 60,
+          allowInInput: true
+        },
+        enabled: Boolean(prompt.trim()) && !sending && !recoveringSubmission,
+        when: (context: ShortcutMatchContext) => context.locationPathname.startsWith('/sessions'),
+        handler: (): boolean => {
+          void sendMessage();
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'conversation.toggle-history-drawer',
+          combo: 'mod+shift+h',
+          description: '开关历史抽屉',
+          scope: 'conversation',
+          priority: 60,
+          allowInInput: true
+        },
+        when: (context: ShortcutMatchContext) => context.locationPathname.startsWith('/sessions'),
+        handler: (): boolean => {
+          if (!isMobileLayout) {
+            announce('当前为桌面布局，历史列表固定在左侧');
+            return true;
+          }
+          if (historyDrawerOpen) {
+            closeHistoryDrawer();
+          } else {
+            openHistoryDrawer();
+          }
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'conversation.toggle-progress-panel',
+          combo: 'mod+shift+p',
+          description: '展开/收起高级参数',
+          scope: 'conversation',
+          priority: 55,
+          allowInInput: true
+        },
+        when: (context: ShortcutMatchContext) => context.locationPathname.startsWith('/sessions'),
+        handler: (): boolean => {
+          setAdvancedOpen((previous) => !previous);
+          announce('已切换高级参数面板');
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'conversation.prev-session',
+          combo: '[',
+          description: '切换到上一条会话',
+          scope: 'conversation',
+          priority: 50
+        },
+        when: (context: ShortcutMatchContext) => context.locationPathname.startsWith('/sessions'),
+        handler: (): boolean => {
+          moveSessionByOffset(-1);
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'conversation.next-session',
+          combo: ']',
+          description: '切换到下一条会话',
+          scope: 'conversation',
+          priority: 50
+        },
+        when: (context: ShortcutMatchContext) => context.locationPathname.startsWith('/sessions'),
+        handler: (): boolean => {
+          moveSessionByOffset(1);
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'conversation.refresh-history',
+          combo: 'r',
+          description: '刷新历史快照',
+          scope: 'conversation',
+          priority: 45
+        },
+        enabled: Boolean(sid) && !historyLoading,
+        when: (context: ShortcutMatchContext) => context.locationPathname.startsWith('/sessions'),
+        handler: (): boolean => {
+          if (!sid) {
+            return false;
+          }
+          void syncHistorySnapshot(sid, { silent: true });
+          announce('正在刷新会话历史');
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'conversation.close-drawer',
+          combo: 'esc',
+          description: '关闭历史抽屉',
+          scope: 'conversation',
+          priority: 95
+        },
+        enabled: historyDrawerOpen,
+        when: (context: ShortcutMatchContext) => context.locationPathname.startsWith('/sessions'),
+        handler: (): boolean => {
+          closeHistoryDrawer();
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'conversation.close-advanced',
+          combo: 'esc',
+          description: '关闭高级参数面板',
+          scope: 'conversation',
+          priority: 80
+        },
+        enabled: advancedOpen,
+        when: (context: ShortcutMatchContext) => context.locationPathname.startsWith('/sessions'),
+        handler: (): boolean => {
+          setAdvancedOpen(false);
+          announce('高级参数面板已关闭');
+          return true;
+        }
+      }
+    ],
+    [
+      announce,
+      advancedOpen,
+      closeHistoryDrawer,
+      historyDrawerOpen,
+      historyLoading,
+      isMobileLayout,
+      moveSessionByOffset,
+      openHistoryDrawer,
+      prompt,
+      recoveringSubmission,
+      sending,
+      sendMessage,
+      sid,
+      syncHistorySnapshot
+    ]
+  );
+
+  useHotkeys(conversationShortcutRegistrations);
 
   const renderHistorySessionList = () => (
     <Space direction="vertical" style={{ width: '100%' }} size={12}>
-      <Button type="primary" icon={<PlusOutlined />} block onClick={handleStartNewChat}>
+      <Button type="primary" icon={<PlusOutlined />} block onClick={handleStartNewChat} aria-label="新建聊天">
         新聊天
       </Button>
       {sessionListLoading ? <Spin /> : null}
@@ -1447,6 +1670,16 @@ export const ConversationPage = () => {
           <List.Item
             className={`conversation-plan-item ${sid === item.sessionId ? 'active' : ''}`}
             onClick={() => handleSelectSession(item.sessionId)}
+            tabIndex={0}
+            role="button"
+            aria-label={`切换会话 ${item.title || item.sessionId}`}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' && event.key !== ' ') {
+                return;
+              }
+              event.preventDefault();
+              handleSelectSession(item.sessionId);
+            }}
           >
             <List.Item.Meta
               title={item.title || `Session #${item.sessionId}`}
@@ -1479,6 +1712,20 @@ export const ConversationPage = () => {
     }
   }, [isMobileLayout]);
 
+  useEffect(() => {
+    if (streamState === 'connected') {
+      announce('实时流已连接');
+      return;
+    }
+    if (streamState === 'retrying') {
+      announce('实时流重连中');
+      return;
+    }
+    if (streamState === 'polling') {
+      announce('已切换为历史同步模式');
+    }
+  }, [announce, streamState]);
+
   return (
     <div className="page-container conversation-page">
       <div className="chat-toolbar glass-card">
@@ -1491,7 +1738,12 @@ export const ConversationPage = () => {
         <Space size={12} align="center">
           <Typography.Text type="secondary">当前账号：{userId || '未登录'}</Typography.Text>
           {isMobileLayout ? (
-            <Button icon={<MenuOutlined />} onClick={() => setHistoryDrawerOpen(true)}>
+            <Button
+              ref={historyTriggerButtonRef}
+              icon={<MenuOutlined />}
+              onClick={openHistoryDrawer}
+              aria-label="打开历史会话抽屉"
+            >
               历史
             </Button>
           ) : null}
@@ -1521,7 +1773,8 @@ export const ConversationPage = () => {
         placement="left"
         width={320}
         open={isMobileLayout && historyDrawerOpen}
-        onClose={() => setHistoryDrawerOpen(false)}
+        onClose={closeHistoryDrawer}
+        afterOpenChange={handleHistoryDrawerOpenChange}
       >
         {renderHistorySessionList()}
       </Drawer>
@@ -1587,10 +1840,12 @@ export const ConversationPage = () => {
           <div className="chat-composer">
             <Space direction="vertical" style={{ width: '100%' }} size={8}>
               <TextArea
+                ref={promptInputRef}
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 rows={3}
                 placeholder="输入你的任务目标，按 Enter 发送，Shift+Enter 换行"
+                aria-label="消息输入框"
                 onPressEnter={(event) => {
                   if (event.shiftKey) {
                     return;

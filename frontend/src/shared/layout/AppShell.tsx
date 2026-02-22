@@ -1,5 +1,6 @@
 import {
   BellOutlined,
+  KeyOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   PlusOutlined,
@@ -9,10 +10,15 @@ import {
 import { Avatar, Badge, Breadcrumb, Button, Dropdown, Input, Layout, Menu, Space, Tag, Typography, message } from 'antd';
 import type { BreadcrumbProps } from 'antd';
 import type { MenuItemType } from 'antd/es/menu/interface';
-import { useMemo, useState } from 'react';
+import type { InputRef } from 'antd/es/input';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useSessionStore } from '@/features/session/sessionStore';
+import { useAriaLive } from '@/shared/a11y/AriaLiveProvider';
 import { agentApi } from '@/shared/api/agentApi';
+import { useShortcutContext } from '@/shared/hotkeys/ShortcutProvider';
+import { useHotkeys } from '@/shared/hotkeys/useHotkeys';
+import type { ShortcutRegistration } from '@/shared/types/shortcut';
 
 const { Header, Sider, Content } = Layout;
 const { Text, Title } = Typography;
@@ -122,7 +128,10 @@ export const AppShell = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { userId, displayName, clearAuth } = useSessionStore();
+  const { announce } = useAriaLive();
+  const { isHelpOpen, closeHelp, openHelp } = useShortcutContext();
   const [collapsed, setCollapsed] = useState(false);
+  const searchInputRef = useRef<InputRef>(null);
 
   const selectedKey = useMemo(() => matchPathKey(location.pathname), [location.pathname]);
   const breadcrumbItems = useMemo(() => buildBreadcrumbItems(location.pathname), [location.pathname]);
@@ -131,6 +140,81 @@ export const AppShell = () => {
     const candidates = ['/workflows', '/assets', '/observability', '/governance', '/settings'];
     return candidates.filter((key) => selectedKey.startsWith(key));
   }, [selectedKey]);
+
+  const focusPrimaryInput = useCallback(() => {
+    searchInputRef.current?.focus({ cursor: 'all' });
+    announce('已聚焦全局搜索');
+  }, [announce]);
+
+  const goToNewChat = useCallback(() => {
+    navigate('/sessions');
+    announce('已打开新聊天');
+  }, [announce, navigate]);
+
+  const globalShortcutRegistrations = useMemo<ShortcutRegistration[]>(
+    () => [
+      {
+        definition: {
+          id: 'global.focus-primary',
+          combo: 'mod+k',
+          description: '聚焦主输入',
+          scope: 'global',
+          priority: 10,
+          allowInInput: true
+        },
+        handler: (): boolean => {
+          focusPrimaryInput();
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'global.new-chat',
+          combo: 'mod+shift+n',
+          description: '新建聊天',
+          scope: 'global',
+          priority: 10,
+          allowInInput: true
+        },
+        handler: (): boolean => {
+          goToNewChat();
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'global.help',
+          combo: '?',
+          description: '打开快捷键帮助',
+          scope: 'global',
+          priority: 15
+        },
+        handler: (): boolean => {
+          openHelp();
+          announce('快捷键帮助已打开');
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'global.close-help',
+          combo: 'esc',
+          description: '关闭快捷键帮助',
+          scope: 'global',
+          priority: 90
+        },
+        enabled: isHelpOpen,
+        handler: (): boolean => {
+          closeHelp();
+          announce('快捷键帮助已关闭');
+          return true;
+        }
+      }
+    ],
+    [announce, closeHelp, focusPrimaryInput, goToNewChat, isHelpOpen, openHelp]
+  );
+
+  useHotkeys(globalShortcutRegistrations);
 
   return (
     <Layout className="app-shell">
@@ -159,17 +243,33 @@ export const AppShell = () => {
               type="text"
               icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               onClick={() => setCollapsed((prev) => !prev)}
+              aria-label={collapsed ? '展开侧边导航' : '折叠侧边导航'}
             />
-            <Input prefix={<SearchOutlined />} placeholder="全局搜索（⌘K）" allowClear className="app-shell-search" />
+            <Input
+              ref={searchInputRef}
+              prefix={<SearchOutlined />}
+              placeholder="全局搜索（Ctrl/Cmd + K）"
+              allowClear
+              className="app-shell-search"
+              aria-label="全局搜索输入框"
+            />
           </div>
 
           <div className="app-shell-header-right">
-            <Button icon={<PlusOutlined />} type="primary" onClick={() => navigate('/sessions')}>
+            <Button
+              icon={<PlusOutlined />}
+              type="primary"
+              onClick={() => navigate('/sessions')}
+              aria-label="新建聊天"
+            >
               新聊天
             </Button>
             <Badge count={2} size="small">
-              <Button type="text" icon={<BellOutlined />} />
+              <Button type="text" icon={<BellOutlined />} aria-label="通知中心" />
             </Badge>
+            <Button type="text" icon={<KeyOutlined />} onClick={openHelp} aria-label="打开快捷键帮助">
+              快捷键
+            </Button>
 
             <Dropdown
               menu={{

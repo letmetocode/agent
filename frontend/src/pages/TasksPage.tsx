@@ -1,10 +1,14 @@
 import { SearchOutlined } from '@ant-design/icons';
 import { Button, Card, Input, Segmented, Select, Space, Table, Tag, Typography, message } from 'antd';
+import type { InputRef } from 'antd/es/input';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAriaLive } from '@/shared/a11y/AriaLiveProvider';
 import { agentApi } from '@/shared/api/agentApi';
+import { useHotkeys } from '@/shared/hotkeys/useHotkeys';
 import type { TaskDetailDTO } from '@/shared/types/api';
+import type { ShortcutMatchContext, ShortcutRegistration } from '@/shared/types/shortcut';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { StateView } from '@/shared/ui/StateView';
 import { StatusTag } from '@/shared/ui/StatusTag';
@@ -46,6 +50,7 @@ const normalizeTaskRow = (task: TaskDetailDTO): TaskRow => ({
 
 export const TasksPage = () => {
   const navigate = useNavigate();
+  const { announce } = useAriaLive();
   const [keyword, setKeyword] = useState('');
   const [status, setStatus] = useState('ALL');
   const [viewMode, setViewMode] = useState<'列表视图' | '看板视图'>('列表视图');
@@ -55,8 +60,9 @@ export const TasksPage = () => {
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(10);
   const [total, setTotal] = useState(0);
+  const keywordInputRef = useRef<InputRef>(null);
 
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     setLoading(true);
     setError(undefined);
     try {
@@ -75,12 +81,75 @@ export const TasksPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [keyword, page, size, status]);
 
   useEffect(() => {
     void fetchTasks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, size]);
+  }, [fetchTasks]);
+
+  const runQuery = useCallback(() => {
+    setPage((current) => {
+      if (current === 1) {
+        void fetchTasks();
+      }
+      return 1;
+    });
+    announce('已执行任务查询');
+  }, [announce, fetchTasks]);
+
+  const tasksShortcutRegistrations = useMemo<ShortcutRegistration[]>(
+    () => [
+      {
+        definition: {
+          id: 'tasks.focus-filter',
+          combo: 'f',
+          description: '聚焦任务关键词筛选输入',
+          scope: 'tasks',
+          priority: 40
+        },
+        when: (context: ShortcutMatchContext) => context.locationPathname === '/tasks',
+        handler: (): boolean => {
+          keywordInputRef.current?.focus({ cursor: 'all' });
+          announce('已聚焦任务筛选输入');
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'tasks.run-query',
+          combo: 'mod+enter',
+          description: '执行任务查询',
+          scope: 'tasks',
+          priority: 40,
+          allowInInput: true
+        },
+        when: (context: ShortcutMatchContext) => context.locationPathname === '/tasks',
+        handler: (): boolean => {
+          runQuery();
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'tasks.toggle-view-mode',
+          combo: 'mod+shift+v',
+          description: '切换列表/看板视图',
+          scope: 'tasks',
+          priority: 30,
+          allowInInput: true
+        },
+        when: (context: ShortcutMatchContext) => context.locationPathname === '/tasks',
+        handler: (): boolean => {
+          setViewMode((previous) => (previous === '列表视图' ? '看板视图' : '列表视图'));
+          announce('已切换任务视图');
+          return true;
+        }
+      }
+    ],
+    [announce, runQuery]
+  );
+
+  useHotkeys(tasksShortcutRegistrations);
 
   const boardStats = useMemo(
     () => ({
@@ -159,12 +228,14 @@ export const TasksPage = () => {
         <Space wrap style={{ width: '100%', justifyContent: 'space-between' }}>
           <Space wrap>
             <Input
+              ref={keywordInputRef}
               allowClear
               placeholder="搜索任务目标 / Agent / 负责人"
               prefix={<SearchOutlined />}
               style={{ width: 320 }}
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
+              aria-label="任务关键词筛选"
             />
 
             <Select
@@ -172,20 +243,24 @@ export const TasksPage = () => {
               value={status}
               onChange={setStatus}
               options={statusOptions.map((item) => ({ label: item === 'ALL' ? '全部状态' : item, value: item }))}
+              aria-label="任务状态筛选"
             />
 
             <Button
               type="primary"
-              onClick={() => {
-                setPage(1);
-                void fetchTasks();
-              }}
+              onClick={runQuery}
+              aria-label="执行任务查询"
             >
               查询
             </Button>
           </Space>
 
-          <Segmented value={viewMode} onChange={(value) => setViewMode(value as '列表视图' | '看板视图')} options={['列表视图', '看板视图']} />
+          <Segmented
+            value={viewMode}
+            onChange={(value) => setViewMode(value as '列表视图' | '看板视图')}
+            options={['列表视图', '看板视图']}
+            aria-label="任务视图模式"
+          />
         </Space>
 
         <div style={{ marginTop: 16 }}>

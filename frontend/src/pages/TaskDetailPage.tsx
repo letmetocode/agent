@@ -23,7 +23,9 @@ import {
 } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAriaLive } from '@/shared/a11y/AriaLiveProvider';
 import { agentApi } from '@/shared/api/agentApi';
+import { useHotkeys } from '@/shared/hotkeys/useHotkeys';
 import type {
   PlanTaskEventDTO,
   QualityEvaluationItemDTO,
@@ -31,6 +33,7 @@ import type {
   TaskDetailDTO,
   TaskShareLinkItemDTO
 } from '@/shared/types/api';
+import type { ShortcutMatchContext, ShortcutRegistration } from '@/shared/types/shortcut';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { StateView } from '@/shared/ui/StateView';
 import { StatusTag } from '@/shared/ui/StatusTag';
@@ -203,6 +206,7 @@ export const TaskDetailPage = () => {
   const navigate = useNavigate();
   const { taskId } = useParams();
   const normalizedTaskId = Number(taskId);
+  const { announce } = useAriaLive();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
@@ -284,6 +288,45 @@ export const TaskDetailPage = () => {
   useEffect(() => {
     void loadTaskDetail();
   }, [loadTaskDetail]);
+
+  const taskDetailShortcutRegistrations = useMemo<ShortcutRegistration[]>(
+    () => [
+      {
+        definition: {
+          id: 'task-detail.refresh',
+          combo: 'r',
+          description: '刷新任务详情',
+          scope: 'tasks',
+          priority: 35
+        },
+        enabled: !loading,
+        when: (context: ShortcutMatchContext) => /^\/tasks\/\d+/.test(context.locationPathname),
+        handler: (): boolean => {
+          void loadTaskDetail();
+          announce('正在刷新任务详情');
+          return true;
+        }
+      },
+      {
+        definition: {
+          id: 'task-detail.back-to-list',
+          combo: 'b',
+          description: '返回任务列表',
+          scope: 'tasks',
+          priority: 25
+        },
+        when: (context: ShortcutMatchContext) => /^\/tasks\/\d+/.test(context.locationPathname),
+        handler: (): boolean => {
+          navigate('/tasks');
+          announce('已返回任务列表');
+          return true;
+        }
+      }
+    ],
+    [announce, loadTaskDetail, loading, navigate]
+  );
+
+  useHotkeys(taskDetailShortcutRegistrations);
 
   const currentStep = useMemo(() => toStepIndex(task?.status), [task?.status]);
 

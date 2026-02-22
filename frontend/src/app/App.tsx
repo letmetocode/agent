@@ -4,6 +4,9 @@ import { useEffect } from 'react';
 import zhCN from 'antd/locale/zh_CN';
 import { useSessionStore } from '@/features/session/sessionStore';
 import { agentApi } from '@/shared/api/agentApi';
+import { AriaLiveProvider } from '@/shared/a11y/AriaLiveProvider';
+import { ShortcutHelpModal } from '@/shared/components/ShortcutHelpModal';
+import { ShortcutProvider } from '@/shared/hotkeys/ShortcutProvider';
 import { router } from './router';
 
 export const App = () => {
@@ -73,7 +76,12 @@ export const App = () => {
         }
       }}
     >
-      <RouterProvider router={router} />
+      <AriaLiveProvider>
+        <ShortcutProvider>
+          <RouterProvider router={router} />
+          <ShortcutHelpModal />
+        </ShortcutProvider>
+      </AriaLiveProvider>
     </ConfigProvider>
   );
 };
