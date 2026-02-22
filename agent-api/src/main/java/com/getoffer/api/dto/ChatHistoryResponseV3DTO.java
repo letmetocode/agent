@@ -16,6 +16,10 @@ public class ChatHistoryResponseV3DTO {
     private String agentKey;
     private String scenario;
     private Long latestPlanId;
+    private Boolean hasMore;
+    private Long nextCursor;
+    private Integer limit;
+    private String order;
     private List<SessionTurnDTO> turns;
     private List<SessionMessageDTO> messages;
 }

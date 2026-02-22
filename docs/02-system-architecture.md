@@ -231,7 +231,7 @@ sequenceDiagram
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
 - `POST /api/v3/chat/messages`
-- `GET /api/v3/chat/sessions/{id}/history`
+- `GET /api/v3/chat/sessions/{id}/history?cursor=&limit=&order=`
 - `GET /api/v3/chat/sessions/{id}/stream`
 - `GET /api/v3/chat/plans/{id}/routing`
 - `GET /api/observability/alerts/catalog`
@@ -257,7 +257,7 @@ sequenceDiagram
 策略说明：
 
 - 新前端仅走 V3 聚合协议。
-- 只读查询统一收口到分页与聚合接口：`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`、`/api/logs/tool-policy/paged`、`/api/quality/evaluations/paged`、`/api/quality/evaluations/experiments/summary`、`/api/v3/chat/sessions/{id}/history`、`/api/agents/tools?limit={N}`、`/api/agents/vector-stores?limit={N}`。
+- 只读查询统一收口到分页与聚合接口：`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`、`/api/logs/tool-policy/paged`、`/api/quality/evaluations/paged`、`/api/quality/evaluations/experiments/summary`、`/api/v3/chat/sessions/{id}/history?cursor=&limit=&order=`、`/api/agents/tools?limit={N}`、`/api/agents/vector-stores?limit={N}`。
 - 上述只读查询默认要求数据库侧完成分页/计数/聚合，避免 `findAll + 内存过滤` 带来的 OOM 与慢查询风险（尤其是 `/api/dashboard/overview`、`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`、`/api/logs/tool-policy/paged`、`/api/quality/evaluations/paged`、`/api/quality/evaluations/experiments/summary`、`/api/agents/tools`、`/api/agents/vector-stores`）。
 - 旧版本编排入口不再保留兼容分支。
 

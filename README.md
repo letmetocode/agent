@@ -400,7 +400,8 @@ bash scripts/perf/run_chat_e2e_baseline.sh
   - 请求建议携带 `clientMessageId` 作为幂等键；重复提交会复用已有 Turn。
   - 数据库对 `session_turns(session_id, client_message_id)` 建有唯一索引，并发重复提交冲突会自动回退到“复用已有 Turn”语义。
   - 响应新增 `accepted/submissionState/acceptedAt`，`planId` 可能延后出现在 history 中。
-- `GET /api/v3/chat/sessions/{id}/history`：聚合返回会话历史（session/turns/messages + latestPlanId）。
+- `GET /api/v3/chat/sessions/{id}/history`：聚合返回会话历史分页（session/turns/messages + latestPlanId + `hasMore/nextCursor/limit/order`）。
+  - 支持参数：`cursor`（游标）、`limit`（默认 50，最大 200）、`order`（`asc|desc`，前端默认 `desc` 拉取最新页）。
 - `GET /api/v3/chat/sessions/{id}/stream?planId=...`：聊天语义 SSE（`message.accepted`、`task.progress`、`answer.final`、`stream.completed` 等）。
 - `GET /api/v3/chat/plans/{id}/routing`：查询路由决策详情（V2 路由接口替代）。
 - 默认策略：优先使用 `assistant`（若存在且激活），否则使用首个激活 Agent；无可用 Agent 时返回明确错误。
@@ -413,7 +414,7 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 
 ## 接口基线说明
 
-- 当前仅维护 V3 会话主链路：`/api/v3/chat/messages`、`/api/v3/chat/sessions/{id}/history`、`/api/v3/chat/sessions/{id}/stream`、`/api/v3/chat/plans/{id}/routing`。
+- 当前仅维护 V3 会话主链路：`/api/v3/chat/messages`、`/api/v3/chat/sessions/{id}/history?cursor=&limit=&order=`、`/api/v3/chat/sessions/{id}/stream`、`/api/v3/chat/plans/{id}/routing`。
 - 历史入口代码已删除，不再提供兼容路由。
 - 废弃治理查询：`GET /api/governance/deprecations`（查看废弃项状态、公告窗口与迁移文档）。
 - 只读查询统一为 `/api/v3/chat/sessions/{id}/history`、`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`、`/api/logs/tool-policy/paged`、`/api/quality/evaluations/paged`、`/api/quality/evaluations/experiments/summary`、`/api/agents/tools?limit={N}`、`/api/agents/vector-stores?limit={N}`。

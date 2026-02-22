@@ -64,4 +64,14 @@
         ORDER BY id ASC
     </select>
 
+    <select id="selectByTurnIds" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM session_messages
+        WHERE turn_id IN
+        <foreach collection="turnIds" item="turnId" open="(" separator="," close=")">
+            #{turnId}
+        </foreach>
+        ORDER BY id ASC
+    </select>
+
 </mapper>

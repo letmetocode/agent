@@ -6,6 +6,7 @@ import type {
   AuthMeResponseDTO,
   AgentToolDTO,
   ApiResponse,
+  ChatHistoryQueryParams,
   ChatHistoryResponseV3,
   ChatMessageSubmitRequestV3,
   ChatMessageSubmitResponseV3,
@@ -71,8 +72,12 @@ export const agentApi = {
       })
     ),
 
-  getChatHistoryV3: async (sessionId: number) =>
-    unwrapWithCodeCheck(await http.get<ApiResponse<ChatHistoryResponseV3>>(`/api/v3/chat/sessions/${sessionId}/history`)),
+  getChatHistoryV3: async (sessionId: number, params?: ChatHistoryQueryParams) =>
+    unwrapWithCodeCheck(
+      await http.get<ApiResponse<ChatHistoryResponseV3>>(`/api/v3/chat/sessions/${sessionId}/history`, {
+        params
+      })
+    ),
 
   getPlanRouting: async (planId: number) =>
     unwrapWithCodeCheck(await http.get<ApiResponse<RoutingDecisionDTO | null>>(`/api/v3/chat/plans/${planId}/routing`)),

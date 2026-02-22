@@ -8,6 +8,7 @@ import com.getoffer.infrastructure.util.JsonCodec;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -75,6 +76,27 @@ public class SessionMessageRepositoryImpl implements ISessionMessageRepository {
     @Override
     public List<SessionMessageEntity> findBySessionId(Long sessionId) {
         List<SessionMessagePO> list = sessionMessageDao.selectBySessionId(sessionId);
+        if (list == null || list.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return list.stream().map(this::toEntity).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<SessionMessageEntity> findByTurnIds(List<Long> turnIds) {
+        if (turnIds == null || turnIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Long> normalized = new ArrayList<>();
+        for (Long turnId : turnIds) {
+            if (turnId != null) {
+                normalized.add(turnId);
+            }
+        }
+        if (normalized.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<SessionMessagePO> list = sessionMessageDao.selectByTurnIds(normalized);
         if (list == null || list.isEmpty()) {
             return Collections.emptyList();
         }

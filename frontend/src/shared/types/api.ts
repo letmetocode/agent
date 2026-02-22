@@ -104,8 +104,18 @@ export interface ChatHistoryResponseV3 {
   agentKey?: string;
   scenario?: string;
   latestPlanId?: number;
+  hasMore?: boolean;
+  nextCursor?: number;
+  limit?: number;
+  order?: 'asc' | 'desc' | string;
   turns: SessionTurnDTO[];
   messages: SessionMessageDTO[];
+}
+
+export interface ChatHistoryQueryParams {
+  cursor?: number;
+  limit?: number;
+  order?: 'asc' | 'desc';
 }
 
 export interface SessionDetailDTO {

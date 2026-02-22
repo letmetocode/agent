@@ -6,7 +6,14 @@ import { useSessionStore } from '@/features/session/sessionStore';
 import { openChatSseV3 } from '@/features/sse/sseClient';
 import { agentApi } from '@/shared/api/agentApi';
 import { CHAT_HTTP_TIMEOUT_MS } from '@/shared/api/http';
-import type { ChatHistoryResponseV3, ChatStreamEventV3, RoutingDecisionDTO, SessionDetailDTO } from '@/shared/types/api';
+import type {
+  ChatHistoryResponseV3,
+  ChatStreamEventV3,
+  RoutingDecisionDTO,
+  SessionDetailDTO,
+  SessionMessageDTO,
+  SessionTurnDTO
+} from '@/shared/types/api';
 
 const { TextArea } = Input;
 
@@ -64,6 +71,7 @@ const SEND_RECOVERY_INTERVAL_MS = 1200;
 const SEND_RECOVERY_TIMEOUT_MS = 45000;
 const SEND_RECOVERY_HISTORY_LOOKBACK_MS = 10 * 60 * 1000;
 const ACTIVE_HISTORY_SYNC_INTERVAL_MS = 2500;
+const HISTORY_PAGE_SIZE = 50;
 
 const safeTime = (value?: string) => {
   if (!value) {
@@ -214,6 +222,54 @@ const hasSubmittedMessageInHistory = (
   }) || false;
 };
 
+const normalizeHistory = (data: ChatHistoryResponseV3): ChatHistoryResponseV3 => ({
+  ...data,
+  turns: [...(data.turns || [])].sort((a, b) => (a.turnId || 0) - (b.turnId || 0)),
+  messages: [...(data.messages || [])].sort((a, b) => (a.messageId || 0) - (b.messageId || 0))
+});
+
+const mergeHistory = (
+  previous: ChatHistoryResponseV3 | null,
+  incoming: ChatHistoryResponseV3
+): ChatHistoryResponseV3 => {
+  const normalizedIncoming = normalizeHistory(incoming);
+  if (!previous || previous.sessionId !== normalizedIncoming.sessionId) {
+    return normalizedIncoming;
+  }
+
+  const turnMap = new Map<number, SessionTurnDTO>();
+  for (const item of previous.turns || []) {
+    if (typeof item.turnId === 'number') {
+      turnMap.set(item.turnId, item);
+    }
+  }
+  for (const item of normalizedIncoming.turns || []) {
+    if (typeof item.turnId === 'number') {
+      turnMap.set(item.turnId, item);
+    }
+  }
+
+  const messageMap = new Map<number, SessionMessageDTO>();
+  for (const item of previous.messages || []) {
+    if (typeof item.messageId === 'number') {
+      messageMap.set(item.messageId, item);
+    }
+  }
+  for (const item of normalizedIncoming.messages || []) {
+    if (typeof item.messageId === 'number') {
+      messageMap.set(item.messageId, item);
+    }
+  }
+
+  return {
+    ...previous,
+    ...normalizedIncoming,
+    latestPlanId: normalizedIncoming.latestPlanId ?? previous.latestPlanId,
+    turns: Array.from(turnMap.values()).sort((a, b) => (a.turnId || 0) - (b.turnId || 0)),
+    messages: Array.from(messageMap.values()).sort((a, b) => (a.messageId || 0) - (b.messageId || 0))
+  };
+};
+
 export const ConversationPage = () => {
   const navigate = useNavigate();
   const { sessionId } = useParams();
@@ -231,6 +287,9 @@ export const ConversationPage = () => {
 
   const [sessions, setSessions] = useState<SessionDetailDTO[]>([]);
   const [history, setHistory] = useState<ChatHistoryResponseV3 | null>(null);
+  const [historyCursor, setHistoryCursor] = useState<number | undefined>();
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessageItem[]>([]);
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
@@ -592,9 +651,22 @@ export const ConversationPage = () => {
   const syncHistorySnapshot = useCallback(
     async (targetSessionId: number, options?: { silent?: boolean }): Promise<HistorySyncResult | null> => {
       try {
-        const data = await agentApi.getChatHistoryV3(targetSessionId);
-        setHistory(data);
-        const state = resolveHistoryState(data);
+        const data = await agentApi.getChatHistoryV3(targetSessionId, {
+          limit: HISTORY_PAGE_SIZE,
+          order: 'desc'
+        });
+        let nextHistory: ChatHistoryResponseV3 | null = null;
+        let isNewSessionSnapshot = false;
+        setHistory((previous) => {
+          isNewSessionSnapshot = !previous || previous.sessionId !== targetSessionId;
+          nextHistory = mergeHistory(previous, data);
+          return nextHistory;
+        });
+        if (isNewSessionSnapshot) {
+          setHistoryHasMore(Boolean(data.hasMore));
+          setHistoryCursor(data.nextCursor);
+        }
+        const state = resolveHistoryState(nextHistory || normalizeHistory(data));
         setActivePlanId(state.nextPlanId);
         return state;
       } catch (err) {
@@ -858,30 +930,36 @@ export const ConversationPage = () => {
 
         for (const candidateSessionId of candidateSessionIds) {
           try {
-            const historyData = await agentApi.getChatHistoryV3(candidateSessionId);
+            const historyData = await agentApi.getChatHistoryV3(candidateSessionId, {
+              limit: HISTORY_PAGE_SIZE,
+              order: 'desc'
+            });
             if (!hasSubmittedMessageInHistory(historyData, normalized, startedAt, options?.clientMessageId)) {
               continue;
             }
 
-            setHistory(historyData);
-            const state = resolveHistoryState(historyData);
+            const normalizedHistoryData = normalizeHistory(historyData);
+            setHistory(normalizedHistoryData);
+            setHistoryHasMore(Boolean(historyData.hasMore));
+            setHistoryCursor(historyData.nextCursor);
+            const state = resolveHistoryState(normalizedHistoryData);
             setActivePlanId(state.nextPlanId);
 
             addBookmark({
-              sessionId: historyData.sessionId,
-              title: historyData.title || normalized,
+              sessionId: normalizedHistoryData.sessionId,
+              title: normalizedHistoryData.title || normalized,
               createdAt: new Date().toISOString()
             });
 
-            if (!sid || sid !== historyData.sessionId) {
+            if (!sid || sid !== normalizedHistoryData.sessionId) {
               const query = state.nextPlanId ? `?planId=${state.nextPlanId}` : '';
-              navigate(`/sessions/${historyData.sessionId}${query}`, { replace: true });
+              navigate(`/sessions/${normalizedHistoryData.sessionId}${query}`, { replace: true });
             } else if (state.nextPlanId) {
               setSearchParams({ planId: String(state.nextPlanId) }, { replace: true });
             }
 
             if (state.nextPlanId && state.hasExecutingTurn) {
-              connectStream(historyData.sessionId, state.nextPlanId, { force: true, resetRetry: true });
+              connectStream(normalizedHistoryData.sessionId, state.nextPlanId, { force: true, resetRetry: true });
             }
 
             void loadSessions();
@@ -902,14 +980,49 @@ export const ConversationPage = () => {
   const loadHistory = useCallback(
     async (targetSessionId: number) => {
       setHistoryLoading(true);
+      setHistoryLoadingMore(false);
       try {
-        return await syncHistorySnapshot(targetSessionId);
+        const data = await agentApi.getChatHistoryV3(targetSessionId, {
+          limit: HISTORY_PAGE_SIZE,
+          order: 'desc'
+        });
+        const normalized = normalizeHistory(data);
+        setHistory(normalized);
+        setHistoryHasMore(Boolean(data.hasMore));
+        setHistoryCursor(data.nextCursor);
+        const state = resolveHistoryState(normalized);
+        setActivePlanId(state.nextPlanId);
+        return state;
+      } catch (err) {
+        message.error(`加载会话历史失败: ${toChatMessageError(err)}`);
+        return null;
       } finally {
         setHistoryLoading(false);
       }
     },
-    [syncHistorySnapshot]
+    [resolveHistoryState]
   );
+
+  const loadMoreHistory = useCallback(async () => {
+    if (!sid || historyLoadingMore || !historyHasMore || !historyCursor) {
+      return;
+    }
+    setHistoryLoadingMore(true);
+    try {
+      const data = await agentApi.getChatHistoryV3(sid, {
+        cursor: historyCursor,
+        limit: HISTORY_PAGE_SIZE,
+        order: 'desc'
+      });
+      setHistory((previous) => mergeHistory(previous, data));
+      setHistoryHasMore(Boolean(data.hasMore));
+      setHistoryCursor(data.nextCursor);
+    } catch (err) {
+      message.warning(`加载更多历史失败: ${toChatMessageError(err)}`);
+    } finally {
+      setHistoryLoadingMore(false);
+    }
+  }, [historyCursor, historyHasMore, historyLoadingMore, sid]);
 
   const loadRoutingDecision = useCallback(
     async (planId?: number, options?: { silent?: boolean }) => {
@@ -954,6 +1067,9 @@ export const ConversationPage = () => {
   useEffect(() => {
     autoScrollEnabledRef.current = true;
     setOptimisticMessages((previous) => previous.filter((item) => (sid ? item.sessionId === sid : !item.sessionId)));
+    setHistoryHasMore(false);
+    setHistoryCursor(undefined);
+    setHistoryLoadingMore(false);
   }, [sid]);
 
   useEffect(() => {
@@ -1015,6 +1131,9 @@ export const ConversationPage = () => {
       abortPendingSendRequest();
       setRecoveringSubmission(false);
       setHistory(null);
+      setHistoryHasMore(false);
+      setHistoryCursor(undefined);
+      setHistoryLoadingMore(false);
       setActivePlanId(undefined);
       setRoutingDecision(null);
       setRoutingError(undefined);
@@ -1440,6 +1559,13 @@ export const ConversationPage = () => {
           )}
 
           <div ref={chatScrollableRef} className="chat-scrollable chat-main-scrollable" onScroll={handleChatScroll}>
+            {!historyLoading && sid && historyHasMore ? (
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+                <Button size="small" loading={historyLoadingMore} onClick={() => void loadMoreHistory()}>
+                  加载更多历史
+                </Button>
+              </div>
+            ) : null}
             {historyLoading ? (
               <div className="chat-empty-state">
                 <Spin />

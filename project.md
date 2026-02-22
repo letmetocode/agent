@@ -136,7 +136,7 @@ P0（立即）：
 - 为 SSE/执行超时建立 SLO 看板与告警阈值统一基线。
 
 P1（近期）：
-- 将会话历史查询补充分页能力，防止长会话性能退化。
+- 为会话历史游标分页补齐容量压测与慢查询基线（1k/10k 消息会话）。
 - 完善分享链接审计与访问频控。
 - 引入路由命中效果评估（命中率、fallback 率、首事件时延关联）。
 
@@ -219,22 +219,22 @@ P2（中期）：
 1) 功能名称：会话历史与路由查询。  
 2) 功能目标（一句话）：为前端恢复上下文与解释路由来源提供读模型。  
 3) 用户/触发入口：`GET /api/v3/chat/sessions/{id}/history`、`GET /api/v3/chat/plans/{id}/routing`。  
-4) 业务范围与边界：返回完整会话历史与计划路由；不提供超长历史分页。  
+4) 业务范围与边界：返回会话历史分页（支持游标拉取）与计划路由；超长会话由前端“加载更多历史”增量拉取。  
 5) 输入/输出契约：  
-输入：`sessionId` 或 `planId`。  
-输出：`ChatHistoryResponseV3DTO` 与 `RoutingDecisionDTO`；失败返回 `0002`。  
-6) 核心流程：校验实体存在 -> 读取 turns/messages/plans 或 routeDecision -> DTO 组装。  
+输入：`sessionId` 或 `planId`；历史查询支持 `cursor/limit/order`。  
+输出：`ChatHistoryResponseV3DTO`（含 `hasMore/nextCursor/limit/order`）与 `RoutingDecisionDTO`；失败返回 `0002`。  
+6) 核心流程：校验实体存在 -> 按 turn 游标分页查询 -> 批量聚合消息 -> latestPlan 解析 / 路由查询 -> DTO 组装。  
 7) 模块与依赖：  
 内部：`ChatHistoryQueryService`、`ChatRoutingQueryService`。  
 外部：`session_turns/session_messages/agent_plans/routing_decisions`。  
-8) 数据与状态设计：按 `createdAt + id` 排序保证历史时间线稳定；latestPlan 按 `updatedAt` 选取。  
+8) 数据与状态设计：历史以 turn-id 游标分页，消息按 turnIds 批量聚合并在前端归并去重；latestPlan 按 `updatedAt` 选取。  
 9) 技术方案与选型理由：聚合查询接口减少前端拼装复杂度；备选拆分多接口未选，因请求数和时序复杂度更高。  
-10) 非功能性设计：读路径无写事务；依赖库排序和基础过滤。  
-11) 风险清单与应对：长会话数据量大 -> 增加分页；路由记录缺失 -> 前端允许空 `routingDecision`。  
+10) 非功能性设计：读路径无写事务；分页参数限幅（默认 50，上限 200），避免单次大包。  
+11) 风险清单与应对：长会话容量未知 -> 增加分页压测与索引巡检；路由记录缺失 -> 前端允许空 `routingDecision`。  
 12) 可观测与排障指南：通过 `traceId` 关联入口日志，再看 `routing_decisions` 行是否存在。  
 13) 测试与验收：`ChatRoutingV3ControllerTest`、`ChatV3ControllerTest`。  
 14) 配置与部署：无强配置；受全局鉴权与日志配置影响。  
-15) 改进建议：P1 历史分页 + 增量拉取；P2 路由解释字段标准化（可读原因分类）。
+15) 改进建议：P1 会话历史分页容量基线（1k/10k 消息）；P2 路由解释字段标准化（可读原因分类）。
 
 ### F04 功能卡片：SSE 流式与回放
 
@@ -480,25 +480,10 @@ P2（中期）：
 
 ---
 
-## D. 假设与信息缺口
+## D. 假设
 
 ### D1. 基于现有材料的【假设】
 
 - 【假设】当前生产部署仍以单机或小规模多实例为主，未引入独立消息队列。
 - 【假设】对象存储不在主链路（仓库未见对象存储适配层）。
 - 【假设】当前权限模型仍是“单账号治理 + 会话级 userId”，尚未启用组织级隔离。
-
-### D2. 仍缺少的材料清单（按优先级）
-
-| 优先级 | 缺失材料 | 影响 | 建议查找位置 |
-| --- | --- | --- | --- |
-| P0 | 线上真实 SLO 与容量数据（QPS、P95、错误率） | 无法验证 NFR 是否达标 | 生产 Prometheus/Grafana；`/actuator/metrics` |
-| P0 | 发布与回滚实操流程（含灰度比例策略） | 变更风险评估不完整 | `.github/workflows/ci.yml`、运维 runbook、发布平台记录 |
-| P0 | 安全基线与密钥轮转制度 | 鉴权风险无法闭环 | 安全文档仓库、KMS/Secrets 管理平台 |
-| P1 | 数据保留与归档策略（events/logs/evaluations） | 长期存储成本与查询性能不可控 | DB 运维文档、归档脚本、`docs/dev-ops/*` |
-| P1 | 质量评估 rubric 与实验治理规范 | 质量提升不可量化比较 | 产品评估文档、A/B 实验说明 |
-| P1 | 业务异常分级与值班响应 SLA | 风险地图缺少组织保障 | `docs/dev-ops/observability/*runbook.md` |
-| P2 | 前端埋点字典与用户行为漏斗 | 难做端到端体验优化评估 | `frontend` 埋点代码、数据分析平台 |
-| P2 | 成本观测（模型 token 成本、工具调用成本） | 优化决策缺少成本维度 | LLM 账单系统、成本看板 |
-| P2 | 多租户/权限演进路线图 | 后续生态化边界不清 | PRD 后续版本、架构设计评审记录 |
-| P2 | 重大故障复盘样例库 | 排障知识复用不足 | 事故复盘文档库、值班周报 |

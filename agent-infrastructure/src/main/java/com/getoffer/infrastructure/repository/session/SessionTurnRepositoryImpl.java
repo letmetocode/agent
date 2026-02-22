@@ -94,6 +94,21 @@ public class SessionTurnRepositoryImpl implements ISessionTurnRepository {
     }
 
     @Override
+    public List<SessionTurnEntity> findBySessionIdWithCursor(Long sessionId,
+                                                             Long cursor,
+                                                             int limit,
+                                                             boolean ascending) {
+        if (sessionId == null || limit <= 0) {
+            return Collections.emptyList();
+        }
+        List<SessionTurnPO> list = sessionTurnDao.selectBySessionIdWithCursor(sessionId, cursor, limit, ascending);
+        if (list == null || list.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return list.stream().map(this::toEntity).collect(Collectors.toList());
+    }
+
+    @Override
     public SessionTurnEntity findLatestBySessionIdAndStatus(Long sessionId, TurnStatusEnum status) {
         SessionTurnPO po = sessionTurnDao.selectLatestBySessionIdAndStatus(sessionId, status);
         return po == null ? null : toEntity(po);

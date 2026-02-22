@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -54,8 +55,11 @@ public class ChatV3Controller {
     }
 
     @GetMapping("/sessions/{id}/history")
-    public Response<ChatHistoryResponseV3DTO> getHistory(@PathVariable("id") Long sessionId) {
-        return success(chatHistoryQueryService.getHistory(sessionId));
+    public Response<ChatHistoryResponseV3DTO> getHistory(@PathVariable("id") Long sessionId,
+                                                         @RequestParam(value = "cursor", required = false) Long cursor,
+                                                         @RequestParam(value = "limit", required = false) Integer limit,
+                                                         @RequestParam(value = "order", required = false) String order) {
+        return success(chatHistoryQueryService.getHistory(sessionId, cursor, limit, order));
     }
 
     private <T> Response<T> success(T data) {

@@ -2,6 +2,7 @@ package com.getoffer.domain.session.adapter.repository;
 
 import com.getoffer.domain.session.model.entity.SessionMessageEntity;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -18,4 +19,8 @@ public interface ISessionMessageRepository {
     List<SessionMessageEntity> findByTurnId(Long turnId);
 
     List<SessionMessageEntity> findBySessionId(Long sessionId);
+
+    default List<SessionMessageEntity> findByTurnIds(List<Long> turnIds) {
+        return Collections.emptyList();
+    }
 }

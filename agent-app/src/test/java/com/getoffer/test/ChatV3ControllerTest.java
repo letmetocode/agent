@@ -73,6 +73,10 @@ public class ChatV3ControllerTest {
         history.setUserId("dev-user");
         history.setTitle("会话标题");
         history.setLatestPlanId(32L);
+        history.setHasMore(true);
+        history.setNextCursor(88L);
+        history.setLimit(20);
+        history.setOrder("desc");
 
         SessionTurnDTO turn = new SessionTurnDTO();
         turn.setTurnId(22L);
@@ -86,14 +90,40 @@ public class ChatV3ControllerTest {
         message.setRole("USER");
         history.setMessages(List.of(message));
 
-        when(chatHistoryQueryService.getHistory(12L)).thenReturn(history);
+        when(chatHistoryQueryService.getHistory(12L, null, null, null)).thenReturn(history);
 
         mockMvc.perform(get("/api/v3/chat/sessions/{id}/history", 12L))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("0000"))
                 .andExpect(jsonPath("$.data.sessionId").value(12L))
                 .andExpect(jsonPath("$.data.latestPlanId").value(32L))
+                .andExpect(jsonPath("$.data.hasMore").value(true))
+                .andExpect(jsonPath("$.data.nextCursor").value(88L))
+                .andExpect(jsonPath("$.data.limit").value(20))
+                .andExpect(jsonPath("$.data.order").value("desc"))
                 .andExpect(jsonPath("$.data.turns[0].turnId").value(22L))
                 .andExpect(jsonPath("$.data.messages[0].messageId").value(41L));
+    }
+
+    @Test
+    public void shouldPassPagingParamsWhenGetHistory() throws Exception {
+        ChatHistoryResponseV3DTO history = new ChatHistoryResponseV3DTO();
+        history.setSessionId(12L);
+        history.setUserId("dev-user");
+        history.setTurns(List.of());
+        history.setMessages(List.of());
+        history.setHasMore(false);
+        history.setOrder("asc");
+        history.setLimit(50);
+
+        when(chatHistoryQueryService.getHistory(12L, 100L, 30, "desc")).thenReturn(history);
+
+        mockMvc.perform(get("/api/v3/chat/sessions/{id}/history", 12L)
+                        .param("cursor", "100")
+                        .param("limit", "30")
+                        .param("order", "desc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("0000"))
+                .andExpect(jsonPath("$.data.sessionId").value(12L));
     }
 }

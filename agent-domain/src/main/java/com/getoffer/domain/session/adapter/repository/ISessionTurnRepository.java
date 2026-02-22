@@ -32,6 +32,13 @@ public interface ISessionTurnRepository {
 
     List<SessionTurnEntity> findBySessionId(Long sessionId);
 
+    default List<SessionTurnEntity> findBySessionIdWithCursor(Long sessionId,
+                                                              Long cursor,
+                                                              int limit,
+                                                              boolean ascending) {
+        return Collections.emptyList();
+    }
+
     SessionTurnEntity findLatestBySessionIdAndStatus(Long sessionId, TurnStatusEnum status);
 
     default List<SessionTurnEntity> findPlanningTurnsOlderThan(LocalDateTime cutoff, int limit) {

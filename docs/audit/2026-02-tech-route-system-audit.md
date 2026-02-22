@@ -15,8 +15,8 @@
 | 4. 任务调度执行状态机与事件流 | `@Scheduled`（调度/执行/聚合）+ `GET /api/v3/chat/sessions/{id}/stream` | `agent-trigger/src/main/java/com/getoffer/trigger/job/TaskSchedulerDaemon.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/job/TaskExecutor.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/job/TaskExecutionRunner.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/job/PlanStatusDaemon.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/http/ChatStreamV3Controller.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/event/PlanTaskEventPublisher.java` | `agent_tasks` `task_executions` `agent_plans` `plan_task_events` | Micrometer、PostgreSQL LISTEN/NOTIFY、SSE |
 | 5. LLM/工具调用与 Agent 选路 | 任务执行阶段 `resolveTaskClient` 与 Root 草案生成 | `agent-trigger/src/main/java/com/getoffer/trigger/job/TaskExecutionClientResolver.java`<br>`agent-domain/src/main/java/com/getoffer/domain/task/service/TaskAgentSelectionDomainService.java`<br>`agent-infrastructure/src/main/java/com/getoffer/infrastructure/ai/AgentFactoryImpl.java`<br>`agent-infrastructure/src/main/java/com/getoffer/infrastructure/mcp/McpClientManager.java` | `agent_registry` `agent_tool_catalog` `agent_tools` `vector_store_registry` | Spring AI、MCP 协议客户端、ToolCallback |
 | 6. 质量提升闭环（校验/批评/回滚/黑板/终态） | `TaskExecutionRunner` 的 validation/critic 分支 + 终态收敛 | `agent-domain/src/main/java/com/getoffer/domain/task/service/TaskEvaluationDomainService.java`<br>`agent-domain/src/main/java/com/getoffer/domain/task/service/TaskRecoveryDomainService.java`<br>`agent-domain/src/main/java/com/getoffer/domain/task/service/TaskBlackboardDomainService.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/application/command/TaskPersistenceApplicationService.java`<br>`agent-domain/src/main/java/com/getoffer/domain/planning/service/PlanFinalizationDomainService.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/application/command/TurnFinalizeApplicationService.java` | `task_executions` `agent_tasks` `agent_plans.global_context` `session_turns` `session_messages` | JSON 解析、乐观锁重试、计划终态事件 |
-| 7. 数据与存储 | 应用启动、仓储读写、本地编排脚本 | `docs/dev-ops/postgresql/sql/01_init_database.sql`<br>`agent-app/src/test/resources/sql/integration-schema.sql`<br>`agent-infrastructure/src/main/java/com/getoffer/infrastructure/repository/**`<br>`README.md`（Redis 现状） | 会话、规划、执行、事件、Agent 配置与工具关联全表族 | PostgreSQL（主）、Redis（预留未上主链路） |
-| 8. 权限、多租户与分享访问 | `/api/**` 鉴权、`/api/auth/*`、`/api/share/tasks/*` | `agent-app/src/main/java/com/getoffer/config/ApiAuthFilter.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/http/AuthController.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/application/command/AuthSessionCommandService.java`<br>`agent-domain/src/main/java/com/getoffer/domain/session/service/SessionConversationDomainService.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/http/ShareAccessController.java` | `agent_sessions.user_id` `task_share_links` `workflow_* .tenant_id` | 本地账号密码、内存 token 会话、SHA-256 令牌哈希 |
+| 7. 数据与存储 | 应用启动、仓储读写、本地编排脚本 | `docs/dev-ops/postgresql/sql/01_init_database.sql`<br>`docs/dev-ops/postgresql/sql/migrations/*`<br>`agent-infrastructure/src/main/java/com/getoffer/infrastructure/repository/**`<br>`README.md`（Redis 现状） | 会话、规划、执行、事件、Agent 配置与工具关联全表族 | PostgreSQL（主）、Redis（预留未上主链路） |
+| 8. 权限、多租户与分享访问 | `/api/**` 鉴权、`/api/auth/*`、`/api/share/tasks/*` | `agent-app/src/main/java/com/getoffer/config/ApiAuthFilter.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/http/AuthController.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/application/command/AuthSessionCommandService.java`<br>`agent-domain/src/main/java/com/getoffer/domain/session/service/SessionConversationDomainService.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/http/ShareAccessController.java` | `agent_sessions.user_id` `task_share_links` `workflow_* .tenant_id` | 本地账号密码、JWT + `auth_session_blacklist`、SHA-256 令牌哈希 |
 | 9. 可运维与治理 | 指标上报、告警目录 API、巡检定时任务、运维脚本 | `agent-trigger/src/main/java/com/getoffer/trigger/job/TaskExecutionRuntimeSupport.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/http/ObservabilityAlertCatalogController.java`<br>`agent-trigger/src/main/java/com/getoffer/trigger/job/ObservabilityAlertCatalogProbeJob.java`<br>`docs/dev-ops/observability/**`<br>`scripts/devops/observability-gate.sh`<br>`agent-app/src/main/resources/application*.yml` | `plan_task_events`（审计/回放）、告警目录 JSON | Micrometer、Prometheus 规则、HTTP 入口日志、Profile 配置 |
 
 ## B. 三维评估（逐路线）
@@ -39,9 +39,9 @@
 - 决策：保留主链路；补强可靠性，不改变交互协议。
 
 #### 3) Redundancy & Stale（本路线）
-- 问题：幂等判定只有应用层查询，无数据库强约束。
-- 证据：`agent-trigger/src/main/java/com/getoffer/trigger/application/command/ChatConversationCommandService.java`、`agent-app/src/main/resources/mybatis/mapper/SessionTurnMapper.xml:83-84`。
-- 处理：新增幂等唯一索引或幂等键表；冲突走“已受理”回包。
+- 问题：异步规划可靠性已补偿，但仍未引入 Outbox 持久化投递。
+- 证据：已落地 `(session_id, client_message_id)` 唯一索引与 `PlanningTurnRecoveryJob` 补偿扫描；仍由本地线程池异步派发规划。
+- 处理：保留当前补偿机制，下一阶段补 `turn_planning_outbox` 与 Worker。
 - 优先级：P1。
 
 ### B2. 路由与编排引擎（Definition 命中 + Root Draft 兜底）
@@ -65,17 +65,17 @@
 - 决策：保留并强化，不建议下线。
 
 #### 3) Redundancy & Stale（本路线）
-- 问题：编排内核过大、规则散落（后续维护高风险）。
-- 证据：`agent-infrastructure/src/main/java/com/getoffer/infrastructure/planning/PlannerServiceImpl.java`（约 2070 行）。
-- 处理：拆分为 `RoutingPolicyService`、`DraftLifecycleService`、`GraphNormalizationService`、`InputBindingService`。
-- 优先级：P1。
+- 问题：核心编排拆分已完成，但需防止职责回流到单类。
+- 证据：`PlannerServiceImpl` 已收敛为约 400 行，路由/草案生命周期/输入绑定已独立服务化。
+- 处理：建立类体量与职责边界门禁（PR 规则 + ArchUnit）。
+- 优先级：P2。
 
 ### B3. 模板治理（SOP Spec -> Runtime Graph -> 发布版本）
 
 #### 1) Mainstream Check
 - 当前实现：治理层以 `sopSpec` 为源，`SopSpecCompileService` 编译 Runtime Graph，发布前校验 `compileHash` 一致性，并写入 Definition 版本。
 - 与主流差异：
-  - 治理流程主要集中在 Controller（`WorkflowGovernanceController`）内完成，应用服务/领域服务边界偏薄。
+  - 治理主流程已下沉到应用服务，但部分接口仍保留 Map 形态字段，契约强度偏弱。
   - `Map<String, Object>` 为主的数据结构，缺少显式 Schema DTO 与迁移器。
 - 风险：接口变更容易牵连编译/发布规则；字段漂移、数据兼容与错误定位成本上升。
 - 结论：技术方向正确（治理源与运行时分离符合主流），实现形态应收敛到“强契约 + 分层编排”。
@@ -90,10 +90,10 @@
 - 决策：保留并强化治理一致性。
 
 #### 3) Redundancy & Stale（本路线）
-- 问题：治理逻辑在单 Controller 聚集，抽象层次不稳定。
-- 证据：`agent-trigger/src/main/java/com/getoffer/trigger/http/WorkflowGovernanceController.java`（约 567 行，含编译/校验/发布/数据映射）。
-- 处理：拆为 `DraftCommandService`、`SopCompileFacade`、`DefinitionPublishService`，Controller 只保留请求/响应。
-- 优先级：P1。
+- 问题：治理分层已收敛，但契约类型化仍有提升空间。
+- 证据：`WorkflowGovernanceController` 已瘦身到协议层，核心逻辑位于 `WorkflowGovernanceApplicationService`；仍存在部分弱类型 Map 字段。
+- 处理：逐步推进 DTO/Schema 强约束，减少弱类型透传。
+- 优先级：P2。
 
 ### B4. 任务调度执行状态机与事件流
 
@@ -177,12 +177,12 @@
 #### 1) Mainstream Check
 - 当前实现：PostgreSQL 承担主链路持久化，Schema 覆盖会话/规划/执行/事件/Agent 配置；并有乐观锁与关键唯一索引。
 - 与主流差异：
-  - 读侧部分接口仍走“全量拉取 + 内存过滤/分页”。
-  - 测试 schema 与初始化 schema 双份维护，存在漂移风险。
-- 风险：数据增长后查询成本陡增；测试环境与生产语义偏移。
-- 结论：存储主路线正确，应跟随主流补齐“读侧分页下推 + schema 单一事实源”。
+  - 大部分读接口已完成分页/聚合下推；会话历史分页为新近落地能力，仍需容量基线验证。
+  - 测试 schema 与初始化 schema存在双来源维护风险。
+- 风险：容量增长后热点查询仍需持续压测验证；测试环境与生产语义可能偏移。
+- 结论：存储主路线正确，重点转向“容量基线 + schema 单一事实源”。
 - 建议改法：
-  - 将 `QueryController`/`ConsoleQueryController` 的 `findAll` 路径改为 DAO 分页与聚合 SQL。
+  - 持续压测会话历史分页与查询热点，固化索引与容量门槛。
   - 用迁移脚本/DDL 生成 test schema，取消人工双维护。
 
 #### 2) Product Fit
@@ -191,12 +191,12 @@
 - 决策：保留 PostgreSQL 主轴，简化无效预留项。
 
 #### 3) Redundancy & Stale（本路线）
-- 问题 1：全量查询路径易放大负载。
-- 证据：`agent-trigger/src/main/java/com/getoffer/trigger/http/QueryController.java:178-180,188`，`agent-trigger/src/main/java/com/getoffer/trigger/http/ConsoleQueryController.java:130,205`。
-- 处理：下推分页/聚合到数据库，移除 `findAll` 大列表路径。
+- 问题 1：会话历史分页刚完成，需补容量验证基线。
+- 证据：`/api/v3/chat/sessions/{id}/history` 已支持 `cursor/limit/order`，前端已接入“加载更多历史”。
+- 处理：补充 1k/10k 消息会话压测与慢查询基线。
 - 优先级：P1。
 - 问题 2：Schema 双份定义。
-- 证据：`docs/dev-ops/postgresql/sql/01_init_database.sql` 与 `agent-app/src/test/resources/sql/integration-schema.sql` 均定义全量表。
+- 证据：初始化 SQL 与测试 SQL 仍存在双来源维护。
 - 处理：统一由迁移源生成测试 schema。
 - 优先级：P1。
 - 问题 3：Redis 基础设施目录为空壳。
@@ -207,16 +207,16 @@
 ### B8. 权限、多租户与分享访问
 
 #### 1) Mainstream Check
-- 当前实现：`ApiAuthFilter` 统一鉴权；`AuthSessionCommandService` 使用本地账号 + 内存 token；会话级 `userId` 归属校验；分享链接支持哈希令牌与撤销。
+- 当前实现：`ApiAuthFilter` 统一鉴权；`AuthSessionCommandService` 已升级为 `JWT + auth_session_blacklist(jti)`，会话级 `userId` 归属校验；分享链接支持哈希令牌与撤销。
 - 与主流差异：
-  - 登录态不持久化（重启丢失），无 JWT/刷新令牌机制。
+  - 已有 JWT 与吊销黑名单，但尚未引入 refresh token 与密钥轮转自动化。
   - 多租户字段存在但未形成完整隔离策略（PRD 本轮明确不做）。
 - 风险：
-  - 对生态化/多实例扩展不友好。
+  - 长周期会话体验依赖 access token 时长配置，刷新机制不足会影响体验。
   - `tenant_id` 长期“有字段、无治理”会造成认知负担。
 - 结论：当前与 PRD 一致（`docs/01-product-requirements.md:33-38`，`docs/02-system-architecture.md:46-47`）；若进入生态阶段需升级。
 - 建议改法：
-  - 下一阶段切换为可持久化会话（DB/Redis/JWT 三选一）。
+  - 在现有 JWT 基线上补充 refresh token 与密钥轮转规范。
   - 对 `tenant_id` 先明确“保留但不启用”的治理声明，并加边界校验。
 
 #### 2) Product Fit
@@ -225,9 +225,9 @@
 - 决策：本阶段保留；生态化前必须升级。
 
 #### 3) Redundancy & Stale（本路线）
-- 问题：token 会话仅内存态。
-- 证据：`agent-trigger/src/main/java/com/getoffer/trigger/application/command/AuthSessionCommandService.java:26`（`ConcurrentHashMap tokenSessions`）。
-- 处理：改为签名 JWT 或持久化 session store；支持吊销与审计。
+- 问题：登录态治理已升级但运营基线未完全制度化。
+- 证据：已落地 `JWT + auth_session_blacklist`（`agent-trigger/src/main/java/com/getoffer/trigger/application/command/AuthSessionCommandService.java`），仍缺 refresh token 与密钥轮转运行规范。
+- 处理：补齐 refresh token、密钥轮转与过期策略 runbook。
 - 优先级：P1。
 - 问题：多租户字段默认化且弱约束。
 - 证据：`PlannerServiceImpl` 使用 `DEFAULT_TENANT`；`WorkflowGovernanceController` 多处 `defaultIfBlank(..., "DEFAULT")`。
@@ -239,10 +239,10 @@
 #### 1) Mainstream Check
 - 当前实现：有较完整 metrics、告警规则、runbook、告警目录巡检与 API，可支持链路排障。
 - 与主流差异：
-  - 配置中心与灰度发布机制尚未建立（代码与配置未检索到 `spring.cloud.config/nacos/apollo/@RefreshScope/canary/feature flag`）。
+  - 已落地核心链路灰度开关 `release-control.chat-planning.enabled/traffic-percent/kill-switch`，但尚未接入动态配置中心热更新能力。
   - 告警目录中存在占位替换机制，仍依赖环境配置完善度。
-- 风险：跨环境配置一致性与变更控制成本高；上线策略偏“全量发布”。
-- 结论：观测能力已达到良好基线，发布治理能力需补齐。
+- 风险：跨环境配置一致性与变更控制成本仍偏高；动态发布参数治理能力不足。
+- 结论：观测能力已达到良好基线，发布治理能力由“全量发布”演进到“静态灰度”，下一步补动态化。
 - 建议改法：
   - 引入配置分层与动态刷新策略（至少“读侧可热更，写侧灰度”）。
   - 建立发布策略开关（灰度比例、回滚阈值、Kill Switch）。
@@ -253,9 +253,9 @@
 - 决策：保留并向“发布治理化”演进。
 
 #### 3) Redundancy & Stale（本路线）
-- 问题：发布治理缺失（灰度/配置中心）。
-- 证据：`application*.yml` 与 `agent-*/src/main/java` 未检索到配置中心/灰度关键实现。
-- 处理：新增 `release-control` 配置域与灰度执行器；先接入一条核心链路。
+- 问题：发布治理“动态能力”缺失（配置中心热更新/多环境统一托管）。
+- 证据：已有 `release-control.chat-planning.*` 配置与消费链路（`agent-app/src/main/resources/application.yml`、`agent-trigger/src/main/java/com/getoffer/trigger/application/command/ChatConversationCommandService.java`），但未接入动态配置中心。
+- 处理：在保留 `release-control` 的前提下，补齐动态配置中心接入与灰度参数变更审计。
 - 优先级：P2。
 
 ## B. 冗余与过期清理清单（强制检查汇总）
@@ -263,17 +263,17 @@
 | 问题点 | 证据（路径/调用链/引用关系） | 影响 | 处理动作 | 优先级 |
 | --- | --- | --- | --- | --- |
 | 质量评估契约过弱（关键词 + 宽松 JSON） | `agent-domain/src/main/java/com/getoffer/domain/task/service/TaskEvaluationDomainService.java:34-72`<br>`agent-trigger/src/main/java/com/getoffer/trigger/job/TaskExecutionFlowSupport.java:88-94` | 无法稳定衡量输出质量，难形成可持续提升 | 引入 schema 化评估、结构化评分、阈值策略；critic 输出强约束 | P0 |
-| 缺失 A/B 实验与反馈闭环主链路 | 代码与 SQL 未检索到 experiment/abtest/bucket/variant 相关实现；`docs/01-product-requirements.md:11` 强调持续优化 | 质量策略无法科学对比，迭代决策主观化 | 增加实验配置/分桶/事件表，接入路由与评估链路 | P0 |
+| A/B 主链路已落地但治理规则待补齐 | 已有 `GET /api/quality/evaluations/experiments/summary`、`qualityExperimentKey/Variant` 写入与聚合 SQL；缺少统一实验治理规范 | 质量策略可对比但实验管理仍可能无序 | 补充实验命名/分流/停用治理规范，纳入发布前检查 | P1 |
 | 图规则存在多处实现，存在漂移风险 | `SopSpecCompileService`、`GraphDslPolicyService`、`PlannerServiceImpl` 同时承担 Graph 规则相关逻辑 | 编译与运行期行为不一致，故障定位复杂 | 合并为统一 `WorkflowGraphPolicyKernel`（编译/校验/归一化单源） | P0 |
-| `PlannerServiceImpl` 过大（单类 2000+ 行） | `agent-infrastructure/src/main/java/com/getoffer/infrastructure/planning/PlannerServiceImpl.java` | 维护风险高，改动回归面过大 | 拆分路由/草案生命周期/输入绑定/图展开子服务 | P1 |
-| `WorkflowGovernanceController` 业务聚集 | `agent-trigger/src/main/java/com/getoffer/trigger/http/WorkflowGovernanceController.java`（567 行） | 分层边界弱，接口与业务耦合 | 抽离治理应用服务与领域服务，Controller 仅保留协议层 | P1 |
-| 读接口存在全量加载 + 内存分页 | `agent-trigger/src/main/java/com/getoffer/trigger/http/QueryController.java:178-180,188`<br>`agent-trigger/src/main/java/com/getoffer/trigger/http/ConsoleQueryController.java:130,205` | 数据量增长后响应劣化，内存压力上升 | DAO 下推分页与聚合 SQL，移除 `findAll` 路径 | P1 |
-| `toolPolicy` 抽象未闭环（治理可配、执行不控） | `toolPolicy` 主要在 Workflow 存储/哈希链路出现；执行链路未见消费 | 配置误导，策略与执行偏离 | 上线执行期工具白名单约束，或标记废弃并删除字段 | P1 |
-| 会话 token 仅内存态 | `agent-trigger/src/main/java/com/getoffer/trigger/application/command/AuthSessionCommandService.java:26` | 重启失效、无法跨实例、审计能力弱 | 迁移到 JWT 或持久化 session store | P1 |
-| DDL 双份维护（生产/测试） | `docs/dev-ops/postgresql/sql/01_init_database.sql` 与 `agent-app/src/test/resources/sql/integration-schema.sql` | schema 漂移与“测通过、线上不通过”风险 | 统一以迁移源生成测试 schema | P1 |
+| `PlannerServiceImpl` 已拆分但需防止反膨胀 | `agent-infrastructure/src/main/java/com/getoffer/infrastructure/planning/PlannerServiceImpl.java` 当前约 400 行，路由/草案生命周期/输入绑定已拆分 | 核心编排类若持续回填职责，未来仍有回归风险 | 增加类体量与职责边界门禁（ArchUnit/代码评审清单） | P2 |
+| 控制台查询控制器仍偏重 | `agent-trigger/src/main/java/com/getoffer/trigger/http/ConsoleQueryController.java`（600+ 行） | 协议层与组装逻辑耦合，后续扩展成本偏高 | 继续下沉分页/映射逻辑到 query application service，控制器仅保留协议层 | P1 |
+| 会话历史分页刚完成，需压测验证容量曲线 | `GET /api/v3/chat/sessions/{id}/history` 已支持 `cursor/limit/order`；前端已接入“加载更多历史” | 功能正确但缺少大会话下的容量基线数据 | 补充 1k/10k 消息会话压测与索引巡检基线 | P1 |
+| `toolPolicy` 已闭环但策略治理仍偏轻 | 执行期已写入 `tool_policy` 审计事件并支持 `/api/logs/tool-policy/paged`，缺少更细粒度策略模板治理 | 可观测已具备，跨团队治理一致性仍不足 | 增加策略模板与变更审核约束 | P2 |
+| 登录态已迁移 JWT，但密钥治理仍需加强 | `AuthSessionCommandService` 已实现 JWT + `auth_session_blacklist`；生产密钥轮转机制未标准化 | 核心登录态稳定，密钥管理不规范会带来安全风险 | 补齐生产密钥轮转与过期策略，纳入发布基线 | P1 |
+| DDL 双份维护（生产/测试） | `docs/dev-ops/postgresql/sql/01_init_database.sql` 与测试侧独立建表脚本/初始化逻辑并存 | schema 漂移与“测通过、线上不通过”风险 | 统一以迁移源生成测试 schema | P1 |
 | 多租户字段长期默认化未启用 | `PlannerServiceImpl` 的 `DEFAULT_TENANT` 与 `WorkflowGovernanceController` 的 `DEFAULT` 回退 | 认知复杂度增加，容易形成“半多租户”错觉 | 明确“预留不启用”治理策略，进入生态阶段再启用 | P2 |
 | Redis 能力为预留且模块空壳 | `README.md:113-115` + `agent-infrastructure/src/main/java/com/getoffer/infrastructure/redis/package-info.java` | 增加系统认知噪音 | 删除空壳或补齐真实缓存实现 | P2 |
-| 缺失配置中心/灰度发布主链路 | 代码与配置未检索到相关实现（`spring.cloud.config/nacos/apollo/@RefreshScope/canary/feature flag`） | 发布治理能力不足，回滚粒度粗 | 引入配置治理与灰度开关体系 | P2 |
+| 动态配置中心未落地（当前为静态灰度开关） | 已有 `release-control.chat-planning.*` 静态配置，但未接入配置中心与热刷新 | 灰度策略可用但变更效率与审计能力受限 | 引入配置中心并接入灰度参数审计 | P2 |
 
 ## C. 收敛建议与路线图
 
@@ -322,7 +322,7 @@
   - `agent-trigger/src/main/java/com/getoffer/trigger/http/ConsoleQueryController.java`
   - `agent-infrastructure/src/main/java/com/getoffer/infrastructure/redis/package-info.java`
   - `docs/dev-ops/postgresql/sql/01_init_database.sql`
-  - `agent-app/src/test/resources/sql/integration-schema.sql`
+  - `docs/dev-ops/postgresql/sql/migrations/*`
 - 具体改动：
   - 读接口移除 `findAll` 路径，改为数据库分页与聚合。
   - 删除或明确废弃空壳 Redis 模块。

@@ -35,6 +35,11 @@ public interface SessionTurnDao {
 
     List<SessionTurnPO> selectBySessionId(@Param("sessionId") Long sessionId);
 
+    List<SessionTurnPO> selectBySessionIdWithCursor(@Param("sessionId") Long sessionId,
+                                                    @Param("cursor") Long cursor,
+                                                    @Param("limit") Integer limit,
+                                                    @Param("ascending") boolean ascending);
+
     SessionTurnPO selectLatestBySessionIdAndStatus(@Param("sessionId") Long sessionId,
                                                    @Param("status") TurnStatusEnum status);
 

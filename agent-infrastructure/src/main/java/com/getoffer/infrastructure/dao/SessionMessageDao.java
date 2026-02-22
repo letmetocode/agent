@@ -23,4 +23,6 @@ public interface SessionMessageDao {
     List<SessionMessagePO> selectByTurnId(@Param("turnId") Long turnId);
 
     List<SessionMessagePO> selectBySessionId(@Param("sessionId") Long sessionId);
+
+    List<SessionMessagePO> selectByTurnIds(@Param("turnIds") List<Long> turnIds);
 }

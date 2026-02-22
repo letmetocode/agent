@@ -101,6 +101,31 @@
         ORDER BY id DESC
     </select>
 
+    <select id="selectBySessionIdWithCursor" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM session_turns
+        WHERE session_id = #{sessionId}
+        <if test="cursor != null">
+            <choose>
+                <when test="ascending">
+                    AND id &gt; #{cursor}
+                </when>
+                <otherwise>
+                    AND id &lt; #{cursor}
+                </otherwise>
+            </choose>
+        </if>
+        <choose>
+            <when test="ascending">
+                ORDER BY id ASC
+            </when>
+            <otherwise>
+                ORDER BY id DESC
+            </otherwise>
+        </choose>
+        LIMIT #{limit}
+    </select>
+
     <select id="selectLatestBySessionIdAndStatus" resultMap="BaseResultMap">
         SELECT <include refid="Base_Column_List"/>
         FROM session_turns
