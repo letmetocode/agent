@@ -1,14 +1,11 @@
-import { SearchOutlined } from '@ant-design/icons';
-import { Button, Card, Col, Input, List, Row, Space, Table, Tag, Typography, message } from 'antd';
+import { Card, Col, Row, Table, Tag, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { agentApi } from '@/shared/api/agentApi';
-import type { KnowledgeBaseDetailDTO, KnowledgeDocumentDTO, RetrievalTestResultDTO } from '@/shared/types/api';
+import type { KnowledgeBaseDetailDTO, KnowledgeDocumentDTO } from '@/shared/types/api';
 import { PageHeader } from '@/shared/ui/PageHeader';
 import { StateView } from '@/shared/ui/StateView';
-
-const { Text } = Typography;
 
 interface DocRow {
   id: number;
@@ -33,9 +30,6 @@ export const KnowledgeDetailPage = () => {
   const [error, setError] = useState<string>();
   const [kb, setKb] = useState<KnowledgeBaseDetailDTO>();
   const [docs, setDocs] = useState<DocRow[]>([]);
-  const [query, setQuery] = useState('');
-  const [testing, setTesting] = useState(false);
-  const [retrievalResults, setRetrievalResults] = useState<RetrievalTestResultDTO[]>([]);
 
   const loadDetail = async () => {
     if (!Number.isFinite(numericKbId) || numericKbId <= 0) {
@@ -64,26 +58,6 @@ export const KnowledgeDetailPage = () => {
     void loadDetail();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [numericKbId]);
-
-  const onTestRetrieval = async () => {
-    if (!query.trim()) {
-      message.warning('请输入检索问题');
-      return;
-    }
-    if (!numericKbId || numericKbId <= 0) {
-      return;
-    }
-    setTesting(true);
-    setRetrievalResults([]);
-    try {
-      const result = await agentApi.testKnowledgeRetrieval(numericKbId, query.trim());
-      setRetrievalResults(result.results || []);
-    } catch (err) {
-      message.error(`检索测试失败: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setTesting(false);
-    }
-  };
 
   const columns: ColumnsType<DocRow> = [
     { title: '文档', dataIndex: 'name', key: 'name' },
@@ -123,45 +97,9 @@ export const KnowledgeDetailPage = () => {
       />
 
       <Row gutter={[16, 16]} className="page-section">
-        <Col xs={24} xl={14}>
+        <Col xs={24}>
           <Card className="app-card" title="文档与索引">
             <Table rowKey="id" columns={columns} dataSource={docs} pagination={false} locale={{ emptyText: '暂无文档记录' }} />
-          </Card>
-        </Col>
-
-        <Col xs={24} xl={10}>
-          <Card className="app-card" title="检索测试">
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Text type="secondary">当前环境需接入真实召回链路后才可返回检索结果。</Text>
-              <Input
-                prefix={<SearchOutlined />}
-                placeholder="输入问题测试召回效果，例如：失败任务如何回滚？"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                onPressEnter={() => void onTestRetrieval()}
-              />
-              <Button type="primary" loading={testing} onClick={() => void onTestRetrieval()}>
-                执行检索
-              </Button>
-              <List
-                dataSource={retrievalResults}
-                locale={{ emptyText: '暂无检索结果' }}
-                renderItem={(item) => (
-                  <List.Item>
-                    <List.Item.Meta
-                      title={item.title}
-                      description={
-                        <Space direction="vertical" size={2}>
-                          <Text type="secondary">{item.snippet}</Text>
-                          <Text type="secondary">相关性：{Math.round((item.score || 0) * 100)}%</Text>
-                          {item.source ? <Text type="secondary">来源：{item.source}</Text> : null}
-                        </Space>
-                      }
-                    />
-                  </List.Item>
-                )}
-              />
-            </Space>
           </Card>
         </Col>
       </Row>

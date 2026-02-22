@@ -536,17 +536,3 @@ export interface KnowledgeDocumentDTO {
   status?: string;
   updatedAt?: string;
 }
-
-export interface RetrievalTestResultDTO {
-  title: string;
-  snippet: string;
-  score: number;
-  source?: string;
-}
-
-export interface RetrievalTestResponseDTO {
-  query: string;
-  total: number;
-  results: RetrievalTestResultDTO[];
-  testedAt?: string;
-}

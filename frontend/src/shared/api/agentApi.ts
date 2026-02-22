@@ -20,7 +20,6 @@ import type {
   PlanTaskEventDTO,
   QualityExperimentSummaryDTO,
   QualityEvaluationItemDTO,
-  RetrievalTestResponseDTO,
   RoutingDecisionDTO,
   SessionDetailDTO,
   SharedTaskReadDTO,
@@ -194,11 +193,6 @@ export const agentApi = {
 
   getKnowledgeBaseDocuments: async (kbId: number) =>
     unwrap(await http.get<ApiResponse<KnowledgeDocumentDTO[]>>(`/api/knowledge-bases/${kbId}/documents`)),
-
-  testKnowledgeRetrieval: async (kbId: number, query: string) =>
-    unwrapWithCodeCheck(
-      await http.post<ApiResponse<RetrievalTestResponseDTO>>(`/api/knowledge-bases/${kbId}/retrieval-tests`, { query })
-    ),
 
   getLogsPaged: async (params?: {
     planId?: number;

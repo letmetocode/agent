@@ -23,8 +23,6 @@ import com.getoffer.types.enums.TaskStatusEnum;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -399,23 +397,6 @@ public class ConsoleQueryController {
         }
 
         return success(items);
-    }
-
-    @PostMapping("/knowledge-bases/{id}/retrieval-tests")
-    public Response<Map<String, Object>> retrievalTest(@PathVariable("id") Long kbId,
-                                                       @RequestBody(required = false) Map<String, Object> payload) {
-        if (kbId == null) {
-            return illegal("知识库ID不能为空");
-        }
-        VectorStoreRegistryEntity entity = vectorStoreRegistryRepository.findById(kbId);
-        if (entity == null) {
-            return illegal("知识库不存在");
-        }
-        String query = payload == null ? "" : String.valueOf(payload.getOrDefault("query", "")).trim();
-        if (query.isEmpty()) {
-            return illegal("检索问题不能为空");
-        }
-        return illegal("检索测试能力尚未接入真实召回链路，请先完成知识库检索引擎配置后再试");
     }
 
     private Map<String, Object> toLogItem(PlanTaskEventEntity event) {

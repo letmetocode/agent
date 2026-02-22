@@ -67,7 +67,7 @@ export const KnowledgePage = () => {
     <div className="page-container">
       <PageHeader
         title="知识库"
-        description="管理文档资产、索引状态与检索质量，保障 Agent 引用可追溯。"
+        description="管理文档资产与索引状态，保障 Agent 引用可追溯。"
         primaryActionText="新建知识库"
         onPrimaryAction={() => {
           if (firstKbId) {
@@ -127,24 +127,6 @@ export const KnowledgePage = () => {
               <p className="ant-upload-text">拖拽或点击上传文档</p>
               <p className="ant-upload-hint">支持 PDF / Markdown / TXT。上传后自动分片和索引。</p>
             </Dragger>
-          </Card>
-        </Col>
-
-        <Col xs={24}>
-          <Card className="app-card" title="检索质量检查（待接入）">
-            <StateView
-              type="empty"
-              title="检索测试能力待接入"
-              description="当前环境尚未接入真实召回链路，进入知识库详情页可查看接入状态提示。"
-              actionText="前往知识库详情"
-              onAction={() => {
-                if (firstKbId) {
-                  navigate(`/assets/knowledge/${firstKbId}`);
-                  return;
-                }
-                message.info('暂无知识库可进入');
-              }}
-            />
           </Card>
         </Col>
       </Row>

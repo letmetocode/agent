@@ -415,7 +415,7 @@ P2（中期）：
 1) 功能名称：控制台分页查询与质量回放。  
 2) 功能目标（一句话）：为治理端提供可分页、可过滤、可回溯的运营视图。  
 3) 用户/触发入口：`/api/sessions/list`、`/api/tasks/paged`、`/api/tasks/{id}`、`/api/plans/{id}/events`、`/api/logs/paged`、`/api/logs/tool-policy/paged`、`/api/quality/evaluations/*`、`/api/dashboard/overview`。  
-4) 业务范围与边界：覆盖会话、任务、日志、工具策略日志、质量事件、仪表盘；知识库 retrieval-test 目前未接入真实召回。  
+4) 业务范围与边界：覆盖会话、任务、日志、工具策略日志、质量事件、仪表盘；知识库 retrieval-test 占位接口已下线。  
 5) 输入/输出契约：  
 输入：分页参数 `page/size` 与多维过滤条件。  
 输出：统一分页结构 `page/size/total/items` 或聚合摘要。  
