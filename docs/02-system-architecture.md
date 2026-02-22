@@ -236,7 +236,6 @@ sequenceDiagram
 - `GET /api/v3/chat/plans/{id}/routing`
 - `GET /api/observability/alerts/catalog`
 - `GET /api/observability/alerts/probe-status?window={N}`
-- `GET /api/governance/deprecations`
 
 鉴权约束：
 - 除白名单外，以上 `/api/**` 均需有效登录态。

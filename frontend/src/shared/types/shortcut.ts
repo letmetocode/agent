@@ -5,7 +5,6 @@ export type ShortcutScope =
   | 'tasks'
   | 'workflows'
   | 'observability'
-  | 'governance'
   | 'settings';
 
 export interface ShortcutDefinition {

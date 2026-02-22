@@ -11,7 +11,6 @@ import type {
   ChatMessageSubmitRequestV3,
   ChatMessageSubmitResponseV3,
   DashboardOverviewDTO,
-  DeprecationRegistryDTO,
   KnowledgeBaseDetailDTO,
   KnowledgeDocumentDTO,
   ObservabilityAlertCatalogItemDTO,
@@ -245,9 +244,6 @@ export const agentApi = {
 
   getObservabilityAlertProbeStatus: async (params?: { window?: number }) =>
     unwrap(await http.get<ApiResponse<ObservabilityAlertProbeStatusDTO>>('/api/observability/alerts/probe-status', { params })),
-
-  getDeprecationRegistry: async (params?: { status?: string; includeRemoved?: boolean }) =>
-    unwrap(await http.get<ApiResponse<DeprecationRegistryDTO>>('/api/governance/deprecations', { params })),
 
   getDashboardOverview: async (params?: { taskLimit?: number; planLimit?: number }) =>
     unwrap(await http.get<ApiResponse<DashboardOverviewDTO>>('/api/dashboard/overview', { params }))

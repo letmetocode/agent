@@ -113,7 +113,7 @@ TaskExecutor/PlanStatusDaemon
 3. 查任务与质量：`/api/tasks/paged`、`/api/quality/evaluations/paged`。
 4. 查巡检/规则：`/api/observability/alerts/probe-status` + `docs/dev-ops/observability/*`。
 
-### A7. 风险地图（Top 10）
+### A7. 风险地图（Top 9）
 
 | 风险 | 发生条件 | 影响 | 检测手段 | 应对 |
 | --- | --- | --- | --- | --- |
@@ -126,7 +126,6 @@ TaskExecutor/PlanStatusDaemon
 | 7. 鉴权配置不安全 | JWT secret 使用默认值 | 令牌风险 | 启动配置检查、安全扫描 | 强制生产密钥与轮转 |
 | 8. 分享链接泄露 | token 出现在 URL/日志 | 结果外泄 | 访问日志异常、分享访问峰值 | 缩短 TTL、加审计、后续改签名票据 |
 | 9. 查询接口压力过高 | 大页/宽过滤/高并发 | DB 抖动 | 慢查询日志、P95 上升 | 限制 page size、加索引、离线聚合 |
-| 10. 废弃治理失真 | 文档和代码不同步 | 客户端迁移失败 | `/api/governance/deprecations` 校验 | 发布前自动对账与门禁 |
 
 ### A8. 迭代优先级建议
 
@@ -164,7 +163,6 @@ P2（中期）：
 | F11 | 分享链接管理与匿名访问 | `/api/tasks/{id}/share-links*` + `/api/share/tasks/{id}` | 使用者/外部查看者 | `task_share_links` `ShareAccessController` | P1 |
 | F12 | 控制台分页查询与质量回放 | `/api/sessions/list` `/api/tasks/paged` `/api/tasks/{id}` `/api/plans/{id}/events` `/api/logs/paged` `/api/logs/tool-policy/paged` `/api/quality/*` | 治理者 | `ConsoleQueryController` `QueryController` | P1 |
 | F13 | 观测告警目录与巡检 | `/api/observability/alerts/catalog|probe-status` + `ObservabilityAlertCatalogProbeJob` | 治理者/值班人员 | `alert-catalog.json` `ObservabilityAlertCatalogLinkProbeService` | P1 |
-| F14 | 废弃接口治理注册表 | `/api/governance/deprecations` | 治理者 | `DeprecationRegistryQueryService` `deprecation-registry.json` | P2 |
 
 ---
 
@@ -455,28 +453,6 @@ P2（中期）：
 13) 测试与验收：`ObservabilityAlertCatalogControllerTest`、`ObservabilityAlertCatalogLinkProbeServiceTest`、`ObservabilityAlertCatalogProbeStateStoreTest`。  
 14) 配置与部署：`observability.alert-catalog.dashboard.*`、`observability.alert-catalog.link-check.*`。  
 15) 改进建议：P1 增加探测结果持久化；P2 增加与告警平台自动对账。
-
-### F14 功能卡片：废弃接口治理注册表
-
-1) 功能名称：废弃接口治理注册表。  
-2) 功能目标（一句话）：统一管理非 V3 接口的公告窗口、迁移文档与下线状态。  
-3) 用户/触发入口：`GET /api/governance/deprecations`。  
-4) 业务范围与边界：支持按状态过滤与是否包含已移除项；不自动扫描代码路由差异。  
-5) 输入/输出契约：  
-输入：`status`、`includeRemoved`。  
-输出：`items/total/statusSummary/policy/generatedAt`。  
-6) 核心流程：加载 `deprecation-registry.json` -> 规范化字段 -> 校验公告窗口与状态合法性 -> 返回聚合结果。  
-7) 模块与依赖：  
-内部：`DeprecationRegistryController`、`DeprecationRegistryQueryService`。  
-外部：`agent-app/src/main/resources/governance/deprecation-registry.json`。  
-8) 数据与状态设计：状态 `ANNOUNCED/MIGRATING/REMOVED`；最小公告窗口 30 天。  
-9) 技术方案与选型理由：配置文件驱动，改动成本低；备选 DB 表化治理未选，因本阶段条目规模小。  
-10) 非功能性设计：启动时缓存，提高查询稳定性。  
-11) 风险清单与应对：注册表与真实代码不一致 -> 发布前对账脚本；迁移文档过期 -> 责任人机制。  
-12) 可观测与排障指南：关注 `valid/issues` 字段，若 invalid 需先修复注册表。  
-13) 测试与验收：`DeprecationRegistryControllerTest`。  
-14) 配置与部署：`governance/deprecation-registry.json`。  
-15) 改进建议：P1 增加路由自动扫描比对；P2 与 CI 发布门禁强绑定。
 
 ---
 

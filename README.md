@@ -416,7 +416,6 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 
 - 当前仅维护 V3 会话主链路：`/api/v3/chat/messages`、`/api/v3/chat/sessions/{id}/history?cursor=&limit=&order=`、`/api/v3/chat/sessions/{id}/stream`、`/api/v3/chat/plans/{id}/routing`。
 - 历史入口代码已删除，不再提供兼容路由。
-- 废弃治理查询：`GET /api/governance/deprecations`（查看废弃项状态、公告窗口与迁移文档）。
 - 只读查询统一为 `/api/v3/chat/sessions/{id}/history`、`/api/sessions/list`、`/api/tasks/paged`、`/api/logs/paged`、`/api/logs/tool-policy/paged`、`/api/quality/evaluations/paged`、`/api/quality/evaluations/experiments/summary`、`/api/agents/tools?limit={N}`、`/api/agents/vector-stores?limit={N}`。
 - 已移除遗留只读接口：`/api/plans/{id}`、`/api/plans/{id}/tasks`、`/api/tasks/{id}/executions`。
 - 查询性能：`/api/tasks/paged`、`/api/dashboard/overview` 已使用批量 latestExecution 查询，避免 N+1。

@@ -59,13 +59,6 @@ const APP_NAV_ITEMS: AppNavItem[] = [
     ]
   },
   {
-    key: '/governance',
-    label: '治理',
-    children: [
-      { key: '/governance/deprecations', label: '废弃治理', path: '/governance/deprecations' }
-    ]
-  },
-  {
     key: '/settings',
     label: '设置',
     children: [
@@ -84,7 +77,6 @@ const pathTitleMap: Record<string, string> = {
   '/assets/knowledge': '知识库',
   '/observability/overview': '监控总览',
   '/observability/logs': '日志检索',
-  '/governance/deprecations': '废弃治理',
   '/settings/profile': '个人设置'
 };
 
@@ -137,7 +129,7 @@ export const AppShell = () => {
   const breadcrumbItems = useMemo(() => buildBreadcrumbItems(location.pathname), [location.pathname]);
 
   const openKeys = useMemo(() => {
-    const candidates = ['/workflows', '/assets', '/observability', '/governance', '/settings'];
+    const candidates = ['/workflows', '/assets', '/observability', '/settings'];
     return candidates.filter((key) => selectedKey.startsWith(key));
   }, [selectedKey]);
 

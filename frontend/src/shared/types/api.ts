@@ -550,31 +550,3 @@ export interface RetrievalTestResponseDTO {
   results: RetrievalTestResultDTO[];
   testedAt?: string;
 }
-
-export interface DeprecationRegistryItemDTO {
-  id?: string;
-  status?: string;
-  legacyPath?: string;
-  replacementPath?: string;
-  announcedAt?: string;
-  sunsetAt?: string;
-  sunsetBaseline?: string;
-  owner?: string;
-  migrationDoc?: string;
-  noticeWindowDays?: number;
-  meetsNoticeWindow?: boolean;
-  daysToSunset?: number;
-  notes?: string;
-  valid?: boolean;
-  issues?: string[];
-}
-
-export interface DeprecationRegistryDTO {
-  items: DeprecationRegistryItemDTO[];
-  total: number;
-  statusSummary?: Record<string, number>;
-  policy?: {
-    minNoticeWindowDays?: number;
-  };
-  generatedAt?: string;
-}
