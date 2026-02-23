@@ -4,10 +4,8 @@
   --font-size-12: 12px;
   --font-size-14: 14px;
   --font-size-16: 16px;
-  --font-size-20: 20px;
   --font-size-24: 24px;
 
-  --line-height-tight: 1.4;
   --line-height-default: 1.6;
 
   --space-1: 4px;
@@ -28,14 +26,9 @@
   --text-primary: #111827;
   --text-secondary: #667085;
 
-  --primary-500: #1677ff;
   --primary-50: #eef4ff;
-  --success-500: #16a34a;
-  --warning-500: #d97706;
-  --error-500: #dc2626;
 
   --shadow-card: 0 2px 8px rgb(15 23 42 / 0.06), 0 10px 20px rgb(15 23 42 / 0.03);
-  --shadow-float: 0 8px 24px rgb(15 23 42 / 0.08);
 }
 
 * {
@@ -181,18 +174,6 @@ body,
 .page-sticky-actions .ant-card-body {
   padding-top: var(--space-3);
   padding-bottom: var(--space-3);
-}
-
-.page-grid-2 {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
-}
-
-.page-grid-3 {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-4);
 }
 
 .page-header {
@@ -464,12 +445,6 @@ body,
   }
 }
 
-@media (max-width: 1279px) {
-  .page-grid-3 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 1023px) {
   .app-shell-header {
     padding: 0 var(--space-4);
@@ -497,8 +472,6 @@ body,
     align-items: flex-start;
   }
 
-  .page-grid-2,
-  .page-grid-3,
   .chat-layout,
   .sop-editor-layout {
     grid-template-columns: 1fr;

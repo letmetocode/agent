@@ -96,38 +96,4 @@ public class AgentRegistryEntity {
         this.updatedAt = LocalDateTime.now();
     }
 
-    /**
-     * 停用 Agent
-     */
-    public void deactivate() {
-        this.isActive = false;
-        this.updatedAt = LocalDateTime.now();
-    }
-
-    /**
-     * 更新模型配置
-     */
-    public void updateModelConfig(String modelProvider, String modelName, Map<String, Object> modelOptions) {
-        this.modelProvider = modelProvider;
-        this.modelName = modelName;
-        this.modelOptions = modelOptions;
-        this.updatedAt = LocalDateTime.now();
-        validate();
-    }
-
-    /**
-     * 更新系统提示词
-     */
-    public void updateSystemPrompt(String systemPrompt) {
-        this.baseSystemPrompt = systemPrompt;
-        this.updatedAt = LocalDateTime.now();
-    }
-
-    /**
-     * 更新 Advisors 配置
-     */
-    public void updateAdvisorConfig(Map<String, Object> advisorConfig) {
-        this.advisorConfig = advisorConfig;
-        this.updatedAt = LocalDateTime.now();
-    }
 }

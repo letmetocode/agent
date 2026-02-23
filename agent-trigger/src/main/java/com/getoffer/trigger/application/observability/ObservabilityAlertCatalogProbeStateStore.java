@@ -62,10 +62,6 @@ public class ObservabilityAlertCatalogProbeStateStore {
         latestState.updateAndGet(ProbeState::disabled);
     }
 
-    public ProbeState snapshot() {
-        return latestState.get();
-    }
-
     public Map<String, Object> toPayload() {
         return toPayload(null);
     }

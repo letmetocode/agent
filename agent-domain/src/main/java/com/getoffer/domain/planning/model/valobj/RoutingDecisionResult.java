@@ -23,13 +23,4 @@ public class RoutingDecisionResult {
     private Long draftId;
     private String draftKey;
 
-    public boolean isDefinitionHit() {
-        return decisionType == RoutingDecisionTypeEnum.HIT_PRODUCTION;
-    }
-
-    public boolean isDraftRoute() {
-        return decisionType == RoutingDecisionTypeEnum.CANDIDATE
-                || decisionType == RoutingDecisionTypeEnum.FALLBACK;
-    }
 }
-

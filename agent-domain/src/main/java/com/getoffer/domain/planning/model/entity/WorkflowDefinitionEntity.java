@@ -62,19 +62,9 @@ public class WorkflowDefinitionEntity {
         }
     }
 
-    public boolean canRoute() {
-        return status == WorkflowDefinitionStatusEnum.ACTIVE && Boolean.TRUE.equals(isActive);
-    }
-
     public void activate() {
         this.status = WorkflowDefinitionStatusEnum.ACTIVE;
         this.isActive = true;
-        this.updatedAt = LocalDateTime.now();
-    }
-
-    public void disable() {
-        this.status = WorkflowDefinitionStatusEnum.DISABLED;
-        this.isActive = false;
         this.updatedAt = LocalDateTime.now();
     }
 

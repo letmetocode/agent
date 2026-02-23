@@ -110,20 +110,6 @@ public class AgentSessionEntity {
         return turn;
     }
 
-    public void renameByFirstMessage(String message, int maxLength) {
-        if (message == null) {
-            return;
-        }
-        String normalized = message.replace('\n', ' ').trim();
-        if (normalized.isEmpty()) {
-            return;
-        }
-        int effectiveMax = Math.max(maxLength, 1);
-        this.title = normalized.length() <= effectiveMax
-                ? normalized
-                : normalized.substring(0, effectiveMax);
-    }
-
     /**
      * 更新元信息
      */
@@ -131,10 +117,4 @@ public class AgentSessionEntity {
         this.metaInfo = metaInfo;
     }
 
-    /**
-     * 检查会话是否活跃
-     */
-    public boolean isSessionActive() {
-        return Boolean.TRUE.equals(this.isActive);
-    }
 }

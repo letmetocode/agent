@@ -1,6 +1,6 @@
 let lastFocusedElement: HTMLElement | null = null;
 
-export const isFocusableElement = (element: unknown): element is HTMLElement => {
+const isFocusableElement = (element: unknown): element is HTMLElement => {
   if (!(element instanceof HTMLElement)) {
     return false;
   }

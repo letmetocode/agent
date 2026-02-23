@@ -24,11 +24,11 @@ interface SessionState {
   addBookmark: (bookmark: SessionBookmark) => void;
 }
 
-export const SESSION_USER_KEY = 'agent:frontend:userId';
-export const SESSION_DISPLAY_NAME_KEY = 'agent:frontend:displayName';
+const SESSION_USER_KEY = 'agent:frontend:userId';
+const SESSION_DISPLAY_NAME_KEY = 'agent:frontend:displayName';
 export const SESSION_TOKEN_KEY = 'agent:frontend:authToken';
-export const SESSION_EXPIRES_AT_KEY = 'agent:frontend:authExpiresAt';
-export const SESSION_LAST_LOGIN_AT_KEY = 'agent:frontend:lastLoginAt';
+const SESSION_EXPIRES_AT_KEY = 'agent:frontend:authExpiresAt';
+const SESSION_LAST_LOGIN_AT_KEY = 'agent:frontend:lastLoginAt';
 const BOOKMARKS_KEY = 'agent:frontend:sessionBookmarks';
 
 const resolveAuthStatus = (token: string, expiresAt?: string): AuthStatus => {

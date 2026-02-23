@@ -80,31 +80,4 @@ public class AgentToolCatalogEntity {
         }
     }
 
-    /**
-     * 更新工具描述
-     */
-    public void updateDescription(String description) {
-        this.description = description;
-    }
-
-    /**
-     * 更新输入模式
-     */
-    public void updateInputSchema(Map<String, Object> inputSchema) {
-        this.inputSchema = inputSchema;
-    }
-
-    /**
-     * 更新输出模式
-     */
-    public void updateOutputSchema(Map<String, Object> outputSchema) {
-        this.outputSchema = outputSchema;
-    }
-
-    /**
-     * 更新工具配置
-     */
-    public void updateToolConfig(Map<String, Object> toolConfig) {
-        this.toolConfig = toolConfig;
-    }
 }

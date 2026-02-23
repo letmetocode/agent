@@ -1,6 +1,5 @@
-import { Button } from 'antd';
+import { Button, Typography } from 'antd';
 import type { ReactNode } from 'react';
-import { Space, Typography } from 'antd';
 
 const { Paragraph, Title } = Typography;
 

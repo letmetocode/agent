@@ -223,53 +223,6 @@ public class AgentTaskEntity {
         this.updatedAt = LocalDateTime.now();
     }
 
-    public void claim(String owner, int leaseSeconds, Integer nextAttempt, boolean reclaimed) {
-        if (owner == null || owner.isBlank()) {
-            throw new IllegalStateException("Claim owner cannot be empty");
-        }
-        if (!isClaimable()) {
-            throw new IllegalStateException("Task cannot be claimed from status: " + this.status);
-        }
-        this.claimOwner = owner;
-        this.claimAt = LocalDateTime.now();
-        this.leaseUntil = this.claimAt.plusSeconds(Math.max(leaseSeconds, 1));
-        this.executionAttempt = nextAttempt == null ? 0 : nextAttempt;
-        this.leaseReclaimed = reclaimed;
-        this.status = TaskStatusEnum.RUNNING;
-        this.updatedAt = LocalDateTime.now();
-    }
-
-    public void renewLease(String owner, Integer attempt, int leaseSeconds) {
-        if (!isClaimOwner(owner, attempt)) {
-            throw new IllegalStateException("Cannot renew lease for stale claim owner/attempt");
-        }
-        LocalDateTime now = LocalDateTime.now();
-        this.leaseUntil = now.plusSeconds(Math.max(leaseSeconds, 1));
-        this.updatedAt = now;
-    }
-
-    public void releaseClaim() {
-        this.claimOwner = null;
-        this.claimAt = null;
-        this.leaseUntil = null;
-        this.updatedAt = LocalDateTime.now();
-    }
-
-    public boolean isClaimOwner(String owner, Integer attempt) {
-        if (owner == null || attempt == null) {
-            return false;
-        }
-        return owner.equals(this.claimOwner) && attempt.equals(this.executionAttempt);
-    }
-
-    public boolean isClaimable() {
-        return this.status == TaskStatusEnum.READY || this.status == TaskStatusEnum.REFINING || isLeaseExpiredRunning();
-    }
-
-    public boolean isLeaseExpiredRunning() {
-        return this.status == TaskStatusEnum.RUNNING && this.leaseUntil != null && this.leaseUntil.isBefore(LocalDateTime.now());
-    }
-
     public boolean hasValidClaim() {
         return this.claimOwner != null && !this.claimOwner.isBlank() && this.executionAttempt != null;
     }
@@ -365,22 +318,6 @@ public class AgentTaskEntity {
     }
 
     /**
-     * 更新输出结果
-     */
-    public void updateOutput(String output) {
-        this.outputResult = output;
-        this.updatedAt = LocalDateTime.now();
-    }
-
-    /**
-     * 更新输入上下文
-     */
-    public void updateInputContext(Map<String, Object> inputContext) {
-        this.inputContext = inputContext;
-        this.updatedAt = LocalDateTime.now();
-    }
-
-    /**
      * 增加版本号 (用于乐观锁)
      */
     public void incrementVersion() {
@@ -410,13 +347,6 @@ public class AgentTaskEntity {
     }
 
     /**
-     * 检查是否可以重试
-     */
-    public boolean canRetry() {
-        return hasRetryBudget();
-    }
-
-    /**
      * 检查是否为 Worker 任务
      */
     public boolean isWorkerTask() {
@@ -430,10 +360,4 @@ public class AgentTaskEntity {
         return this.taskType == TaskTypeEnum.CRITIC;
     }
 
-    /**
-     * 检查是否有依赖
-     */
-    public boolean hasDependencies() {
-        return this.dependencyNodeIds != null && !this.dependencyNodeIds.isEmpty();
-    }
 }

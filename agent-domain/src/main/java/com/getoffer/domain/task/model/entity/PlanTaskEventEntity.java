@@ -28,10 +28,6 @@ public class PlanTaskEventEntity {
         }
     }
 
-    public boolean isPlanFinishedEvent() {
-        return eventType == PlanTaskEventTypeEnum.PLAN_FINISHED;
-    }
-
     public static PlanTaskEventEntity create(Long planId,
                                              Long taskId,
                                              PlanTaskEventTypeEnum eventType,

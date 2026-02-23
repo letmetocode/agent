@@ -23,7 +23,10 @@ public class ObservabilityAlertCatalogControllerTest {
     public void setUp() {
         ObservabilityAlertCatalogController controller = new ObservabilityAlertCatalogController(
                 new ObjectMapper(),
-                new ClassPathResource("observability/alert-catalog.json")
+                new ClassPathResource("observability/alert-catalog.json"),
+                "",
+                "",
+                null
         );
         controller.init();
         this.mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
@@ -71,7 +74,8 @@ public class ObservabilityAlertCatalogControllerTest {
                 new ObjectMapper(),
                 new ByteArrayResource(catalogWithPlaceholder.getBytes(StandardCharsets.UTF_8)),
                 "https://grafana.prod.example.com/d/ops",
-                "https://grafana.staging.example.com/d/ops"
+                "https://grafana.staging.example.com/d/ops",
+                null
         );
         controller.init();
         MockMvc customMvc = MockMvcBuilders.standaloneSetup(controller).build();

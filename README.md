@@ -22,7 +22,7 @@
 - `agent-domain`：领域实体、领域服务、状态机、仓储端口
 - `agent-infrastructure`：DAO/Mapper、仓储实现、Planner/AI/MCP 适配
 - `agent-api`：对外 DTO 与统一响应
-- `agent-types`：通用枚举、异常、常量
+- `agent-types`：通用枚举、异常与共享类型
 
 ### DDD 充血重构基线（2026-02）
 

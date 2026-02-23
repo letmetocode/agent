@@ -13,7 +13,7 @@ const parsePositiveInt = (raw: string | undefined, fallback: number) => {
   return Math.floor(value);
 };
 
-export const DEFAULT_HTTP_TIMEOUT_MS = parsePositiveInt(import.meta.env.VITE_HTTP_TIMEOUT_MS, 15000);
+const DEFAULT_HTTP_TIMEOUT_MS = parsePositiveInt(import.meta.env.VITE_HTTP_TIMEOUT_MS, 15000);
 export const CHAT_HTTP_TIMEOUT_MS = parsePositiveInt(
   import.meta.env.VITE_CHAT_TIMEOUT_MS,
   Math.max(DEFAULT_HTTP_TIMEOUT_MS, 90000)

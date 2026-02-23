@@ -123,20 +123,6 @@ public class TaskExecutionEntity {
     }
 
     /**
-     * 检查是否验证通过
-     */
-    public boolean isValidated() {
-        return Boolean.TRUE.equals(this.isValid);
-    }
-
-    /**
-     * 检查是否有错误
-     */
-    public boolean hasError() {
-        return this.errorMessage != null && !this.errorMessage.trim().isEmpty();
-    }
-
-    /**
      * 获取总 Token 使用量
      */
     public Integer getTotalTokens() {

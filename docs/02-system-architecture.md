@@ -18,7 +18,7 @@
 - `agent-domain`：领域实体、领域服务、状态机、仓储端口、核心语义。
 - `agent-infrastructure`：DAO/Mapper、仓储实现、AI/MCP 适配、Planner 实现。
 - `agent-api`：对外 DTO 与统一响应协议。
-- `agent-types`：枚举、异常、常量。
+- `agent-types`：枚举、异常与共享类型。
 
 ### 2.2 外部边界（C4-L1 文字图）
 

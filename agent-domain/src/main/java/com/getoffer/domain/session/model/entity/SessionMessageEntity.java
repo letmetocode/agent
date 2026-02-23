@@ -35,14 +35,6 @@ public class SessionMessageEntity {
         }
     }
 
-    public boolean isAssistantMessage() {
-        return role == MessageRoleEnum.ASSISTANT;
-    }
-
-    public boolean isUserMessage() {
-        return role == MessageRoleEnum.USER;
-    }
-
     public void updateContent(String content) {
         if (content == null || content.trim().isEmpty()) {
             throw new IllegalStateException("Message content cannot be empty");

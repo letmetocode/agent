@@ -29,6 +29,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -603,7 +604,7 @@ public class AgentFactoryImpl implements IAgentFactory {
         if (rawPolicy == null || rawPolicy.isEmpty()) {
             return ToolPolicy.none();
         }
-        String mode = StringUtils.defaultString(getString(rawPolicy, "mode", "policyMode", "policy_mode"), "allowAll")
+        String mode = Objects.requireNonNullElse(getString(rawPolicy, "mode", "policyMode", "policy_mode"), "allowAll")
                 .trim()
                 .toLowerCase(Locale.ROOT);
         Set<String> allowed = readToolNameSet(rawPolicy,

@@ -12,7 +12,6 @@ interface ShortcutContextValue {
   isHelpOpen: boolean;
   openHelp: () => void;
   closeHelp: () => void;
-  toggleHelp: () => void;
 }
 
 const ShortcutContext = createContext<ShortcutContextValue | null>(null);
@@ -25,7 +24,6 @@ export const ShortcutProvider = ({ children }: PropsWithChildren) => {
 
   const openHelp = useCallback(() => setIsHelpOpen(true), []);
   const closeHelp = useCallback(() => setIsHelpOpen(false), []);
-  const toggleHelp = useCallback(() => setIsHelpOpen((previous) => !previous), []);
 
   const registerShortcut = useCallback((registration: ShortcutRegistration) => {
     const registrationId = registrationSequence++;
@@ -109,10 +107,9 @@ export const ShortcutProvider = ({ children }: PropsWithChildren) => {
       registerShortcut,
       isHelpOpen,
       openHelp,
-      closeHelp,
-      toggleHelp
+      closeHelp
     }),
-    [closeHelp, isHelpOpen, openHelp, registerShortcut, toggleHelp]
+    [closeHelp, isHelpOpen, openHelp, registerShortcut]
   );
 
   return <ShortcutContext.Provider value={value}>{children}</ShortcutContext.Provider>;

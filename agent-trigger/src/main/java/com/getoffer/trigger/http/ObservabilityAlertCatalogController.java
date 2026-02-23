@@ -42,18 +42,6 @@ public class ObservabilityAlertCatalogController {
     private final ObservabilityAlertCatalogProbeStateStore probeStateStore;
     private volatile List<Map<String, Object>> cachedCatalog = Collections.emptyList();
 
-    public ObservabilityAlertCatalogController(ObjectMapper objectMapper,
-                                               @Value("classpath:observability/alert-catalog.json") Resource catalogResource) {
-        this(objectMapper, catalogResource, "", "", null);
-    }
-
-    public ObservabilityAlertCatalogController(ObjectMapper objectMapper,
-                                               @Value("classpath:observability/alert-catalog.json") Resource catalogResource,
-                                               @Value("${observability.alert-catalog.dashboard.prod-base-url:}") String prodDashboardBaseUrl,
-                                               @Value("${observability.alert-catalog.dashboard.staging-base-url:}") String stagingDashboardBaseUrl) {
-        this(objectMapper, catalogResource, prodDashboardBaseUrl, stagingDashboardBaseUrl, null);
-    }
-
     @Autowired
     public ObservabilityAlertCatalogController(ObjectMapper objectMapper,
                                                @Value("classpath:observability/alert-catalog.json") Resource catalogResource,

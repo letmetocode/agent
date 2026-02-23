@@ -60,17 +60,6 @@ public class SessionTurnEntity {
         this.updatedAt = LocalDateTime.now();
     }
 
-    public void markCompleted(String summary, Long messageId, LocalDateTime completedAt) {
-        if (isTerminal() && this.status != TurnStatusEnum.COMPLETED) {
-            throw new IllegalStateException("Terminal turn cannot become COMPLETED");
-        }
-        this.status = TurnStatusEnum.COMPLETED;
-        this.assistantSummary = summary;
-        this.finalResponseMessageId = messageId;
-        this.completedAt = completedAt == null ? LocalDateTime.now() : completedAt;
-        this.updatedAt = LocalDateTime.now();
-    }
-
     public void markFailed(String summary, LocalDateTime completedAt) {
         if (isTerminal() && this.status != TurnStatusEnum.FAILED) {
             throw new IllegalStateException("Terminal turn cannot become FAILED");
