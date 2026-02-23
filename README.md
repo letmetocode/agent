@@ -160,6 +160,40 @@ docker compose --env-file docs/dev-ops/.env -f docs/dev-ops/docker-compose-envir
 
 启动后会自动执行 `docs/dev-ops/postgresql/sql` 下的初始化 SQL。
 
+### 1.6) 云服务器 Docker 部署
+
+新增部署脚本：`scripts/devops/cloud-deploy.sh`，适用于在云服务器直接发布（支持源码构建或镜像拉取）。
+
+首次使用建议：
+
+```bash
+# 1) 准备云环境变量文件（仅首次）
+cp docs/dev-ops/.env.example docs/dev-ops/.env.cloud
+
+# 2) 编辑生产参数（至少替换以下项）
+# POSTGRES_PASSWORD / DB_PASSWORD / APP_SHARE_TOKEN_SALT / OPENAI_API_KEY
+vim docs/dev-ops/.env.cloud
+```
+
+部署命令示例：
+
+```bash
+# 方式A：服务器源码构建并部署
+bash scripts/devops/cloud-deploy.sh
+
+# 方式B：从制品仓拉取镜像部署（推荐线上）
+bash scripts/devops/cloud-deploy.sh --no-build --pull \
+  --app-image registry.cn-hangzhou.aliyuncs.com/system/agent-app:1.0
+```
+
+可选参数：
+
+- `--env-file <path>`：指定环境文件（默认 `docs/dev-ops/.env.cloud`）
+- `--with-ops-ui`：同时启动 pgAdmin / Redis Commander
+- `--wait-seconds <n>`：健康检查超时秒数（默认 `180`）
+
+脚本会在部署失败时自动输出 `agent` 最近日志，便于排障。
+
 ### 2) 配置开发环境
 
 默认使用：
