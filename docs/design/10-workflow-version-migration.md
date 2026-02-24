@@ -20,6 +20,10 @@
 - Root 候选规划软超时：
   - 生产默认 `planner.root.timeout.soft-ms=60000`（可通过 `PLANNER_ROOT_TIMEOUT_SOFT_MS` 调优）
   - 超时视为不可重试并降级单节点候选 Draft，确保入口可用性
+  - Root 基线模型参数补齐 `maxTokens/maxCompletionTokens=768`，抑制候选规划长输出超时
+- 生产 Definition 缺参降级：
+  - 命中生产 Definition 后若 `inputSchema.required` 仍缺失，Planner 自动降级为候选 Draft
+  - 路由原因标记为 `PRODUCTION_DEFINITION_INPUT_MISSING`，避免回合直接失败
 
 关键证据：
 
@@ -27,7 +31,10 @@
 - `agent-domain/src/main/java/com/getoffer/domain/planning/service/WorkflowGraphPolicyKernel.java`
 - `agent-infrastructure/src/main/java/com/getoffer/infrastructure/planning/PlannerServiceImpl.java`
 - `agent-infrastructure/src/main/java/com/getoffer/infrastructure/planning/WorkflowDraftLifecycleService.java`
+- `agent-infrastructure/src/main/java/com/getoffer/infrastructure/planning/WorkflowRoutingResolveService.java`
 - `agent-app/src/main/resources/application-prod.yml`
+- `docs/dev-ops/postgresql/sql/01_init_database.sql`
+- `docs/dev-ops/postgresql/sql/migrations/V20260225_05_root_planner_max_tokens_guard.sql`
 
 ## 3. 兼容矩阵（主链路）
 

@@ -6,6 +6,7 @@ import com.getoffer.domain.agent.model.entity.AgentRegistryEntity;
 import com.getoffer.domain.planning.adapter.gateway.IRootWorkflowDraftPlanner;
 import com.getoffer.domain.planning.adapter.repository.IAgentPlanRepository;
 import com.getoffer.domain.planning.model.entity.AgentPlanEntity;
+import com.getoffer.domain.planning.model.entity.RoutingDecisionEntity;
 import com.getoffer.domain.planning.model.entity.WorkflowDefinitionEntity;
 import com.getoffer.domain.planning.model.entity.WorkflowDraftEntity;
 import com.getoffer.domain.planning.model.valobj.RootWorkflowDraft;
@@ -19,6 +20,7 @@ import com.getoffer.test.support.InMemoryRoutingDecisionRepository;
 import com.getoffer.test.support.InMemoryWorkflowDefinitionRepository;
 import com.getoffer.test.support.InMemoryWorkflowDraftRepository;
 import com.getoffer.types.enums.PlanStatusEnum;
+import com.getoffer.types.enums.RoutingDecisionTypeEnum;
 import com.getoffer.types.enums.TaskStatusEnum;
 import com.getoffer.types.enums.WorkflowDefinitionStatusEnum;
 import com.getoffer.types.enums.WorkflowDraftStatusEnum;
@@ -192,6 +194,54 @@ public class PlannerServiceMilestoneTest {
     }
 
     @Test
+    public void shouldFallbackToCandidateWhenProductionDefinitionMissingRequiredInput() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        JsonCodec jsonCodec = new JsonCodec(objectMapper);
+        InMemoryWorkflowDefinitionRepository workflowDefinitionRepository = new InMemoryWorkflowDefinitionRepository();
+        InMemoryWorkflowDraftRepository workflowDraftRepository = new InMemoryWorkflowDraftRepository();
+        InMemoryRoutingDecisionRepository routingDecisionRepository = new InMemoryRoutingDecisionRepository();
+        InMemoryAgentPlanRepository agentPlanRepository = new InMemoryAgentPlanRepository();
+        InMemoryAgentTaskRepository agentTaskRepository = new InMemoryAgentTaskRepository();
+        InMemoryAgentRegistryRepository agentRegistryRepository = new InMemoryAgentRegistryRepository();
+        agentRegistryRepository.save(agent("assistant", true));
+
+        workflowDefinitionRepository.save(buildDefinitionWithRequiredInput("帮我做上线排查流程", "onlineServiceName"));
+        IRootWorkflowDraftPlanner rootPlanner = (sessionId, userQuery, context) -> buildRootDraft(userQuery);
+
+        PlannerService plannerService = new PlannerServiceImpl(
+                workflowDefinitionRepository,
+                workflowDraftRepository,
+                routingDecisionRepository,
+                agentPlanRepository,
+                agentTaskRepository,
+                jsonCodec,
+                rootPlanner,
+                agentRegistryRepository,
+                true,
+                "root",
+                3,
+                0L,
+                true,
+                "assistant"
+        );
+
+        AgentPlanEntity plan = plannerService.createPlan(3001L, "帮我做上线排查流程");
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(PlanStatusEnum.READY, plan.getStatus());
+        Assertions.assertNull(plan.getWorkflowDefinitionId());
+        Assertions.assertNotNull(plan.getWorkflowDraftId());
+
+        RoutingDecisionEntity routingDecision = routingDecisionRepository.findById(plan.getRouteDecisionId());
+        Assertions.assertNotNull(routingDecision);
+        Assertions.assertEquals(RoutingDecisionTypeEnum.CANDIDATE, routingDecision.getDecisionType());
+        Assertions.assertEquals("PRODUCTION_DEFINITION_INPUT_MISSING", routingDecision.getReason());
+        Assertions.assertEquals("AUTO_MISS_ROOT", routingDecision.getSourceType());
+
+        List<AgentTaskEntity> tasks = agentTaskRepository.findByPlanId(plan.getId());
+        Assertions.assertFalse(tasks.isEmpty());
+    }
+
+    @Test
     public void shouldFallbackSingleNodeAfterRootPlanningRetriedThreeTimes() {
         ObjectMapper objectMapper = new ObjectMapper();
         JsonCodec jsonCodec = new JsonCodec(objectMapper);
@@ -325,6 +375,35 @@ public class PlannerServiceMilestoneTest {
         graph.put("edges", edges);
         draft.setGraphDefinition(graph);
         return draft;
+    }
+
+    private WorkflowDefinitionEntity buildDefinitionWithRequiredInput(String routeDescription, String requiredKey) {
+        WorkflowDefinitionEntity definition = new WorkflowDefinitionEntity();
+        definition.setCategory("ops");
+        definition.setName("ops-required-input");
+        definition.setDefinitionKey("ops-required-input");
+        definition.setTenantId("DEFAULT");
+        definition.setVersion(1);
+        definition.setRouteDescription(routeDescription);
+        definition.setStatus(WorkflowDefinitionStatusEnum.ACTIVE);
+        definition.setIsActive(true);
+
+        Map<String, Object> node = node("ops-worker", "上线排查", "WORKER");
+        Map<String, Object> graph = new HashMap<>();
+        graph.put("version", 2);
+        graph.put("groups", Collections.emptyList());
+        graph.put("nodes", Collections.singletonList(node));
+        graph.put("edges", Collections.emptyList());
+        definition.setGraphDefinition(graph);
+
+        Map<String, Object> inputSchema = new HashMap<>();
+        inputSchema.put("type", "object");
+        inputSchema.put("required", Collections.singletonList(requiredKey));
+        inputSchema.put("properties", Collections.singletonMap(requiredKey, Collections.singletonMap("type", "string")));
+        definition.setInputSchema(inputSchema);
+        definition.setDefaultConfig(Collections.singletonMap("priority", 1));
+        definition.setToolPolicy(Collections.emptyMap());
+        return definition;
     }
 
     private AgentRegistryEntity agent(String key, boolean active) {

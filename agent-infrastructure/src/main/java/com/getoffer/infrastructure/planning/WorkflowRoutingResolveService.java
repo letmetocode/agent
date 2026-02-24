@@ -85,8 +85,17 @@ public class WorkflowRoutingResolveService {
                     deepCopyMap(definition.getToolPolicy())
             );
         }
+        return resolveCandidate(sessionId, userQuery, extraContext);
+    }
 
+    public RoutedWorkflow resolveCandidate(Long sessionId,
+                                           String userQuery,
+                                           Map<String, Object> extraContext) {
         WorkflowDraftEntity draft = workflowDraftLifecycleService.loadOrCreateDraft(sessionId, userQuery, extraContext);
+        return buildCandidateRoutedWorkflow(draft);
+    }
+
+    private RoutedWorkflow buildCandidateRoutedWorkflow(WorkflowDraftEntity draft) {
         RoutingDecisionTypeEnum decisionType = StringUtils.equals(SOURCE_TYPE_AUTO_MISS_FALLBACK, draft.getSourceType())
                 ? RoutingDecisionTypeEnum.FALLBACK
                 : RoutingDecisionTypeEnum.CANDIDATE;

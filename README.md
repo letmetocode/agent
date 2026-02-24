@@ -88,6 +88,8 @@ PostgreSQL 最终版初始化脚本：
 - 回滚脚本：`docs/dev-ops/postgresql/sql/migrations/V20260213_02_executor_terminal_convergence_rollback.sql`
 - `docs/dev-ops/postgresql/sql/migrations/V20260220_04_session_turn_idempotency_and_execution_dedupe.sql`
 - 回滚脚本：`docs/dev-ops/postgresql/sql/migrations/V20260220_04_session_turn_idempotency_and_execution_dedupe_rollback.sql`
+- `docs/dev-ops/postgresql/sql/migrations/V20260225_05_root_planner_max_tokens_guard.sql`
+- 回滚脚本：`docs/dev-ops/postgresql/sql/migrations/V20260225_05_root_planner_max_tokens_guard_rollback.sql`
 
 Workflow Graph 版本迁移模板（v2 -> vNext）：
 
@@ -103,6 +105,7 @@ Workflow Graph 版本迁移模板（v2 -> vNext）：
   - `V20260213_02_executor_terminal_convergence.sql`
   - `V20260213_03_observability_logs_query_optimization.sql`
   - `V20260220_04_session_turn_idempotency_and_execution_dedupe.sql`
+  - `V20260225_05_root_planner_max_tokens_guard.sql`
 - 回滚场景：按逆序执行回滚脚本，并同步回滚应用版本。
 - 可使用脚本自动执行增量迁移：`bash scripts/devops/postgres-migrate.sh --env-file docs/dev-ops/.env`
 
@@ -438,6 +441,7 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 - 候选 Draft（Root 规划产物）允许版本兼容升级：当仅缺失/非 2 但节点结构可执行时，Planner 会自动补齐为 `version=2`（并补齐缺省 `groups/edges`）。
 - 候选 Draft 结构性非法（如边指向不存在节点）会判定为不可重试错误，Root 规划直接快速降级，避免 3 次无效重试。
 - Root 规划增加软超时（`planner.root.timeout.soft-ms`），超时视为不可重试并直接降级单节点 Draft，缩短入口等待。
+- Root 基线 Agent（`root`）默认补齐 `model_options.maxTokens/maxCompletionTokens=768`，抑制长输出导致的规划软超时。
 - Root 降级策略统一由 `PlannerFallbackPolicyDomainService` 承载（重试判定、fallbackReason 归一、指标标签规范化）。
 - 最小结构：`{ version, nodes, edges, groups }`，其中 `nodes` 必填，`groups` 可为空数组。
 - 节点/分组可配置依赖汇聚策略：
@@ -459,6 +463,7 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 - `GET /api/v3/chat/plans/{id}/routing`：查询路由决策详情（V2 路由接口替代）。
 - 默认策略：优先使用 `assistant`（若存在且激活），否则使用首个激活 Agent；无可用 Agent 时返回明确错误。
 - 输入校验策略：当 Workflow `inputSchema.required` 包含系统上下文字段（如 `sessionId`）时，由 Planner 从运行时上下文自动注入，避免误报 `Missing required input`。
+- 生产 Definition 缺参降级：若命中生产 Definition 后仍缺少必填输入，Planner 自动回退至 Root 候选 Draft，路由 `reason=PRODUCTION_DEFINITION_INPUT_MISSING`，避免回合直接失败。
 
 ## 执行幂等与终态收敛补充
 

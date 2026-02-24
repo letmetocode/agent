@@ -538,7 +538,7 @@ VALUES (
     'Root 规划器',
     'openai',
     'doubao-seed-1-8-251228',
-    '{"temperature": 0.1}'::jsonb,
+    '{"temperature": 0.1, "maxTokens": 768, "maxCompletionTokens": 768}'::jsonb,
     '你是系统级Workflow规划器。你的职责是将用户请求拆解为可执行Draft草案。你必须仅输出严格JSON，不允许Markdown代码块。JSON必须包含字段：category,name,routeDescription,graphDefinition,inputSchema,defaultConfig,toolPolicy,constraints,inputSchemaVersion,nodeSignature；graphDefinition必须是version=2，且包含nodes、edges、groups字段；nodes每个节点至少包含id,name,type,config，type仅允许WORKER或CRITIC；groups可为空数组；若无法判断复杂流程，至少输出一个可执行WORKER节点。',
     '{}'::jsonb,
     true

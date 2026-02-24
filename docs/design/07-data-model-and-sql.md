@@ -22,6 +22,8 @@
 - 执行记录幂等：
   - `task_executions` 新增唯一索引 `uq_task_executions_task_attempt (task_id, attempt_number)`。
   - 仓储层在唯一冲突时复用已有执行记录，避免重复审计写入。
+- Root 规划输出上限：
+  - `agent_registry(key='root').model_options` 默认补齐 `maxTokens/maxCompletionTokens=768`，避免长输出导致候选规划持续软超时。
 
 ## 3. 查询与映射基线
 
@@ -37,7 +39,7 @@
 - 全新环境：直接执行 `docs/dev-ops/postgresql/sql/01_init_database.sql`。
 - 存量环境：
   - 按版本顺序执行 `docs/dev-ops/postgresql/sql/migrations/V*.sql`（跳过 `*_rollback.sql`）。
-  - 当前关键迁移：`V20260212_01`、`V20260213_02`、`V20260213_03`、`V20260220_04`。
+  - 当前关键迁移：`V20260212_01`、`V20260213_02`、`V20260213_03`、`V20260220_04`、`V20260225_05`。
   - 可执行脚本：`bash scripts/devops/postgres-migrate.sh --env-file docs/dev-ops/.env`。
   - 回滚时按逆序执行对应 `*_rollback.sql`。
   - 发布前建议执行 `bash scripts/devops/check-schema-drift.sh`。

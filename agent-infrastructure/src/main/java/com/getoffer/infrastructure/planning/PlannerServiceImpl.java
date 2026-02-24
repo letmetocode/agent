@@ -46,6 +46,8 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
 
     private static final int DEFAULT_PRIORITY = 0;
     private static final long DEFAULT_ROOT_SOFT_TIMEOUT_MS = 15_000L;
+    private static final String MISSING_REQUIRED_INPUT_PREFIX = "Missing required input:";
+    private static final String ROUTE_REASON_PRODUCTION_INPUT_MISSING = "PRODUCTION_DEFINITION_INPUT_MISSING";
     private static final AtomicInteger ROOT_PLANNER_THREAD_SEQ = new AtomicInteger(1);
 
     private final IAgentPlanRepository agentPlanRepository;
@@ -242,6 +244,12 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
 
         WorkflowRoutingResolveService.RoutedWorkflow routedWorkflow =
                 workflowRoutingResolveService.resolve(sessionId, userQuery, extraContext);
+        routedWorkflow = fallbackToCandidateWhenProductionInputMissing(
+                sessionId,
+                userQuery,
+                extraContext,
+                routedWorkflow
+        );
         Map<String, Object> executionGraph = workflowDraftLifecycleService.normalizeAndValidateGraphDefinition(
                 deepCopyMap(routedWorkflow.graphDefinition()),
                 routedWorkflow.definition() != null ? "生产Definition" : "候选Draft",
@@ -315,6 +323,92 @@ public class PlannerServiceImpl implements PlannerService, DisposableBean {
 
         savedPlan.ready();
         return agentPlanRepository.update(savedPlan);
+    }
+
+    private WorkflowRoutingResolveService.RoutedWorkflow fallbackToCandidateWhenProductionInputMissing(
+            Long sessionId,
+            String userQuery,
+            Map<String, Object> extraContext,
+            WorkflowRoutingResolveService.RoutedWorkflow routedWorkflow) {
+        if (routedWorkflow == null || routedWorkflow.definition() == null) {
+            return routedWorkflow;
+        }
+
+        Map<String, Object> probeUserInput = workflowInputPreparationService.parseUserInput(userQuery);
+        workflowInputPreparationService.enrichRequiredInputFromQuery(routedWorkflow.inputSchema(), probeUserInput, userQuery);
+        Map<String, Object> probeGlobalContext = buildGlobalContext(sessionId, userQuery, routedWorkflow, probeUserInput);
+        if (extraContext != null && !extraContext.isEmpty()) {
+            probeGlobalContext.putAll(extraContext);
+        }
+        workflowInputPreparationService.enrichRequiredInputFromContext(
+                routedWorkflow.inputSchema(),
+                probeUserInput,
+                probeGlobalContext
+        );
+        try {
+            workflowInputPreparationService.validateInput(routedWorkflow.inputSchema(), probeUserInput);
+            return routedWorkflow;
+        } catch (AppException ex) {
+            if (!isMissingRequiredInput(ex)) {
+                throw ex;
+            }
+            String missingInput = extractMissingRequiredInput(ex);
+            log.warn("Production definition requires missing input. fallback to root candidate. sessionId={}, definitionId={}, definitionKey={}, missingInput={}",
+                    sessionId,
+                    routedWorkflow.definition().getId(),
+                    routedWorkflow.definition().getDefinitionKey(),
+                    missingInput);
+            Map<String, Object> fallbackContext = extraContext == null
+                    ? new HashMap<>()
+                    : new HashMap<>(extraContext);
+            fallbackContext.put("productionFallbackReason", ROUTE_REASON_PRODUCTION_INPUT_MISSING);
+            if (StringUtils.isNotBlank(missingInput)) {
+                fallbackContext.put("productionMissingRequiredInput", missingInput);
+            }
+            fallbackContext.put("productionDefinitionId", routedWorkflow.definition().getId());
+            fallbackContext.put("productionDefinitionKey", routedWorkflow.definition().getDefinitionKey());
+
+            WorkflowRoutingResolveService.RoutedWorkflow candidateRoutedWorkflow =
+                    workflowRoutingResolveService.resolveCandidate(sessionId, userQuery, fallbackContext);
+            return new WorkflowRoutingResolveService.RoutedWorkflow(
+                    candidateRoutedWorkflow.decisionType(),
+                    ROUTE_REASON_PRODUCTION_INPUT_MISSING,
+                    candidateRoutedWorkflow.strategy(),
+                    candidateRoutedWorkflow.score(),
+                    candidateRoutedWorkflow.definition(),
+                    candidateRoutedWorkflow.draft(),
+                    candidateRoutedWorkflow.sourceType(),
+                    candidateRoutedWorkflow.fallbackFlag(),
+                    candidateRoutedWorkflow.fallbackReason(),
+                    candidateRoutedWorkflow.plannerAttempts(),
+                    candidateRoutedWorkflow.graphDefinition(),
+                    candidateRoutedWorkflow.inputSchema(),
+                    candidateRoutedWorkflow.defaultConfig(),
+                    candidateRoutedWorkflow.toolPolicy()
+            );
+        }
+    }
+
+    private boolean isMissingRequiredInput(AppException ex) {
+        if (ex == null) {
+            return false;
+        }
+        if (!StringUtils.equals(ResponseCode.ILLEGAL_PARAMETER.getCode(), ex.getCode())) {
+            return false;
+        }
+        String message = StringUtils.defaultIfBlank(ex.getInfo(), ex.getMessage());
+        return StringUtils.startsWithIgnoreCase(StringUtils.defaultString(message), MISSING_REQUIRED_INPUT_PREFIX);
+    }
+
+    private String extractMissingRequiredInput(AppException ex) {
+        if (ex == null) {
+            return null;
+        }
+        String message = StringUtils.defaultIfBlank(ex.getInfo(), ex.getMessage());
+        if (!StringUtils.startsWithIgnoreCase(StringUtils.defaultString(message), MISSING_REQUIRED_INPUT_PREFIX)) {
+            return null;
+        }
+        return StringUtils.trim(message.substring(MISSING_REQUIRED_INPUT_PREFIX.length()));
     }
 
     private Map<String, Object> deepCopyMap(Map<String, Object> source) {
