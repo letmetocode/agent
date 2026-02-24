@@ -84,6 +84,12 @@ set_env_value() {
   mv "${tmp_file}" "${file}"
 }
 
+read_env_value() {
+  local key="$1"
+  local file="$2"
+  awk -F= -v key="${key}" '$1==key{print substr($0, index($0, "=") + 1)}' "${file}" | tail -n 1
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 DEVOPS_DIR="${ROOT_DIR}/docs/dev-ops"
@@ -115,12 +121,24 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   set_env_value REDIS_PASSWORD "$(random_secret)" "${ENV_FILE}"
   set_env_value REDIS_COMMANDER_PASSWORD "$(random_secret)" "${ENV_FILE}"
   set_env_value APP_SHARE_TOKEN_SALT "$(random_secret)" "${ENV_FILE}"
+  set_env_value APP_AUTH_LOCAL_PASSWORD "$(random_secret)" "${ENV_FILE}"
+  set_env_value APP_AUTH_JWT_SECRET "$(random_secret)" "${ENV_FILE}"
   echo "已自动写入随机初始密钥，请按需手动调整 ${ENV_FILE}。"
 fi
 
 if grep -q "please-change-this" "${ENV_FILE}"; then
   echo "检测到未替换默认密钥（please-change-this），请先更新 ${ENV_FILE}。" >&2
   exit 1
+fi
+
+if [[ -z "$(read_env_value APP_AUTH_LOCAL_PASSWORD "${ENV_FILE}")" ]]; then
+  set_env_value APP_AUTH_LOCAL_PASSWORD "$(random_secret)" "${ENV_FILE}"
+  echo "检测到 APP_AUTH_LOCAL_PASSWORD 缺失，已自动补齐随机值。"
+fi
+
+if [[ -z "$(read_env_value APP_AUTH_JWT_SECRET "${ENV_FILE}")" ]]; then
+  set_env_value APP_AUTH_JWT_SECRET "$(random_secret)" "${ENV_FILE}"
+  echo "检测到 APP_AUTH_JWT_SECRET 缺失，已自动补齐随机值。"
 fi
 
 compose_base=(docker compose --env-file "${ENV_FILE}" -f "${ENV_COMPOSE_FILE}")
@@ -134,6 +152,19 @@ if [[ "${WITH_OPS_UI}" -eq 1 ]]; then
 fi
 
 if [[ "${WITH_APP}" -eq 1 ]]; then
+  openai_api_key="$(read_env_value OPENAI_API_KEY "${ENV_FILE}")"
+  if [[ -z "${openai_api_key}" ]]; then
+    echo "检测到 OPENAI_API_KEY 为空。当前应用默认使用 prod profile，若缺失该配置容器会启动失败。" >&2
+    echo "请先在 ${ENV_FILE} 设置 OPENAI_API_KEY，再执行 --with-app。" >&2
+    exit 1
+  fi
+
+  echo "执行数据库增量迁移"
+  bash "${SCRIPT_DIR}/postgres-migrate.sh" \
+    --env-file "${ENV_FILE}" \
+    --compose-file "${ENV_COMPOSE_FILE}" \
+    --skip-postgres-up
+
   compose_with_app=(docker compose --env-file "${ENV_FILE}" -f "${ENV_COMPOSE_FILE}" -f "${APP_COMPOSE_FILE}")
   if [[ "${NO_BUILD}" -eq 1 ]]; then
     echo "启动应用容器（跳过构建）: agent"

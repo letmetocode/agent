@@ -98,8 +98,13 @@ Workflow Graph 版本迁移模板（v2 -> vNext）：
 执行顺序建议：
 
 - 全新环境：执行 `docs/dev-ops/postgresql/sql/01_init_database.sql`（已包含 V2 字段）。
-- 存量环境：先备份数据库，再依次执行 `V20260212_01_session_planner_v2.sql`、`V20260213_02_executor_terminal_convergence.sql`。
+- 存量环境：先备份数据库，再依次执行：
+  - `V20260212_01_session_planner_v2.sql`
+  - `V20260213_02_executor_terminal_convergence.sql`
+  - `V20260213_03_observability_logs_query_optimization.sql`
+  - `V20260220_04_session_turn_idempotency_and_execution_dedupe.sql`
 - 回滚场景：按逆序执行回滚脚本，并同步回滚应用版本。
+- 可使用脚本自动执行增量迁移：`bash scripts/devops/postgres-migrate.sh --env-file docs/dev-ops/.env`
 
 Schema 基线漂移检查（建议在提交前执行）：
 
@@ -129,6 +134,8 @@ bash scripts/devops/local-up.sh --with-ops-ui
 # 同时构建并启动应用容器
 bash scripts/devops/local-up.sh --with-app
 ```
+
+说明：`--with-app` 会在启动应用前自动执行 `migrations/V*.sql`，并校验 `OPENAI_API_KEY`。
 
 Redis 定位说明：
 - Redis / Redis Commander 当前作为缓存能力预留组件保留在本地编排中。
@@ -171,7 +178,8 @@ docker compose --env-file docs/dev-ops/.env -f docs/dev-ops/docker-compose-envir
 cp docs/dev-ops/.env.example docs/dev-ops/.env.cloud
 
 # 2) 编辑生产参数（至少替换以下项）
-# POSTGRES_PASSWORD / DB_PASSWORD / APP_SHARE_TOKEN_SALT / OPENAI_API_KEY
+# POSTGRES_PASSWORD / DB_PASSWORD / OPENAI_API_KEY
+# APP_AUTH_LOCAL_PASSWORD / APP_AUTH_JWT_SECRET / APP_SHARE_TOKEN_SALT
 vim docs/dev-ops/.env.cloud
 ```
 
@@ -190,6 +198,7 @@ bash scripts/devops/cloud-deploy.sh --no-build --pull \
 
 - `--env-file <path>`：指定环境文件（默认 `docs/dev-ops/.env.cloud`）
 - `--with-ops-ui`：同时启动 pgAdmin / Redis Commander
+- `--skip-migrations`：跳过数据库迁移（默认执行 `migrations/V*.sql`）
 - `--wait-seconds <n>`：健康检查超时秒数（默认 `180`）
 
 脚本会在部署失败时自动输出 `agent` 最近日志，便于排障。
@@ -212,6 +221,9 @@ bash scripts/devops/cloud-deploy.sh --no-build --pull \
 生产 profile (`application-prod.yml`) 需要显式提供：
 
 - `DB_PASSWORD`
+- `OPENAI_API_KEY`
+- `APP_AUTH_LOCAL_PASSWORD`
+- `APP_AUTH_JWT_SECRET`
 - `APP_SHARE_TOKEN_SALT`
 
 ### 3) 启动后端

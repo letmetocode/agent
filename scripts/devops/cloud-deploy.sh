@@ -12,6 +12,7 @@ usage() {
   --no-build             不在服务器构建镜像，直接使用 APP_IMAGE 启动
   --pull                 启动前显式 docker pull APP_IMAGE（仅 --no-build 模式）
   --app-image <image>    覆盖 APP_IMAGE（例如 registry.example.com/agent/app:20260224）
+  --skip-migrations      跳过数据库迁移（默认执行）
   --wait-seconds <n>     健康检查超时时间（秒），默认 180
   -h, --help             显示帮助
 
@@ -28,6 +29,7 @@ EOF
 WITH_OPS_UI=0
 NO_BUILD=0
 PULL_IMAGE=0
+SKIP_MIGRATIONS=0
 WAIT_SECONDS=180
 APP_IMAGE_OVERRIDE=""
 
@@ -61,6 +63,10 @@ while [[ $# -gt 0 ]]; do
       APP_IMAGE_OVERRIDE="$2"
       shift 2
       ;;
+    --skip-migrations)
+      SKIP_MIGRATIONS=1
+      shift
+      ;;
     --wait-seconds)
       WAIT_SECONDS="$2"
       shift 2
@@ -81,6 +87,23 @@ require_command() {
   local cmd="$1"
   if ! command -v "${cmd}" >/dev/null 2>&1; then
     echo "缺少依赖命令: ${cmd}" >&2
+    exit 1
+  fi
+}
+
+read_env_value() {
+  local key="$1"
+  local value
+  value="$(awk -F= -v key="${key}" '$1==key{print substr($0, index($0, "=") + 1)}' "${ENV_FILE}" | tail -n 1)"
+  echo "${value}"
+}
+
+ensure_env_non_empty() {
+  local key="$1"
+  local value
+  value="$(read_env_value "${key}")"
+  if [[ -z "${value}" ]]; then
+    echo "缺少必填配置 ${key}，请在 ${ENV_FILE} 中设置后重试。" >&2
     exit 1
   fi
 }
@@ -162,6 +185,13 @@ if grep -q "please-change-this" "${ENV_FILE}"; then
   exit 1
 fi
 
+ensure_env_non_empty POSTGRES_PASSWORD
+ensure_env_non_empty DB_PASSWORD
+ensure_env_non_empty APP_SHARE_TOKEN_SALT
+ensure_env_non_empty APP_AUTH_LOCAL_PASSWORD
+ensure_env_non_empty APP_AUTH_JWT_SECRET
+ensure_env_non_empty OPENAI_API_KEY
+
 if ! [[ "${WAIT_SECONDS}" =~ ^[0-9]+$ ]] || [[ "${WAIT_SECONDS}" -le 0 ]]; then
   echo "--wait-seconds 必须是正整数，当前=${WAIT_SECONDS}" >&2
   exit 1
@@ -169,6 +199,14 @@ fi
 
 echo "启动基础依赖服务: postgres, redis"
 compose_cmd up -d postgres redis
+
+if [[ "${SKIP_MIGRATIONS}" -eq 0 ]]; then
+  echo "执行数据库迁移"
+  bash "${SCRIPT_DIR}/postgres-migrate.sh" \
+    --env-file "${ENV_FILE}" \
+    --compose-file "${ENV_COMPOSE_FILE}" \
+    --skip-postgres-up
+fi
 
 if [[ "${WITH_OPS_UI}" -eq 1 ]]; then
   echo "启动运维 UI: pgadmin, redis-admin"

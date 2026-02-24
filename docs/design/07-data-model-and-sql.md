@@ -36,7 +36,9 @@
 
 - 全新环境：直接执行 `docs/dev-ops/postgresql/sql/01_init_database.sql`。
 - 存量环境：
-  - 执行迁移：`docs/dev-ops/postgresql/sql/migrations/V20260220_04_session_turn_idempotency_and_execution_dedupe.sql`。
-  - 回滚脚本：`docs/dev-ops/postgresql/sql/migrations/V20260220_04_session_turn_idempotency_and_execution_dedupe_rollback.sql`。
+  - 按版本顺序执行 `docs/dev-ops/postgresql/sql/migrations/V*.sql`（跳过 `*_rollback.sql`）。
+  - 当前关键迁移：`V20260212_01`、`V20260213_02`、`V20260213_03`、`V20260220_04`。
+  - 可执行脚本：`bash scripts/devops/postgres-migrate.sh --env-file docs/dev-ops/.env`。
+  - 回滚时按逆序执行对应 `*_rollback.sql`。
   - 发布前建议执行 `bash scripts/devops/check-schema-drift.sh`。
 - 历史设计说明参考：`docs/archive/design/07-data-model-and-sql.md`。
