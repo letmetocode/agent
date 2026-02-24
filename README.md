@@ -228,7 +228,7 @@ bash scripts/devops/cloud-deploy.sh --no-build --pull \
 
 建议按网络情况调优：
 
-- `PLANNER_ROOT_TIMEOUT_SOFT_MS`（Root 规划软超时，默认 `30000`；跨公网模型调用可视情况提高到 `60000`）
+- `PLANNER_ROOT_TIMEOUT_SOFT_MS`（Root 规划软超时，默认 `60000`；跨公网模型调用可视情况提高到 `90000`）
 
 ### 3) 启动后端
 
@@ -291,7 +291,7 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 - `planner.root.fallback.agent-key`（Draft 节点缺省 agentKey，当前默认 `assistant`）
 
 生产环境推荐通过环境变量覆盖：
-- `PLANNER_ROOT_TIMEOUT_SOFT_MS`（默认 `30000`）
+- `PLANNER_ROOT_TIMEOUT_SOFT_MS`（默认 `60000`）
 
 ### 最小登录能力（JWT）
 
