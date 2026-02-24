@@ -31,22 +31,22 @@ public class ApplicationDomainBoundaryTest {
 
     @Test
     public void applicationServicesShouldDependOnDomainServices() {
-        Assertions.assertTrue(hasFieldType(ChatConversationCommandService.class, SessionConversationDomainService.class));
-        Assertions.assertTrue(hasFieldType(TurnFinalizeApplicationService.class, PlanFinalizationDomainService.class));
-        Assertions.assertTrue(hasFieldType(PlanStatusDaemon.class, PlanStatusSyncApplicationService.class));
-        Assertions.assertTrue(hasFieldType(PlanStatusSyncApplicationService.class, PlanTransitionDomainService.class));
-        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskAgentSelectionDomainService.class));
-        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskDispatchDomainService.class));
-        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskExecutionDomainService.class));
-        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskPromptDomainService.class));
-        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskEvaluationDomainService.class));
-        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskRecoveryDomainService.class));
-        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskBlackboardDomainService.class));
-        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskJsonDomainService.class));
-        Assertions.assertTrue(hasFieldType(TaskExecutor.class, TaskPersistenceApplicationService.class));
-        Assertions.assertTrue(hasFieldType(TaskPersistenceApplicationService.class, TaskPersistencePolicyDomainService.class));
-        Assertions.assertTrue(hasFieldType(TaskSchedulerDaemon.class, TaskScheduleApplicationService.class));
-        Assertions.assertTrue(hasFieldType(TaskScheduleApplicationService.class, TaskDependencyPolicy.class));
+        Assertions.assertTrue(hasInjectionType(ChatConversationCommandService.class, SessionConversationDomainService.class));
+        Assertions.assertTrue(hasInjectionType(TurnFinalizeApplicationService.class, PlanFinalizationDomainService.class));
+        Assertions.assertTrue(hasInjectionType(PlanStatusDaemon.class, PlanStatusSyncApplicationService.class));
+        Assertions.assertTrue(hasInjectionType(PlanStatusSyncApplicationService.class, PlanTransitionDomainService.class));
+        Assertions.assertTrue(hasInjectionType(TaskExecutor.class, TaskAgentSelectionDomainService.class));
+        Assertions.assertTrue(hasInjectionType(TaskExecutor.class, TaskDispatchDomainService.class));
+        Assertions.assertTrue(hasInjectionType(TaskExecutor.class, TaskExecutionDomainService.class));
+        Assertions.assertTrue(hasInjectionType(TaskExecutor.class, TaskPromptDomainService.class));
+        Assertions.assertTrue(hasInjectionType(TaskExecutor.class, TaskEvaluationDomainService.class));
+        Assertions.assertTrue(hasInjectionType(TaskExecutor.class, TaskRecoveryDomainService.class));
+        Assertions.assertTrue(hasInjectionType(TaskExecutor.class, TaskBlackboardDomainService.class));
+        Assertions.assertTrue(hasInjectionType(TaskExecutor.class, TaskJsonDomainService.class));
+        Assertions.assertTrue(hasInjectionType(TaskExecutor.class, TaskPersistenceApplicationService.class));
+        Assertions.assertTrue(hasInjectionType(TaskPersistenceApplicationService.class, TaskPersistencePolicyDomainService.class));
+        Assertions.assertTrue(hasInjectionType(TaskSchedulerDaemon.class, TaskScheduleApplicationService.class));
+        Assertions.assertTrue(hasInjectionType(TaskScheduleApplicationService.class, TaskDependencyPolicy.class));
     }
 
     @Test
@@ -57,9 +57,15 @@ public class ApplicationDomainBoundaryTest {
                 () -> Class.forName("com.getoffer.trigger.service.TurnResultService"));
     }
 
-    private boolean hasFieldType(Class<?> owner, Class<?> expectedType) {
-        return Arrays.stream(owner.getDeclaredFields())
+    private boolean hasInjectionType(Class<?> owner, Class<?> expectedType) {
+        boolean byField = Arrays.stream(owner.getDeclaredFields())
                 .map(Field::getType)
+                .anyMatch(type -> type.equals(expectedType));
+        if (byField) {
+            return true;
+        }
+        return Arrays.stream(owner.getDeclaredConstructors())
+                .flatMap(constructor -> Arrays.stream(constructor.getParameterTypes()))
                 .anyMatch(type -> type.equals(expectedType));
     }
 }

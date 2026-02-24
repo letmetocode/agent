@@ -36,12 +36,10 @@ spring:
   # Spring AI 配置
   ai:
     openai:
-      api-key: ${OPENAI_API_KEY:}
-      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      api-key: ${OPENAI_API_KEY:a94406f9-86d4-4927-bd4d-f3c7bea874da}
+      base-url: ${OPENAI_BASE_URL:https://ark.cn-beijing.volces.com}
       chat:
-        options:
-          model: gpt-4
-          temperature: 0.7
+        completions-path: ${OPENAI_CHAT_COMPLETIONS_PATH:/api/v3/chat/completions}
 
 # MyBatis 配置
 mybatis:
