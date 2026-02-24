@@ -92,6 +92,9 @@ public class SessionConversationDomainService {
 
         AgentSessionEntity session = command.session();
         if (session != null) {
+            if (hasText(session.getUserId())) {
+                context.put("userId", session.getUserId());
+            }
             if (hasText(session.getAgentKey())) {
                 context.put("agentKey", session.getAgentKey());
             }

@@ -24,6 +24,9 @@
 - 生产 Definition 缺参降级：
   - 命中生产 Definition 后若 `inputSchema.required` 仍缺失，Planner 自动降级为候选 Draft
   - 路由原因标记为 `PRODUCTION_DEFINITION_INPUT_MISSING`，避免回合直接失败
+- 会话上下文必填补齐：
+  - Chat V3 在构建 Plan 上下文时默认注入 `userId`（来源于 Session）
+  - 当 Workflow `inputSchema.required` 包含 `userId` 时，Planner 可从运行时上下文补齐，避免异步规划误失败
 
 关键证据：
 
@@ -32,6 +35,7 @@
 - `agent-infrastructure/src/main/java/com/getoffer/infrastructure/planning/PlannerServiceImpl.java`
 - `agent-infrastructure/src/main/java/com/getoffer/infrastructure/planning/WorkflowDraftLifecycleService.java`
 - `agent-infrastructure/src/main/java/com/getoffer/infrastructure/planning/WorkflowRoutingResolveService.java`
+- `agent-domain/src/main/java/com/getoffer/domain/session/service/SessionConversationDomainService.java`
 - `agent-app/src/main/resources/application-prod.yml`
 - `docs/dev-ops/postgresql/sql/01_init_database.sql`
 - `docs/dev-ops/postgresql/sql/migrations/V20260225_05_root_planner_max_tokens_guard.sql`

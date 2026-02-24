@@ -462,7 +462,7 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 - `GET /api/v3/chat/sessions/{id}/stream?planId=...`：聊天语义 SSE（`message.accepted`、`task.progress`、`answer.final`、`stream.completed` 等）。
 - `GET /api/v3/chat/plans/{id}/routing`：查询路由决策详情（V2 路由接口替代）。
 - 默认策略：优先使用 `assistant`（若存在且激活），否则使用首个激活 Agent；无可用 Agent 时返回明确错误。
-- 输入校验策略：当 Workflow `inputSchema.required` 包含系统上下文字段（如 `sessionId`）时，由 Planner 从运行时上下文自动注入，避免误报 `Missing required input`。
+- 输入校验策略：当 Workflow `inputSchema.required` 包含系统上下文字段（如 `sessionId`、`userId`）时，由 Planner 从运行时上下文自动注入，避免误报 `Missing required input`。
 - 生产 Definition 缺参降级：若命中生产 Definition 后仍缺少必填输入，Planner 自动回退至 Root 候选 Draft，路由 `reason=PRODUCTION_DEFINITION_INPUT_MISSING`，避免回合直接失败。
 
 ## 执行幂等与终态收敛补充

@@ -76,6 +76,7 @@ public class SessionConversationDomainServiceTest {
     public void shouldBuildPlanContextWithLatestSummary() {
         AgentSessionEntity session = new AgentSessionEntity();
         session.setId(12L);
+        session.setUserId("dev-user");
         session.setAgentKey("assistant");
         session.setScenario("CHAT_DEFAULT");
 
@@ -91,6 +92,7 @@ public class SessionConversationDomainServiceTest {
         );
 
         Assertions.assertEquals(99L, context.get("turnId"));
+        Assertions.assertEquals("dev-user", context.get("userId"));
         Assertions.assertEquals("assistant", context.get("agentKey"));
         Assertions.assertEquals("上轮摘要", context.get("lastAssistantSummary"));
         Assertions.assertEquals("v", context.get("custom"));
