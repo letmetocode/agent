@@ -17,6 +17,9 @@
 - Planner 校验：
   - 生产 Definition：仅接受 `version=2`
   - Root 候选 Draft：允许在节点结构可执行时自动升级到 `version=2`
+- Root 候选规划软超时：
+  - 生产默认 `planner.root.timeout.soft-ms=30000`（可通过 `PLANNER_ROOT_TIMEOUT_SOFT_MS` 调优）
+  - 超时视为不可重试并降级单节点候选 Draft，确保入口可用性
 
 关键证据：
 
@@ -24,6 +27,7 @@
 - `agent-domain/src/main/java/com/getoffer/domain/planning/service/WorkflowGraphPolicyKernel.java`
 - `agent-infrastructure/src/main/java/com/getoffer/infrastructure/planning/PlannerServiceImpl.java`
 - `agent-infrastructure/src/main/java/com/getoffer/infrastructure/planning/WorkflowDraftLifecycleService.java`
+- `agent-app/src/main/resources/application-prod.yml`
 
 ## 3. 兼容矩阵（主链路）
 

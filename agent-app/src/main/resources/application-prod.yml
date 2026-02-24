@@ -45,6 +45,13 @@ mybatis:
   mapper-locations: classpath:/mybatis/mapper/*.xml
   config-location: classpath:/mybatis/config/mybatis-config.xml
 
+planner:
+  root:
+    # 生产环境建议通过环境变量按网络质量调优：常见区间 30000~60000
+    timeout:
+      # Root 候选规划软超时（毫秒）：超时后会快速降级到单节点候选 Draft
+      soft-ms: ${PLANNER_ROOT_TIMEOUT_SOFT_MS:30000}
+
 # 日志
 logging:
   level:

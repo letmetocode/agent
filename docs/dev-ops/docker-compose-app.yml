@@ -10,7 +10,6 @@ services:
       context: ../..
       dockerfile: agent-app/Dockerfile
     restart: unless-stopped
-    init: true
     ports:
       - "${APP_HOST_PORT:-8091}:8091"
     environment:
@@ -23,9 +22,10 @@ services:
       DB_USERNAME: ${DB_USERNAME:-agent}
       DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in docs/dev-ops/.env}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://ark.cn-beijing.volces.com}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
-      OPENAI_CHAT_COMPLETIONS_PATH: ${OPENAI_CHAT_COMPLETIONS_PATH:-/v1/chat/completions}
+      OPENAI_CHAT_COMPLETIONS_PATH: ${OPENAI_CHAT_COMPLETIONS_PATH:-/api/v3/chat/completions}
+      PLANNER_ROOT_TIMEOUT_SOFT_MS: ${PLANNER_ROOT_TIMEOUT_SOFT_MS:-30000}
       APP_AUTH_LOCAL_USERNAME: ${APP_AUTH_LOCAL_USERNAME:-admin}
       APP_AUTH_LOCAL_PASSWORD: ${APP_AUTH_LOCAL_PASSWORD:?set APP_AUTH_LOCAL_PASSWORD in docs/dev-ops/.env}
       APP_AUTH_LOCAL_DISPLAY_NAME: ${APP_AUTH_LOCAL_DISPLAY_NAME:-Operator}

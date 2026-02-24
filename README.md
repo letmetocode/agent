@@ -226,6 +226,10 @@ bash scripts/devops/cloud-deploy.sh --no-build --pull \
 - `APP_AUTH_JWT_SECRET`
 - `APP_SHARE_TOKEN_SALT`
 
+建议按网络情况调优：
+
+- `PLANNER_ROOT_TIMEOUT_SOFT_MS`（Root 规划软超时，默认 `30000`；跨公网模型调用可视情况提高到 `60000`）
+
 ### 3) 启动后端
 
 ```bash
@@ -276,7 +280,7 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 
 ### Root 规划与 Workflow Draft
 
-配置位置：`agent-app/src/main/resources/application-dev.yml`
+配置位置：`agent-app/src/main/resources/application-dev.yml`、`agent-app/src/main/resources/application-prod.yml`
 
 - `planner.root.enabled`
 - `planner.root.agent-key`（Root AgentProfile Key）
@@ -285,6 +289,9 @@ bash scripts/perf/run_chat_e2e_baseline.sh
 - `planner.root.timeout.soft-ms`（Root 规划软超时，超时后快速降级）
 - `planner.root.fallback.single-node.enabled`
 - `planner.root.fallback.agent-key`（Draft 节点缺省 agentKey，当前默认 `assistant`）
+
+生产环境推荐通过环境变量覆盖：
+- `PLANNER_ROOT_TIMEOUT_SOFT_MS`（默认 `30000`）
 
 ### 最小登录能力（JWT）
 
